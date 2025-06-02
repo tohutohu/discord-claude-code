@@ -287,11 +287,11 @@ interface SessionState {
 
 ### PR‑2 🚀 CLI & TUI 基盤
 
-- [ ] **2.1 依存一元化**
-  - [ ] `deps.ts` を作成
-    - [ ] Cliffy: `https://deno.land/x/cliffy@v1.0.0-rc.4/mod.ts`
-    - [ ] deno_tui: `https://deno.land/x/tui@2.1.5/mod.ts`
-    - [ ] std: `https://deno.land/std@0.224.0/mod.ts`
+- [x] **2.1 依存一元化**
+  - [x] `deps.ts` を作成
+    - [x] Cliffy: `https://deno.land/x/cliffy@v1.0.0-rc.4/mod.ts`
+    - [x] deno_tui: `https://deno.land/x/tui@2.1.5/mod.ts`
+    - [x] std: `https://deno.land/std@0.224.0/mod.ts`
 
 - [ ] **2.2 設定管理**
   - [ ] `config.ts` で YAML パース（std/yaml）
