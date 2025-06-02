@@ -293,10 +293,10 @@ interface SessionState {
     - [x] deno_tui: `https://deno.land/x/tui@2.1.5/mod.ts`
     - [x] std: `https://deno.land/std@0.224.0/mod.ts`
 
-- [ ] **2.2 設定管理**
-  - [ ] `config.ts` で YAML パース（std/yaml）
-  - [ ] スキーマ検証とデフォルト値適用
-  - [ ] 環境変数オーバーライド対応
+- [x] **2.2 設定管理**
+  - [x] `config.ts` で YAML パース（std/yaml）
+  - [x] スキーマ検証とデフォルト値適用
+  - [x] 環境変数オーバーライド対応
 
 - [ ] **2.3 CLI 雛形**
   - [ ] `cli.ts` にサブコマンド実装
