@@ -12,7 +12,7 @@ const HOOKS_DIR = '.git/hooks';
 
 // pre-commitフックの内容
 const preCommitHook = `#!/bin/sh
-# pre-commit hook: フォーマットとリントのチェック
+# pre-commit hook: フォーマット、リント、タイプチェック、テストの実行
 
 echo "🔍 Running format check..."
 deno fmt --check
@@ -28,7 +28,21 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "✅ Pre-commit checks passed!"
+echo "🔍 Running type check..."
+deno task check
+if [ $? -ne 0 ]; then
+  echo "❌ Type check failed. Please fix the type errors above."
+  exit 1
+fi
+
+echo "🧪 Running tests..."
+deno task test
+if [ $? -ne 0 ]; then
+  echo "❌ Tests failed. Please fix the failing tests above."
+  exit 1
+fi
+
+echo "✅ All pre-commit checks passed!"
 `;
 
 // commit-msgフックの内容

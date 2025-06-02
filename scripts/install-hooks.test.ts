@@ -2,9 +2,7 @@
  * Git Hooksインストールスクリプトのテスト
  */
 
-import { assertEquals, assertStringIncludes } from '@std/assert';
-import { join } from '@std/path';
-import { exists } from '@std/fs';
+import { assertStringIncludes } from '@std/assert';
 
 // テスト対象のフック内容を取得するためにモジュールをインポート
 // 実際のフック内容は scripts/install-hooks.ts に定義されているため、
@@ -12,32 +10,37 @@ import { exists } from '@std/fs';
 
 Deno.test('Git hooks インストールスクリプト', async (t) => {
   // pre-commitフックの内容を検証
-  await t.step('pre-commitフックがフォーマットとリントチェックを含むこと', async () => {
-    // scripts/install-hooks.ts を読み込んで内容を検証
-    const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
+  await t.step(
+    'pre-commitフックがフォーマット、リント、タイプチェック、テストを含むこと',
+    async () => {
+      // scripts/install-hooks.ts を読み込んで内容を検証
+      const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
 
-    // pre-commitフックの定義を探す
-    const preCommitMatch = scriptContent.match(/const preCommitHook = `([^`]+)`/s);
-    if (!preCommitMatch) {
-      throw new Error('pre-commitフックの定義が見つかりません');
-    }
+      // pre-commitフックの定義を探す
+      const preCommitMatch = scriptContent.match(/const preCommitHook = `([^`]+)`/s);
+      if (!preCommitMatch || preCommitMatch.length < 2) {
+        throw new Error('pre-commitフックの定義が見つかりません');
+      }
 
-    const preCommitContent = preCommitMatch[1];
-    assertStringIncludes(preCommitContent, 'deno fmt --check');
-    assertStringIncludes(preCommitContent, 'deno lint');
-    assertStringIncludes(preCommitContent, 'Pre-commit checks passed!');
-  });
+      const preCommitContent = preCommitMatch[1]!;
+      assertStringIncludes(preCommitContent, 'deno fmt --check');
+      assertStringIncludes(preCommitContent, 'deno lint');
+      assertStringIncludes(preCommitContent, 'deno task check');
+      assertStringIncludes(preCommitContent, 'deno task test');
+      assertStringIncludes(preCommitContent, 'All pre-commit checks passed!');
+    },
+  );
 
   // commit-msgフックの内容を検証
   await t.step('commit-msgフックがConventional Commitsを検証すること', async () => {
     const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
 
     const commitMsgMatch = scriptContent.match(/const commitMsgHook = `([^`]+)`/s);
-    if (!commitMsgMatch) {
+    if (!commitMsgMatch || commitMsgMatch.length < 2) {
       throw new Error('commit-msgフックの定義が見つかりません');
     }
 
-    const commitMsgContent = commitMsgMatch[1];
+    const commitMsgContent = commitMsgMatch[1]!;
     assertStringIncludes(commitMsgContent, 'commit_regex');
     assertStringIncludes(
       commitMsgContent,
@@ -51,11 +54,11 @@ Deno.test('Git hooks インストールスクリプト', async (t) => {
     const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
 
     const prepareCommitMatch = scriptContent.match(/const prepareCommitMsgHook = `([^`]+)`/s);
-    if (!prepareCommitMatch) {
+    if (!prepareCommitMatch || prepareCommitMatch.length < 2) {
       throw new Error('prepare-commit-msgフックの定義が見つかりません');
     }
 
-    const prepareCommitContent = prepareCommitMatch[1];
+    const prepareCommitContent = prepareCommitMatch[1]!;
     assertStringIncludes(prepareCommitContent, 'BRANCH_NAME');
     assertStringIncludes(prepareCommitContent, 'git symbolic-ref --short HEAD');
     assertStringIncludes(prepareCommitContent, 'PREFIX=');
@@ -76,7 +79,10 @@ Deno.test('pre-commitフックの詳細動作', async (t) => {
   await t.step('フォーマットチェック失敗時のメッセージ', async () => {
     const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
     const preCommitMatch = scriptContent.match(/const preCommitHook = `([^`]+)`/s);
-    const preCommitContent = preCommitMatch![1];
+    if (!preCommitMatch || preCommitMatch.length < 2) {
+      throw new Error('pre-commitフックの定義が見つかりません');
+    }
+    const preCommitContent = preCommitMatch[1]!;
 
     assertStringIncludes(preCommitContent, "Format check failed. Please run 'deno task fmt'");
   });
@@ -84,9 +90,34 @@ Deno.test('pre-commitフックの詳細動作', async (t) => {
   await t.step('リントチェック失敗時のメッセージ', async () => {
     const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
     const preCommitMatch = scriptContent.match(/const preCommitHook = `([^`]+)`/s);
-    const preCommitContent = preCommitMatch![1];
+    if (!preCommitMatch || preCommitMatch.length < 2) {
+      throw new Error('pre-commitフックの定義が見つかりません');
+    }
+    const preCommitContent = preCommitMatch[1]!;
 
     assertStringIncludes(preCommitContent, 'Lint check failed. Please fix the errors above');
+  });
+
+  await t.step('タイプチェック失敗時のメッセージ', async () => {
+    const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
+    const preCommitMatch = scriptContent.match(/const preCommitHook = `([^`]+)`/s);
+    if (!preCommitMatch || preCommitMatch.length < 2) {
+      throw new Error('pre-commitフックの定義が見つかりません');
+    }
+    const preCommitContent = preCommitMatch[1]!;
+
+    assertStringIncludes(preCommitContent, 'Type check failed. Please fix the type errors above');
+  });
+
+  await t.step('テスト失敗時のメッセージ', async () => {
+    const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
+    const preCommitMatch = scriptContent.match(/const preCommitHook = `([^`]+)`/s);
+    if (!preCommitMatch || preCommitMatch.length < 2) {
+      throw new Error('pre-commitフックの定義が見つかりません');
+    }
+    const preCommitContent = preCommitMatch[1]!;
+
+    assertStringIncludes(preCommitContent, 'Tests failed. Please fix the failing tests above');
   });
 });
 
@@ -94,7 +125,10 @@ Deno.test('commit-msgフックの詳細動作', async (t) => {
   await t.step('コミットメッセージの形式例が含まれること', async () => {
     const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
     const commitMsgMatch = scriptContent.match(/const commitMsgHook = `([^`]+)`/s);
-    const commitMsgContent = commitMsgMatch![1];
+    if (!commitMsgMatch || commitMsgMatch.length < 2) {
+      throw new Error('commit-msgフックの定義が見つかりません');
+    }
+    const commitMsgContent = commitMsgMatch[1]!;
 
     assertStringIncludes(commitMsgContent, 'feat: add new feature');
     assertStringIncludes(commitMsgContent, 'fix(auth): resolve login issue');
@@ -104,7 +138,10 @@ Deno.test('commit-msgフックの詳細動作', async (t) => {
   await t.step('すべてのコミットタイプが定義されていること', async () => {
     const scriptContent = await Deno.readTextFile('./scripts/install-hooks.ts');
     const commitMsgMatch = scriptContent.match(/const commitMsgHook = `([^`]+)`/s);
-    const commitMsgContent = commitMsgMatch![1];
+    if (!commitMsgMatch || commitMsgMatch.length < 2) {
+      throw new Error('commit-msgフックの定義が見つかりません');
+    }
+    const commitMsgContent = commitMsgMatch[1]!;
 
     const expectedTypes = [
       'feat',
