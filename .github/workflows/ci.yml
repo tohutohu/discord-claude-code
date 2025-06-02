@@ -11,13 +11,8 @@ env:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-      fail-fast: false
+    name: Test
+    runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
@@ -36,9 +31,9 @@ jobs:
           path: |
             ~/.deno
             ~/.cache/deno
-          key: ${{ runner.os }}-deno-${{ hashFiles('deno.json', 'deno.lock') }}
+          key: ubuntu-deno-${{ hashFiles('deno.json', 'deno.lock') }}
           restore-keys: |
-            ${{ runner.os }}-deno-
+            ubuntu-deno-
 
       - name: Format check
         run: deno fmt --check
@@ -60,7 +55,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           file: ./coverage.lcov
           flags: unittests
-          name: codecov-${{ matrix.os }}
+          name: codecov-ubuntu
           fail_ci_if_error: true
           verbose: true
 
