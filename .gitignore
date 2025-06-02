@@ -1,0 +1,53 @@
+# Deno
+deno.lock
+coverage/
+.coverage/
+
+# Logs
+*.log
+logs/
+~/.claude-bot/logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+~/.claude-bot/sessions.json
+~/.claude-bot/cache/
+worktrees/
+*.tmp
+*.temp
+
+# Build outputs
+dist/
+build/
+out/
+
+# Test artifacts
+*.test.ts.snap
+
+# Debug
+*.heap
+*.cpuprofile
+
+# Backup files
+*.bak
+*.backup
+
+# Lock files (except deno.lock which is explicitly excluded above)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

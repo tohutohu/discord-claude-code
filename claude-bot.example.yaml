@@ -1,0 +1,33 @@
+# Git リポジトリをキャッシュするルートディレクトリ
+rootDir: ~/claude-work/repos
+
+# 並列実行設定
+parallel:
+  maxSessions: 3  # 最大同時実行セッション数
+  queueTimeout: 300  # キュー待機タイムアウト（秒）
+
+# Discord設定
+discord:
+  # ギルドIDを指定（省略時は全ギルドで有効）
+  guildIds: []
+  # コマンドのプレフィックス（省略時は /claude）
+  commandPrefix: /claude
+
+# Claude設定
+claude:
+  # モデル名（省略時はデフォルト）
+  model: claude-opus-4-20250514
+  # タイムアウト（秒）
+  timeout: 600
+
+# ログ設定
+logging:
+  level: INFO  # TRACE, DEBUG, INFO, WARN, ERROR, FATAL
+  retentionDays: 7
+  maxFileSize: 10MB
+
+# リポジトリ設定（オプション）
+repositories:
+  # リポジトリ名とURLのマッピング（自動検出に追加）
+  # core-api: https://github.com/myorg/core-api.git
+  # web-admin: https://github.com/myorg/web-admin.git
