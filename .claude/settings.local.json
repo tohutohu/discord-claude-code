@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(mkdir:*)",
+      "Bash(deno run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(deno fmt:*)"
+    ],
+    "deny": []
+  }
+}
