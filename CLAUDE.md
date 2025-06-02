@@ -298,17 +298,17 @@ interface SessionState {
   - [x] スキーマ検証とデフォルト値適用
   - [x] 環境変数オーバーライド対応
 
-- [ ] **2.3 CLI 雛形**
-  - [ ] `cli.ts` にサブコマンド実装
-    - [ ] `run`: TUI起動（デフォルト）
-    - [ ] `list`: セッション一覧（JSON出力対応）
-    - [ ] `end <thread-id>`: セッション終了
-    - [ ] `clean`: 終了済みセッション・worktree削除
-    - [ ] `version`: バージョン表示
-  - [ ] グローバルオプション
-    - [ ] `--config`: 設定ファイルパス
-    - [ ] `--verbose`: ログレベルDEBUG
-    - [ ] `--quiet`: ログレベルERROR
+- [x] **2.3 CLI 雛形**
+  - [x] `cli.ts` にサブコマンド実装
+    - [x] `run`: TUI起動（デフォルト）
+    - [x] `list`: セッション一覧（JSON出力対応）
+    - [x] `end <thread-id>`: セッション終了
+    - [x] `clean`: 終了済みセッション・worktree削除
+    - [x] `version`: バージョン表示
+  - [x] グローバルオプション
+    - [x] `--config`: 設定ファイルパス
+    - [x] `--verbose`: ログレベルDEBUG
+    - [x] `--quiet`: ログレベルERROR
 
 - [ ] **2.4 deno_tui 実装**
   - [ ] `tui/app.ts` メインコンポーネント
