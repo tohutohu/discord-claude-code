@@ -12,7 +12,7 @@ export { Table } from '@cliffy/table';
 export * as tui from '@deno/tui';
 
 // Deno標準ライブラリ
-export * as colors from '@std/fmt/colors';
+export * as colors from 'https://deno.land/std@0.224.0/fmt/colors.ts';
 export * as datetime from '@std/datetime';
 export * as yaml from '@std/yaml';
 export * as path from '@std/path';
@@ -20,10 +20,10 @@ export * as fs from '@std/fs';
 export * as async from '@std/async';
 export { assert, assertEquals, assertExists, assertRejects, assertThrows } from '@std/assert';
 
-// Discordeno - Discord APIライブラリ
-export * as discord from '@discordeno/bot';
-export * as discordRest from '@discordeno/rest';
-export * as discordUtils from '@discordeno/utils';
+// Discordeno - Discord APIライブラリ（将来実装予定）
+// export * as discord from '@discordeno/bot';
+// export * as discordRest from '@discordeno/rest';
+// export * as discordUtils from '@discordeno/utils';
 
 // 型定義のエクスポート
 export type { CommandArguments, CommandOptions } from '@cliffy/command';

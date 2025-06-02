@@ -8,6 +8,9 @@
       "Bash(git commit:*)",
       "Bash(deno fmt:*)",
       "Bash(git push:*)",
+      "Bash(deno lint:*)",
+      "Bash(git merge:*)",
+      "Bash(rg:*)",
       "Bash(deno lint:*)"
     ],
     "deny": []

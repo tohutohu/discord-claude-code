@@ -14,7 +14,7 @@ const VERSION = '0.1.0';
 /**
  * メインコマンドを作成する
  */
-function createMainCommand(): Command {
+export function createMainCommand(): Command {
   return new Command()
     .name('discord-claude-code')
     .version(VERSION)
@@ -157,21 +157,3 @@ async function main() {
 if (import.meta.main) {
   await main();
 }
-
-// テストコード
-Deno.test('CLIコマンドの基本構造が正しいこと', async () => {
-  const cli = createMainCommand();
-
-  // バージョンオプションのテスト
-  const versionOutput = await cli.parse(['--version']);
-
-  // ヘルプオプションのテスト
-  const helpOutput = await cli.parse(['--help']);
-
-  // コマンドが正しく定義されているか確認
-  assert(cli.hasCommand('run'));
-  assert(cli.hasCommand('list'));
-  assert(cli.hasCommand('end'));
-  assert(cli.hasCommand('clean'));
-  assert(cli.hasCommand('version'));
-});
