@@ -6,7 +6,9 @@
       "Bash(deno run:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(deno fmt:*)"
+      "Bash(deno fmt:*)",
+      "Bash(git push:*)",
+      "Bash(deno lint:*)"
     ],
     "deny": []
   }
