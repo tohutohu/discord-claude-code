@@ -186,29 +186,51 @@ export async function handleAutocomplete(
   );
 
   if (focused?.name === 'repository') {
-    // TODO(@discord): リポジトリ一覧を取得
-    const repositories = [
-      'core-api',
-      'web-admin',
-      'auth-service',
-      'payment-gateway',
-      'notification-service',
-    ];
+    // リポジトリ一覧を取得
+    const { scanRepos } = await import('../../repoScanner.ts');
+    const { loadConfig } = await import('../../config.ts');
 
-    const query = (focused.value as string)?.toLowerCase() || '';
-    const filtered = repositories
-      .filter((repo) => repo.toLowerCase().includes(query))
-      .slice(0, 25); // Discord の制限
+    try {
+      const config = await loadConfig();
+      const repos = await scanRepos(config.rootDir);
 
-    await discord.respondToInteraction(bot, interaction, {
-      type: discord.InteractionResponseTypes.ApplicationCommandAutocompleteResult,
-      data: {
-        choices: filtered.map((repo) => ({
-          name: repo,
-          value: repo,
-        })),
-      },
-    });
+      // リポジトリ名のリストを作成
+      const repositories = repos.map((r) => r.name);
+
+      // 設定ファイルのリポジトリも追加
+      if (config.repositories) {
+        Object.keys(config.repositories).forEach((name) => {
+          if (!repositories.includes(name)) {
+            repositories.push(name);
+          }
+        });
+      }
+
+      const query = (focused.value as string)?.toLowerCase() || '';
+      const filtered = repositories
+        .filter((repo) => repo.toLowerCase().includes(query))
+        .slice(0, 25); // Discord の制限
+
+      await discord.respondToInteraction(bot, interaction, {
+        type: discord.InteractionResponseTypes.ApplicationCommandAutocompleteResult,
+        data: {
+          choices: filtered.map((repo) => ({
+            name: repo,
+            value: repo,
+          })),
+        },
+      });
+    } catch (error) {
+      // エラー時は空の選択肢を返す
+      logger.error('リポジトリ一覧取得エラー:', { error: error.message });
+
+      await discord.respondToInteraction(bot, interaction, {
+        type: discord.InteractionResponseTypes.ApplicationCommandAutocompleteResult,
+        data: {
+          choices: [],
+        },
+      });
+    }
   }
 }
 
