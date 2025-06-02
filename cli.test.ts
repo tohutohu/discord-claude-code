@@ -10,7 +10,7 @@ Deno.test('CLIコマンドの基本構造が正しいこと', async () => {
 
   // コマンド名が正しく設定されているか確認
   assert(cli.getName() === 'discord-claude-code');
-  
+
   // 基本的なプロパティが存在するか確認
   assert(cli);
 });

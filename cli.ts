@@ -5,7 +5,7 @@
  * サブコマンドの定義と実行
  */
 
-import { assert, colors, Command } from './deps.ts';
+import { colors, Command } from './deps.ts';
 import { loadConfig, validateConfig } from './config.ts';
 import { logger } from './logger.ts';
 

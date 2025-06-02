@@ -7,10 +7,10 @@ Deno.test('Git hooks content validation', async (t) => {
   const preCommitHook = `#!/bin/sh
 deno fmt --check
 deno lint`;
-  
+
   const commitMsgHook = `#!/bin/sh
 commit_regex='^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)'`;
-  
+
   const prepareCommitMsgHook = `#!/bin/sh
 BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null)
 PREFIX="feat: "`;

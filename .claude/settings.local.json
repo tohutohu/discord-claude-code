@@ -11,7 +11,8 @@
       "Bash(deno lint:*)",
       "Bash(git merge:*)",
       "Bash(rg:*)",
-      "Bash(deno lint:*)"
+      "Bash(deno lint:*)",
+      "Bash(git fetch:*)"
     ],
     "deny": []
   }
