@@ -24,18 +24,23 @@ const cli = new Command()
 cli.command('run')
   .description('TUI を起動してボットを実行（デフォルト）')
   .action(async (options) => {
-    console.log(green('🚀 TUI を起動しています...'));
-    console.log(yellow('⚠️  TUI 実装は PR-2.4 で完成予定です'));
-
     // 設定ファイルの読み込み
+    let config;
     try {
-      const config = await loadConfig(options.config);
-      console.log(green('✅ 設定ファイルを読み込みました'));
-      console.log(`📁 リポジトリルート: ${config.rootDir}`);
-      console.log(`🔄 最大セッション数: ${config.parallel.maxSessions}`);
-      console.log(`📝 ログレベル: ${config.logging.level}`);
+      config = await loadConfig(options.config);
     } catch (error) {
       console.error(red('❌ 設定ファイルの読み込みに失敗しました:'));
+      console.error(error instanceof Error ? error.message : String(error));
+      Deno.exit(1);
+    }
+
+    // TUIを起動
+    try {
+      const { App } = await import('./tui/app.ts');
+      const app = new App(config);
+      await app.run();
+    } catch (error) {
+      console.error(red('❌ TUIの起動に失敗しました:'));
       console.error(error instanceof Error ? error.message : String(error));
       Deno.exit(1);
     }
