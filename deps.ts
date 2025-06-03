@@ -39,13 +39,33 @@ export {
   assertEquals,
   assertExists,
   assertRejects,
+  assertStringIncludes,
   assertThrows,
 } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 export { delay } from 'https://deno.land/std@0.224.0/async/delay.ts';
 
-// Discordeno - 後でPR-3で詳細に実装
-// 現在は型チェックエラーを避けるためコメントアウト
-// export * as discord from 'https://deno.land/x/discordeno@18.0.1/mod.ts';
+// Discordeno - Discord Bot API (v21.0.0)
+// Note: v21 uses @discordeno/bot as the main package
+export { createBot } from 'npm:@discordeno/bot@21.0.0';
+export type { Bot, Interaction } from 'npm:@discordeno/bot@21.0.0';
+
+// Discord API types from @discordeno/types
+export {
+  ApplicationCommandOptionTypes,
+  ApplicationCommandTypes,
+  InteractionResponseTypes,
+  InteractionTypes,
+  MessageComponentTypes,
+} from 'npm:@discordeno/types@21.0.0';
+
+export type {
+  CreateApplicationCommand,
+  DiscordApplicationCommandOption,
+  DiscordApplicationCommandOptionChoice,
+  DiscordEmbed,
+  DiscordInteraction,
+  DiscordMessage,
+} from 'npm:@discordeno/types@21.0.0';
 
 // その他のユーティリティ
 export { z } from 'https://deno.land/x/zod@v3.23.8/mod.ts';

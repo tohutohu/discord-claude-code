@@ -11,15 +11,16 @@ Discord から **Claude Code** を並列操作し、複数 Git リポジトリ�
 1. **テスト**
    - すべてのモジュールに対して、**同じディレクトリに `*.test.ts` ファイルを配置**する（例: `logger.ts` に対して `logger.test.ts`）。
    - テストファイルはアプリケーションコードと同じディレクトリに配置し、コードとテストの関連性を明確にする。
-   - **機能がちゃんとテストされていればカバレッジ率は気にしない** - 品質重視でテストを記述する。
+   - **機能がちゃんとテストされていればカバレッジ率は気にしない**
+   - 品質重視でテストを記述する。
 
 2. **ロギング**
    - `logger.ts` に構造化ロガー（Pretty / JSON）を実装し、TUI とファイルの二重シンクとする。
    - ログレベル: `TRACE` < `DEBUG` < `INFO` < `WARN` < `ERROR` < `FATAL`
    - ログファイルは `~/.claude-bot/logs/` に日付別で保存、7日間保持後自動削除
 
-3. **TUI (deno_tui)**
-   - ~~ink~~ → **deno_tui** を使用（InkはDenoでESMサポートが不完全なため）
+3. **TUI**
+   - ink/ink-uiを使ってTUIを実装する
    - CLI 起動と同時に起動し、アクティブセッション表・ログビュー・ヘルプを持つ。
 
 4. **Dev Container**
@@ -37,216 +38,22 @@ Discord から **Claude Code** を並列操作し、複数 Git リポジトリ�
    - GitHub Actions で `fmt → lint → check → test → coverage` を実行。
    - `pre-commit` で `deno fmt && deno lint`、`commit-msg` で Conventional Commits 準拠を検証。
    - **コミットする前に型チェック・フォーマット・リント・テストがエラーにならないことを確認し、健全な状態のソースコードのコミットのみが残るようにします。**
+   - **コミットフックを無視することは許可されていません**
+   - **リントエラーを無視するようなコメントを追加したり、any型を利用して型エラーをごまかすことは最も避けるべき行為**
 
----
+8. **ライブラリ**
+   - ライブラリは調査したうえで最新のものを使用する
+   - ライブラリの読み込みはdeno公式に存在すればそれを、npmからは `npm:パッケージ名` 形式で読み込む
+   - deno docコマンドを利用して、ライブラリから利用できる関数やクラスのドキュメントを確認する
+   - 使用したことのないライブラリは使用前にリポジトリのREADME.mdやドキュメントを徹底的に調査し、使い方を理解する
+   - 検索エンジンでの調査も活用し、ライブラリの使い方やベストプラクティスを学ぶ
 
-## 2. 設定ファイル (`claude-bot.yaml`)
-
-```yaml
-# Git リポジトリをキャッシュするルートディレクトリ
-rootDir: ~/claude-work/repos
-
-# 並列実行設定
-parallel:
-  maxSessions: 3 # 最大同時実行セッション数
-  queueTimeout: 300 # キュー待機タイムアウト（秒）
-
-# Discord設定
-discord:
-  # ギルドIDを指定（省略時は全ギルドで有効）
-  guildIds: []
-  # コマンドのプレフィックス（省略時は /claude）
-  commandPrefix: /claude
-
-# Claude設定
-claude:
-  # モデル名（省略時はデフォルト）
-  model: claude-opus-4-20250514
-  # タイムアウト（秒）
-  timeout: 600
-
-# ログ設定
-logging:
-  level: INFO # TRACE, DEBUG, INFO, WARN, ERROR, FATAL
-  retentionDays: 7
-  maxFileSize: 10MB
-
-# リポジトリ設定（オプション）
-repositories:
-  # リポジトリ名とURLのマッピング（自動検出に追加）
-  core-api: https://github.com/myorg/core-api.git
-  web-admin: https://github.com/myorg/web-admin.git
-```
-
----
-
-## 3. リポジトリ検出 & クローン仕様
-
-- `repoScanner.ts` を実装し、以下の責務を負う：
-
-  1. `scanRepos(rootDir): RepoMeta[]`
-     - `rootDir` 直下のディレクトリを対象に再帰 **2 階層まで** 探索（柔軟性向上）
-     - `.git` が存在 → `git rev-parse --show-toplevel` で正当性確認
-     - シンボリックリンクも追跡し、実体を確認
-     - `name` はディレクトリ名、`path` は絶対パス、`url` は `git remote get-url origin`、`branch` は `git symbolic-ref --short HEAD`
-     - エラー時は警告ログを出力し、スキップ
-
-  2. `ensureRepo(name, url?): Promise<RepoPath>`
-     - `scanRepos` に該当が無い場合：
-       - 設定ファイルの `repositories` セクションを確認
-       - それでも無い場合は `url` パラメータを使用（必須）
-     - `git clone <url> <rootDir>/<name>` を実行
-     - clone 成功後、fetch して最新化
-     - 失敗時は詳細なエラーメッセージと共に例外をスロー
-
-- **Autocomplete**: Slash コマンドで `repository` 引数を入力すると、`scanRepos` の結果 + 設定ファイルの `repositories` を提示
-
----
-
-## 4. Discord インターフェース仕様
-
-| # | シーン           | 表示内容                                                     | インタラクティブ要素                              |
-| - | ---------------- | ------------------------------------------------------------ | ------------------------------------------------- |
-| 1 | `/claude start`  | Embed `Claude セッション作成` (Repo/Thread/Status/Queue位置) | **開く** ボタン：スレッドへジャンプ               |
-| 2 | スレッド開始     | Embed `セッション開始 🚀` + 初期設定情報                     | **/end** ボタン、**設定変更** ボタン              |
-| 3 | 質問投稿         | Plain Message `> 指示`                                       | 進捗バー (5秒毎更新) + 経過時間                   |
-| 4 | 実行中           | Embed `実行中...` + リアルタイムログ（最新5行）              | **キャンセル** ボタン                             |
-| 5 | 完了             | Embed + プレビュー（差分統計付き）                           | **全文表示** / **差分確認** / **コミット** ボタン |
-| 6 | エラー           | Embed (赤) `エラー詳細` + スタックトレース                   | **再試行** / **ログ全文** / **終了** ボタン       |
-| 7 | `/claude list`   | Embed テーブル (Thread/Repo/Status/Uptime/Memory)            | 各行に **詳細** / **終了** ボタン                 |
-| 8 | `/claude config` | 現在の設定表示                                               | **編集** ボタン → Modal で設定変更                |
-
----
-
-## 5. TUI 画面レイアウト
-
-```
-┌─ Claude Bot v0.1.0 ─────────────────────────────────┐
-│ Sessions: 2/3 | Queue: 1 | Uptime: 02:34:56         │
-├────────┬────────────┬───────────┬────────┬─────────┤
-│ Sel ▶  │ Thread ID  │ Repository│ Status │ Uptime  │
-├────────┼────────────┼───────────┼────────┼─────────┤
-│   ▷    │ 123..7890  │ core-api  │ 🟢 Run │ 00:12:34│
-│        │ 987..3210  │ web-admin │ ⏸️ Wait│ 00:03:10│
-│        │ 456..1234  │ auth-svc  │ ❌ Err │ 00:45:23│
-└────────┴────────────┴───────────┴────────┴─────────┘
-┌─ Logs [INFO+] ──────────────────────────────────────┐
-│ 12:01:23 [INFO ] Clone core-api completed          │
-│ 12:02:45 [INFO ] [123] Starting devcontainer...    │
-│ 12:03:12 [DEBUG] [123] Container ID: abc123def     │
-│ 12:03:15 [INFO ] [123] Claude generating diff...   │
-│ 12:03:45 [ERROR] [456] Exit code 1: syntax error   │
-└─────────────────────────────────────────────────────┘
-┌─ Help ──────────────────────────────────────────────┐
-│ ↑/↓:移動 Enter:詳細 d:終了 r:再起動 f:フィルタ     │  
-│ l:ログレベル q:終了 ?:ヘルプ                       │
-└─────────────────────────────────────────────────────┘
-```
-
----
-
-## 6. モジュール構成（改訂版）
-
-| ファイル / ディレクトリ   | 役割                                                                                |
-| ------------------------- | ----------------------------------------------------------------------------------- |
-| **cli.ts**                | Cliffy によるエントリポイント・サブコマンド解析                                     |
-| **config.ts**             | 設定ファイル読み込み・検証・デフォルト値適用                                        |
-| **tui/**                  | deno_tui コンポーネント群 (`app.ts`, `sessionTable.ts`, `logView.ts`, `helpBar.ts`) |
-| **discord/**              | Discordeno ラッパー・コマンド/インタラクションハンドラ                              |
-| **discord/embeds.ts**     | Embed生成ヘルパー関数群                                                             |
-| **discord/components.ts** | ボタン・セレクトメニュー生成ヘルパー                                                |
-| **repoScanner.ts**        | rootDir 以下のリポジトリ検出・clone/fetch                                           |
-| **sessionManager.ts**     | Thread ↔ Worktree ↔ Repo 対応管理・永続化                                           |
-| **worktree.ts**           | `git worktree` 操作ユーティリティ                                                   |
-| **devcontainer.ts**       | `devcontainer` CLI ラッパー                                                         |
-| **claudeRunner.ts**       | `claude -c` (継続モード) / `-p` (単一実行) ラッパー                                 |
-| **parallelController.ts** | Semaphore実装・キュー管理                                                           |
-| **logger.ts**             | 構造化ロガー（Pretty/JSON）・ファイル出力                                           |
-| **utils/**                | 共通ユーティリティ（Git操作、文字列処理等）                                         |
-| **types/**                | TypeScript型定義                                                                    |
-
----
-
-## 7. Claude Code 実行詳細
-
-### 実行モード
-
-1. **継続モード** (`claude -c`): インタラクティブな対話形式
-2. **プリントモード** (`claude -p "<prompt>"`): 単一コマンド実行
-
-### 実行フロー
-
-```bash
-# 1. devcontainer起動
-devcontainer up --workspace-folder /path/to/worktree
-
-# 2. Claude Code実行（devcontainer内）
-devcontainer exec --workspace-folder /path/to/worktree \
-  bash -c "cd /workspace && claude -p 'ユーザーの指示'"
-
-# 3. 出力をストリーム処理
-# stdout → Discord投稿 + TUIログ表示
-# stderr → エラーハンドリング
-```
-
-### エラーハンドリング
-
-- devcontainer起動失敗 → 3回リトライ後、エラー報告
-- Claude実行失敗 → exit codeに応じた処理
-  - 1: 一般エラー → ユーザーに修正を促す
-  - 130: ユーザーによる中断 → 正常終了扱い
-  - その他: 詳細ログと共にエラー報告
-
----
-
-## 8. セッション管理詳細
-
-### セッションライフサイクル
-
-```typescript
-interface SessionState {
-  INITIALIZING = "初期化中",  // リポジトリclone、worktree作成
-  STARTING = "起動中",        // devcontainer起動
-  READY = "準備完了",        // Claude実行待機
-  RUNNING = "実行中",        // Claude実行中
-  WAITING = "待機中",        // キュー待ち
-  ERROR = "エラー",          // エラー状態
-  COMPLETED = "完了",        // 正常終了
-  CANCELLED = "キャンセル"   // ユーザーによる中断
-}
-```
-
-### セッションデータ永続化
-
-```json
-// ~/.claude-bot/sessions.json
-{
-  "sessions": {
-    "thread_id_123": {
-      "repository": "core-api",
-      "worktreePath": "/path/to/worktree",
-      "containerId": "abc123def",
-      "state": "RUNNING",
-      "createdAt": "2025-06-02T10:00:00Z",
-      "updatedAt": "2025-06-02T10:05:00Z",
-      "metadata": {
-        "userId": "discord_user_id",
-        "guildId": "discord_guild_id"
-      }
-    }
-  }
-}
-```
-
----
-
-## 9. 詳細タスクリスト（改訂版）
-
-> **凡例**
->
-> - **\[x]** = 追加・修正項目
-> - **\[ ]** = 未完了
-> - インデント 2 つめが "コミット単位"、3 つめが "コード変更単位"
+9. **実装手順**
+   - 可能な限り細かい単位でfmt,lint,check,testを行い、問題が残ったまま他の箇所の実装を行うことがないようにする
+   - 実装ガイドの1タスクごとに `deno fmt`, `deno lint`, `deno check`, `deno test` を実行するくらいが基準
+   - 型エラーを --no-check で無視することは許可されていません
+   - fmt,lint,check,testのいずれかでエラーが発生した場合は、必ずそのエラーを解消してから次の実装に進むこと
+   - エラーの解消のために無理やり辻褄合わせのような変更や対応を避ける
 
 ### PR‑1 ⛏️ リポジトリ初期化 & CI
 
@@ -324,25 +131,25 @@ interface SessionState {
 
 ### PR‑3 🌐 Discord 基盤
 
-- [ ] **3.1 Discord 接続**
-  - [ ] `discord/client.ts` で Discordeno 初期化
-  - [ ] Intents: `Guilds`, `GuildMessages`, `MessageContent`
-  - [ ] エラー時の再接続処理（指数バックオフ）
+- [x] **3.1 Discord 接続**
+  - [x] `discord/client.ts` で Discordeno 初期化
+  - [x] Intents: `Guilds`, `GuildMessages`, `MessageContent`
+  - [x] エラー時の再接続処理（指数バックオフ）
 
-- [ ] **3.2 Slash コマンド**
-  - [ ] `discord/commands/start.ts`
-    - [ ] 引数: `repository` (autocomplete), `branch` (optional)
-    - [ ] 権限チェック（Manage Messages）
-    - [ ] キュー待機時の位置表示
-  - [ ] `discord/commands/list.ts`
-    - [ ] ページネーション対応（10件/ページ）
-  - [ ] `discord/commands/config.ts`
-    - [ ] 設定表示・変更Modal
+- [x] **3.2 Slash コマンド**
+  - [x] `discord/commands/start.ts`
+    - [x] 引数: `repository` (autocomplete), `branch` (optional)
+    - [x] 権限チェック（Manage Messages）
+    - [x] キュー待機時の位置表示
+  - [x] `discord/commands/list.ts`
+    - [x] ページネーション対応（10件/ページ）
+  - [x] `discord/commands/config.ts`
+    - [x] 設定表示・変更Modal
 
-- [ ] **3.3 インタラクション**
-  - [ ] `discord/interactions.ts` ボタン・Modal処理
-  - [ ] デバウンス処理（連打対策）
-  - [ ] エフェメラル応答の活用
+- [x] **3.3 インタラクション**
+  - [x] `discord/interactions.ts` ボタン・Modal処理
+  - [x] デバウンス処理（連打対策）
+  - [x] エフェメラル応答の活用
 
 ### PR‑3.5 🖼️ Discord UX 拡張
 

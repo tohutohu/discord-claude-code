@@ -10,8 +10,23 @@
       "Bash(deno lint:*)",
       "Bash(deno task:*)",
       "Bash(deno test:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(deno check:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:discordeno.js.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:deno.land)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:discord.com)",
+      "Bash(deno doc:*)",
+      "Bash(sed:*)",
+      "Bash(deno coverage:*)",
+      "Bash(find:*)"
     ],
     "deny": []
-  }
+  },
+  "enableAllProjectMcpServers": false
 }
