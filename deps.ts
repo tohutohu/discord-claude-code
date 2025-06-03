@@ -8,15 +8,11 @@ export {
 } from 'https://deno.land/x/cliffy@v1.0.0-rc.4/command/mod.ts';
 export type { ArgumentValue } from 'https://deno.land/x/cliffy@v1.0.0-rc.4/command/mod.ts';
 
-// deno_tui - ターミナルUI
-export {
-  handleInput,
-  handleKeyboardControls,
-  handleMouseControls,
-  Tui,
-  View,
-} from 'https://deno.land/x/tui@2.1.5/mod.ts';
-export type { Component, Rectangle } from 'https://deno.land/x/tui@2.1.5/mod.ts';
+// React & Ink - ターミナルUI
+export { default as React } from 'npm:react@18.3.1';
+export type { FC, ReactElement } from 'npm:react@18.3.1';
+export { Box, render, Text, useApp, useInput, useStdout } from 'npm:ink@5.0.1';
+export type { BoxProps, Instance, TextProps } from 'npm:ink@5.0.1';
 
 // Deno標準ライブラリ
 export {

@@ -18,6 +18,7 @@ async function runCli(args: string[]): Promise<{
     args: ['run', '-A', 'cli.ts', ...args],
     stdout: 'piped',
     stderr: 'piped',
+    env: { ...Deno.env.toObject(), DENO_TEST: 'true' },
   });
 
   const process = cmd.spawn();
@@ -133,8 +134,8 @@ Deno.test('CLI: 引数なしで実行するとrunコマンドが実行される'
   // デフォルトの設定ファイルが存在しない前提で、引数なしで実行
   const result = await runCli([]);
 
-  // タイムアウトで終了するため、exitCode は 143 (SIGTERM)
-  assertEquals(result.exitCode, 143);
+  // テスト環境では正常終了
+  assertEquals(result.exitCode, 0);
   // TUIの起動メッセージを確認（デフォルト設定で起動）
   assertStringIncludes(result.output, 'TUIモードが起動しました');
 });
@@ -142,8 +143,8 @@ Deno.test('CLI: 引数なしで実行するとrunコマンドが実行される'
 Deno.test('CLI: runコマンドで存在しない設定ファイルでもデフォルト設定で起動', async () => {
   const result = await runCli(['run', '--config', '/non-existent-file.yaml']);
 
-  // タイムアウトで終了するため、exitCode は 143 (SIGTERM)
-  assertEquals(result.exitCode, 143);
+  // テスト環境では正常終了
+  assertEquals(result.exitCode, 0);
   // TUIの起動メッセージを確認（デフォルト設定で起動）
   assertStringIncludes(result.output, 'TUIモードが起動しました');
 });
