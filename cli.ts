@@ -36,7 +36,7 @@ cli.command('run')
 
     // TUIを起動
     try {
-      const { App } = await import('./tui/app.ts');
+      const { App } = await import('./tui/app.tsx');
       const app = new App(config);
       await app.run();
     } catch (error) {

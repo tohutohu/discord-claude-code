@@ -11,15 +11,16 @@ Discord から **Claude Code** を並列操作し、複数 Git リポジトリ�
 1. **テスト**
    - すべてのモジュールに対して、**同じディレクトリに `*.test.ts` ファイルを配置**する（例: `logger.ts` に対して `logger.test.ts`）。
    - テストファイルはアプリケーションコードと同じディレクトリに配置し、コードとテストの関連性を明確にする。
-   - **機能がちゃんとテストされていればカバレッジ率は気にしない** - 品質重視でテストを記述する。
+   - **機能がちゃんとテストされていればカバレッジ率は気にしない**
+   - 品質重視でテストを記述する。
 
 2. **ロギング**
    - `logger.ts` に構造化ロガー（Pretty / JSON）を実装し、TUI とファイルの二重シンクとする。
    - ログレベル: `TRACE` < `DEBUG` < `INFO` < `WARN` < `ERROR` < `FATAL`
    - ログファイルは `~/.claude-bot/logs/` に日付別で保存、7日間保持後自動削除
 
-3. **TUI (deno_tui)**
-   - ~~ink~~ → **deno_tui** を使用（InkはDenoでESMサポートが不完全なため）
+3. **TUI**
+   - ink/ink-uiを使ってTUIを実装する
    - CLI 起動と同時に起動し、アクティブセッション表・ログビュー・ヘルプを持つ。
 
 4. **Dev Container**
@@ -37,6 +38,22 @@ Discord から **Claude Code** を並列操作し、複数 Git リポジトリ�
    - GitHub Actions で `fmt → lint → check → test → coverage` を実行。
    - `pre-commit` で `deno fmt && deno lint`、`commit-msg` で Conventional Commits 準拠を検証。
    - **コミットする前に型チェック・フォーマット・リント・テストがエラーにならないことを確認し、健全な状態のソースコードのコミットのみが残るようにします。**
+   - **コミットフックを無視することは許可されていません**
+   - **リントエラーを無視するようなコメントを追加したり、any型を利用して型エラーをごまかすことは最も避けるべき行為**
+
+8. **ライブラリ**
+   - ライブラリは調査したうえで最新のものを使用する
+   - ライブラリの読み込みはdeno公式に存在すればそれを、npmからは `npm:パッケージ名` 形式で読み込む
+   - deno docコマンドを利用して、ライブラリから利用できる関数やクラスのドキュメントを確認する
+   - 使用したことのないライブラリは使用前にリポジトリのREADME.mdやドキュメントを徹底的に調査し、使い方を理解する
+   - 検索エンジンでの調査も活用し、ライブラリの使い方やベストプラクティスを学ぶ
+
+9. **実装手順**
+   - 可能な限り細かい単位でfmt,lint,check,testを行い、問題が残ったまま他の箇所の実装を行うことがないようにする
+   - 実装ガイドの1タスクごとに `deno fmt`, `deno lint`, `deno check`, `deno test` を実行するくらいが基準
+   - 型エラーを --no-check で無視することは許可されていません
+   - fmt,lint,check,testのいずれかでエラーが発生した場合は、必ずそのエラーを解消してから次の実装に進むこと
+   - エラーの解消のために無理やり辻褄合わせのような変更や対応を避ける
 
 ---
 
@@ -79,9 +96,7 @@ repositories:
 ```
 
 ---
-
 ## 3. リポジトリ検出 & クローン仕様
-
 - `repoScanner.ts` を実装し、以下の責務を負う：
 
   1. `scanRepos(rootDir): RepoMeta[]`
@@ -100,7 +115,6 @@ repositories:
      - 失敗時は詳細なエラーメッセージと共に例外をスロー
 
 - **Autocomplete**: Slash コマンドで `repository` 引数を入力すると、`scanRepos` の結果 + 設定ファイルの `repositories` を提示
-
 ---
 
 ## 4. Discord インターフェース仕様
@@ -144,9 +158,7 @@ repositories:
 ```
 
 ---
-
 ## 6. モジュール構成（改訂版）
-
 | ファイル / ディレクトリ   | 役割                                                                                |
 | ------------------------- | ----------------------------------------------------------------------------------- |
 | **cli.ts**                | Cliffy によるエントリポイント・サブコマンド解析                                     |
@@ -164,7 +176,6 @@ repositories:
 | **logger.ts**             | 構造化ロガー（Pretty/JSON）・ファイル出力                                           |
 | **utils/**                | 共通ユーティリティ（Git操作、文字列処理等）                                         |
 | **types/**                | TypeScript型定義                                                                    |
-
 ---
 
 ## 7. Claude Code 実行詳細
@@ -179,11 +190,9 @@ repositories:
 ```bash
 # 1. devcontainer起動
 devcontainer up --workspace-folder /path/to/worktree
-
 # 2. Claude Code実行（devcontainer内）
 devcontainer exec --workspace-folder /path/to/worktree \
   bash -c "cd /workspace && claude -p 'ユーザーの指示'"
-
 # 3. 出力をストリーム処理
 # stdout → Discord投稿 + TUIログ表示
 # stderr → エラーハンドリング
@@ -324,25 +333,25 @@ interface SessionState {
 
 ### PR‑3 🌐 Discord 基盤
 
-- [ ] **3.1 Discord 接続**
-  - [ ] `discord/client.ts` で Discordeno 初期化
-  - [ ] Intents: `Guilds`, `GuildMessages`, `MessageContent`
-  - [ ] エラー時の再接続処理（指数バックオフ）
+- [x] **3.1 Discord 接続**
+  - [x] `discord/client.ts` で Discordeno 初期化
+  - [x] Intents: `Guilds`, `GuildMessages`, `MessageContent`
+  - [x] エラー時の再接続処理（指数バックオフ）
 
-- [ ] **3.2 Slash コマンド**
-  - [ ] `discord/commands/start.ts`
-    - [ ] 引数: `repository` (autocomplete), `branch` (optional)
-    - [ ] 権限チェック（Manage Messages）
-    - [ ] キュー待機時の位置表示
-  - [ ] `discord/commands/list.ts`
-    - [ ] ページネーション対応（10件/ページ）
-  - [ ] `discord/commands/config.ts`
-    - [ ] 設定表示・変更Modal
+- [x] **3.2 Slash コマンド**
+  - [x] `discord/commands/start.ts`
+    - [x] 引数: `repository` (autocomplete), `branch` (optional)
+    - [x] 権限チェック（Manage Messages）
+    - [x] キュー待機時の位置表示
+  - [x] `discord/commands/list.ts`
+    - [x] ページネーション対応（10件/ページ）
+  - [x] `discord/commands/config.ts`
+    - [x] 設定表示・変更Modal
 
-- [ ] **3.3 インタラクション**
-  - [ ] `discord/interactions.ts` ボタン・Modal処理
-  - [ ] デバウンス処理（連打対策）
-  - [ ] エフェメラル応答の活用
+- [x] **3.3 インタラクション**
+  - [x] `discord/interactions.ts` ボタン・Modal処理
+  - [x] デバウンス処理（連打対策）
+  - [x] エフェメラル応答の活用
 
 ### PR‑3.5 🖼️ Discord UX 拡張
 
