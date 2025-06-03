@@ -14,6 +14,7 @@ import {
 } from '../../types/discord.ts';
 import type { ActionRow, DiscordEmbed } from '../../types/discord-components.ts';
 import { getDiscordClient } from '../client.ts';
+import { defaultRepositoryAutocomplete } from '../autocomplete.ts';
 // import {
 //   deferResponse,
 //   editOriginalInteractionResponse,
@@ -21,22 +22,26 @@ import { getDiscordClient } from '../client.ts';
 // } from '../helpers.ts';
 
 /**
- * リポジトリ候補を取得する（将来的にrepoScanner.tsと統合）
+ * リポジトリ候補を取得する（オートコンプリート用）
+ * @param query ユーザーの入力クエリ
+ * @returns リポジトリ候補の配列
  */
-function getRepositoryCandidates(): DiscordApplicationCommandOptionChoice[] {
-  // TODO(PR-3.8): repoScanner.tsと統合予定
-  // 現在はハードコードされた候補を返す
-  const repositories = [
-    { name: 'core-api', value: 'core-api' },
-    { name: 'web-admin', value: 'web-admin' },
-    { name: 'auth-service', value: 'auth-service' },
-    { name: 'notification-service', value: 'notification-service' },
-  ];
+async function getRepositoryCandidates(
+  query?: string,
+): Promise<DiscordApplicationCommandOptionChoice[]> {
+  try {
+    return await defaultRepositoryAutocomplete.getRepositoryChoices(query);
+  } catch (error) {
+    console.error('リポジトリ候補取得エラー:', error);
 
-  return repositories.map((repo) => ({
-    name: repo.name,
-    value: repo.value,
-  }));
+    // エラー時は基本的な候補を返す
+    return [
+      { name: 'core-api', value: 'core-api' },
+      { name: 'web-admin', value: 'web-admin' },
+      { name: 'auth-service', value: 'auth-service' },
+      { name: 'notification-service', value: 'notification-service' },
+    ];
+  }
 }
 
 /**
@@ -74,6 +79,9 @@ export function createSession(
   console.log(
     `セッション作成: ${threadId}, repo: ${options.repository}, branch: ${options.branch || 'main'}`,
   );
+
+  // リポジトリ使用履歴を記録
+  defaultRepositoryAutocomplete.recordRepositoryUsage(options.repository);
 
   // 現在は基本的なログ出力のみ
   const sessionInfo = {
@@ -264,9 +272,23 @@ export const startCommand: SlashCommand = {
   /**
    * オートコンプリート処理
    */
-  autocomplete(_interaction: Interaction): DiscordApplicationCommandOptionChoice[] {
-    // TODO(v21): Discordeno v21のAPI変更により一時的に無効化
-    return getRepositoryCandidates();
+  async autocomplete(interaction: Interaction): Promise<DiscordApplicationCommandOptionChoice[]> {
+    try {
+      // ユーザーの入力クエリを取得
+      const query = interaction.data?.options?.find(
+        (opt) => opt.name === 'repository' && opt.focused,
+      )?.value as string | undefined;
+
+      // オートコンプリート候補を取得
+      const choices = await getRepositoryCandidates(query);
+
+      return choices;
+    } catch (error) {
+      console.error('オートコンプリートエラー:', error);
+
+      // エラー時は基本的な候補を返す
+      return await getRepositoryCandidates();
+    }
   },
 };
 

@@ -191,28 +191,24 @@ Deno.test('startCommand.execute: 実行ハンドラの存在確認', async () =>
   await startCommand.execute(mockInteraction as Parameters<typeof startCommand.execute>[0]);
 });
 
-Deno.test('startCommand.autocomplete: リポジトリ候補を返す', () => {
+Deno.test('startCommand.autocomplete: リポジトリ候補を返す', async () => {
   if (startCommand.autocomplete) {
     const mockInteraction = {};
-    const result = startCommand.autocomplete(
+    const result = await startCommand.autocomplete(
       mockInteraction as Parameters<typeof startCommand.autocomplete>[0],
     ) as { name: string; value: string }[];
 
     assertExists(result);
     assertEquals(Array.isArray(result), true);
-    assertEquals(result.length, 4);
+    assertEquals(result.length >= 4, true);
 
-    // 最初の候補を確認
-    const firstCandidate = result[0]!;
-    assertEquals(firstCandidate.name, 'core-api');
-    assertEquals(firstCandidate.value, 'core-api');
-
-    // すべての候補を確認
+    // フォールバック候補が含まれることを確認
+    const repoNames = result.map((r) => r.value);
     const expectedRepos = ['core-api', 'web-admin', 'auth-service', 'notification-service'];
-    result.forEach((candidate, index) => {
-      assertEquals(candidate.name, expectedRepos[index]);
-      assertEquals(candidate.value, expectedRepos[index]);
-    });
+
+    for (const expectedRepo of expectedRepos) {
+      assertEquals(repoNames.includes(expectedRepo), true);
+    }
   }
 });
 
