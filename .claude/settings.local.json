@@ -24,7 +24,8 @@
       "Bash(deno doc:*)",
       "Bash(sed:*)",
       "Bash(deno coverage:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   },
