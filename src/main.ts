@@ -13,6 +13,28 @@ import { Admin } from "./admin.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import { WorkspaceManager } from "./workspace.ts";
+import {
+  checkSystemRequirements,
+  formatSystemCheckResults,
+} from "./system-check.ts";
+
+// システム要件チェック
+console.log("システム要件をチェックしています...");
+const systemCheck = await checkSystemRequirements();
+const checkResults = formatSystemCheckResults(
+  systemCheck.results,
+  systemCheck.missingRequired,
+);
+console.log(checkResults);
+
+if (!systemCheck.success) {
+  console.error(
+    "\n❌ 必須コマンドが不足しているため、アプリケーションを終了します。",
+  );
+  Deno.exit(1);
+}
+
+console.log("\n✅ システム要件チェック完了\n");
 
 const env = await getEnv();
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);

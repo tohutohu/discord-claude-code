@@ -46,6 +46,32 @@ WORK_BASE_DIR/
         └── activity.jsonl
 ```
 
+## 必要なコマンド
+
+このアプリケーションは起動時に以下のコマンドが利用可能かチェックし、必須コマンドが不足している場合はエラー終了します。
+
+### 必須コマンド
+
+- **git**: Gitバージョン管理システム
+  - リポジトリのクローン・更新・worktree操作に使用
+  - インストール: https://git-scm.com/downloads
+- **claude**: Claude CLI ツール
+  - Claude AIとの対話処理に使用
+  - インストール: https://docs.anthropic.com/en/docs/claude-code
+
+### 推奨コマンド
+
+- **gh**: GitHub CLI（推奨）
+  - リポジトリのメタデータ取得・プライベートリポジトリ対応に使用
+  - 利用可能な場合はより洗練されたリポジトリ管理が可能
+  - インストール: https://cli.github.com/
+- **devcontainer**: Dev Container CLI
+  - 開発コンテナサポートに使用
+  - 利用可能な場合はdevcontainer.jsonに基づいた実行環境を提供
+  - インストール: `npm install -g @devcontainers/cli`
+
+アプリケーション起動時にシステム要件チェックが実行され、必須コマンドが不足している場合は適切なエラーメッセージとインストール手順が表示されます。
+
 ## 環境変数
 
 - `DISCORD_TOKEN`: Discord Botのトークン

@@ -32,70 +32,21 @@ export async function ensureRepository(
     repository.repo,
   );
 
-  // ghコマンドが利用可能かチェック
-  const isGhAvailable = await isGhCommandAvailable();
-
-  if (isGhAvailable) {
-    // ghコマンドでリポジトリの存在とメタデータを確認
-    const metadata = await getRepositoryMetadata(repository.fullName);
-    if (!metadata) {
-      throw new Error(
-        `リポジトリ ${repository.fullName} が見つかりません（アクセス権限がない可能性があります）`,
-      );
-    }
-
-    try {
-      // ディレクトリが存在するかチェック
-      const stat = await Deno.stat(fullPath);
-      if (stat.isDirectory) {
-        // 既存リポジトリを最新に更新
-        await updateRepositoryWithGh(fullPath, metadata.defaultBranch);
-        return { path: fullPath, wasUpdated: true, metadata };
-      }
-    } catch (_error) {
-      // ディレクトリが存在しない場合は新規clone
-    }
-
-    // 親ディレクトリを作成
-    await Deno.mkdir(
-      join(workspaceManager.getRepositoriesDir(), repository.org),
-      { recursive: true },
+  // ghコマンドでリポジトリの存在とメタデータを確認
+  const metadata = await getRepositoryMetadata(repository.fullName);
+  if (!metadata) {
+    throw new Error(
+      `リポジトリ ${repository.fullName} が見つかりません（アクセス権限がない可能性があります）`,
     );
-
-    // ghコマンドでリポジトリをclone
-    const cloneProcess = new Deno.Command("gh", {
-      args: ["repo", "clone", repository.fullName, fullPath],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const cloneResult = await cloneProcess.output();
-    if (!cloneResult.success) {
-      const error = new TextDecoder().decode(cloneResult.stderr);
-      throw new Error(`リポジトリのcloneに失敗しました: ${error}`);
-    }
-
-    return { path: fullPath, wasUpdated: false, metadata };
-  } else {
-    // ghコマンドが利用できない場合は従来の方法を使用
-    return ensureRepositoryFallback(repository, workspaceManager, fullPath);
   }
-}
-
-async function ensureRepositoryFallback(
-  repository: GitRepository,
-  workspaceManager: WorkspaceManager,
-  fullPath: string,
-): Promise<{ path: string; wasUpdated: boolean }> {
-  const gitUrl = `https://github.com/${repository.fullName}.git`;
 
   try {
     // ディレクトリが存在するかチェック
     const stat = await Deno.stat(fullPath);
     if (stat.isDirectory) {
       // 既存リポジトリを最新に更新
-      await updateRepository(fullPath);
-      return { path: fullPath, wasUpdated: true };
+      await updateRepositoryWithGh(fullPath, metadata.defaultBranch);
+      return { path: fullPath, wasUpdated: true, metadata };
     }
   } catch (_error) {
     // ディレクトリが存在しない場合は新規clone
@@ -107,9 +58,9 @@ async function ensureRepositoryFallback(
     { recursive: true },
   );
 
-  // リポジトリをclone
-  const cloneProcess = new Deno.Command("git", {
-    args: ["clone", gitUrl, fullPath],
+  // ghコマンドでリポジトリをclone
+  const cloneProcess = new Deno.Command("gh", {
+    args: ["repo", "clone", repository.fullName, fullPath],
     stdout: "piped",
     stderr: "piped",
   });
@@ -120,22 +71,7 @@ async function ensureRepositoryFallback(
     throw new Error(`リポジトリのcloneに失敗しました: ${error}`);
   }
 
-  return { path: fullPath, wasUpdated: false };
-}
-
-async function isGhCommandAvailable(): Promise<boolean> {
-  try {
-    const ghProcess = new Deno.Command("gh", {
-      args: ["--version"],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const result = await ghProcess.output();
-    return result.success;
-  } catch (_error) {
-    return false;
-  }
+  return { path: fullPath, wasUpdated: false, metadata };
 }
 
 export interface RepoMetadata {
@@ -323,57 +259,6 @@ async function getDefaultBranch(repositoryPath: string): Promise<string> {
   return "HEAD";
 }
 
-async function updateRepository(repoPath: string): Promise<void> {
-  // リモートリポジトリから最新情報を取得
-  const fetchProcess = new Deno.Command("git", {
-    args: ["fetch", "origin"],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const fetchResult = await fetchProcess.output();
-  if (!fetchResult.success) {
-    const error = new TextDecoder().decode(fetchResult.stderr);
-    throw new Error(`git fetchに失敗しました: ${error}`);
-  }
-
-  // デフォルトブランチを取得
-  const defaultBranch = await getDefaultRemoteBranch(repoPath);
-
-  // 現在のブランチがデフォルトブランチでない場合は切り替え
-  const currentBranch = await getCurrentBranch(repoPath);
-  if (currentBranch !== defaultBranch) {
-    // デフォルトブランチに切り替え
-    const checkoutProcess = new Deno.Command("git", {
-      args: ["checkout", defaultBranch],
-      cwd: repoPath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const checkoutResult = await checkoutProcess.output();
-    if (!checkoutResult.success) {
-      const error = new TextDecoder().decode(checkoutResult.stderr);
-      throw new Error(`git checkoutに失敗しました: ${error}`);
-    }
-  }
-
-  // デフォルトブランチを最新にリセット
-  const resetProcess = new Deno.Command("git", {
-    args: ["reset", "--hard", `origin/${defaultBranch}`],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const resetResult = await resetProcess.output();
-  if (!resetResult.success) {
-    const error = new TextDecoder().decode(resetResult.stderr);
-    throw new Error(`git resetに失敗しました: ${error}`);
-  }
-}
-
 async function getCurrentBranch(repoPath: string): Promise<string> {
   const branchProcess = new Deno.Command("git", {
     args: ["branch", "--show-current"],
@@ -388,62 +273,4 @@ async function getCurrentBranch(repoPath: string): Promise<string> {
   }
 
   return new TextDecoder().decode(branchResult.stdout).trim();
-}
-
-async function getDefaultRemoteBranch(repoPath: string): Promise<string> {
-  // リモートのデフォルトブランチを取得
-  const defaultBranchProcess = new Deno.Command("git", {
-    args: ["symbolic-ref", "refs/remotes/origin/HEAD"],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const defaultBranchResult = await defaultBranchProcess.output();
-  if (defaultBranchResult.success) {
-    const output = new TextDecoder().decode(defaultBranchResult.stdout).trim();
-    return output.replace("refs/remotes/origin/", "");
-  }
-
-  // symbolic-refが失敗した場合、リモートのHEADを設定し直す
-  const setHeadProcess = new Deno.Command("git", {
-    args: ["remote", "set-head", "origin", "--auto"],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  await setHeadProcess.output();
-
-  // 再度デフォルトブランチを取得
-  const retryProcess = new Deno.Command("git", {
-    args: ["symbolic-ref", "refs/remotes/origin/HEAD"],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const retryResult = await retryProcess.output();
-  if (retryResult.success) {
-    const output = new TextDecoder().decode(retryResult.stdout).trim();
-    return output.replace("refs/remotes/origin/", "");
-  }
-
-  // それでもだめなら一般的なブランチ名を試す
-  const commonBranches = ["main", "master"];
-  for (const branch of commonBranches) {
-    const checkProcess = new Deno.Command("git", {
-      args: ["show-ref", "--verify", `refs/remotes/origin/${branch}`],
-      cwd: repoPath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const checkResult = await checkProcess.output();
-    if (checkResult.success) {
-      return branch;
-    }
-  }
-
-  throw new Error("デフォルトブランチを特定できませんでした");
 }
