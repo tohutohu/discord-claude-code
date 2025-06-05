@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 import { Admin } from "./admin.ts";
 import { getEnv } from "./env.ts";
+import { ensureRepository, parseRepository } from "./git-utils.ts";
 
 const env = await getEnv();
 const admin = new Admin();
@@ -26,6 +27,11 @@ const commands = [
   new SlashCommandBuilder()
     .setName("start")
     .setDescription("新しいチャットスレッドを開始します")
+    .addStringOption((option) =>
+      option.setName("repository")
+        .setDescription("対象のGitHubリポジトリ（例: owner/repo）")
+        .setRequired(true)
+    )
     .toJSON(),
 ];
 
@@ -63,30 +69,61 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // スレッドを作成
-      const thread = await interaction.channel.threads.create({
-        name: `chat-${Date.now()}`,
-        autoArchiveDuration: 60,
-        reason: "新しいチャットセッション",
-      });
+      // リポジトリ引数を取得
+      const repositorySpec = interaction.options.getString("repository", true);
 
-      if (!thread) {
-        await interaction.reply("スレッドの作成に失敗しました。");
+      // リポジトリ名をパース
+      let repository;
+      try {
+        repository = parseRepository(repositorySpec);
+      } catch (error) {
+        await interaction.reply(`エラー: ${(error as Error).message}`);
         return;
       }
 
-      // Workerを作成
-      const worker = await admin.createWorker(thread.id);
+      // インタラクションを遅延レスポンスで処理（clone処理が時間がかかる可能性があるため）
+      await interaction.deferReply();
 
-      await interaction.reply(
-        `新しいチャットスレッドを作成しました: ${thread.toString()}`,
+      // リポジトリをclone/更新
+      let repositoryPath;
+      try {
+        repositoryPath = await ensureRepository(repository, env.CLONE_BASE_DIR);
+      } catch (error) {
+        await interaction.editReply(
+          `リポジトリの取得に失敗しました: ${(error as Error).message}`,
+        );
+        return;
+      }
+
+      // スレッドを作成
+      const thread = await interaction.channel.threads.create({
+        name: `${repository.fullName}-${Date.now()}`,
+        autoArchiveDuration: 60,
+        reason: `${repository.fullName}のチャットセッション`,
+      });
+
+      if (!thread) {
+        await interaction.editReply("スレッドの作成に失敗しました。");
+        return;
+      }
+
+      // Workerを作成してリポジトリ情報を設定
+      const worker = await admin.createWorker(thread.id);
+      worker.setRepository(repository, repositoryPath);
+
+      await interaction.editReply(
+        `${repository.fullName}用のチャットスレッドを作成しました: ${thread.toString()}`,
       );
       await thread.send(
-        `こんにちは！私は${worker.getName()}です。何か質問はありますか？`,
+        `こんにちは！私は${worker.getName()}です。${repository.fullName}について何か質問はありますか？`,
       );
     } catch (error) {
       console.error("スレッド作成エラー:", error);
-      await interaction.reply("エラーが発生しました。");
+      try {
+        await interaction.editReply("エラーが発生しました。");
+      } catch {
+        await interaction.reply("エラーが発生しました。");
+      }
     }
   }
 });
