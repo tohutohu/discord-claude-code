@@ -247,22 +247,20 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
     // devcontainerの起動処理を特別扱い
     if (result === "devcontainer_start_with_progress") {
-      const progressMessage = await interaction.editReply(
-        "🐳 devcontainerを起動しています...",
-      );
+      await interaction.editReply("🐳 devcontainerを起動しています...");
 
       let lastUpdateTime = Date.now();
       const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
 
-      // 進捗更新用のコールバック
+      // 進捗更新用のコールバック（新規メッセージ投稿）
       const onProgress = async (content: string) => {
         const now = Date.now();
         if (now - lastUpdateTime >= UPDATE_INTERVAL) {
           try {
-            await progressMessage.edit(content);
+            await interaction.followUp(content);
             lastUpdateTime = now;
-          } catch (editError) {
-            console.error("メッセージ編集エラー:", editError);
+          } catch (followUpError) {
+            console.error("メッセージ送信エラー:", followUpError);
           }
         }
       };
@@ -280,14 +278,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         const permissionMsg = skipPermissions
           ? " (権限チェックスキップ有効)"
           : " (権限チェック有効)";
-        await progressMessage.edit(
+        await interaction.followUp(
           `${startResult.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
         );
       } else {
         if (worker) {
           (worker as Worker).setUseDevcontainer(false);
         }
-        await progressMessage.edit(
+        await interaction.followUp(
           `${startResult.message}\n\n通常環境でClaude実行を継続します。`,
         );
       }
@@ -460,21 +458,18 @@ client.on(Events.MessageCreate, async (message) => {
   const threadId = message.channel.id;
 
   try {
-    // 即座に処理中メッセージを送信
-    const processingMessage = await message.reply("⏳ 処理中...");
-
     let lastUpdateTime = Date.now();
     const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
 
-    // 進捗更新用のコールバック
+    // 進捗更新用のコールバック（新規メッセージ投稿）
     const onProgress = async (content: string) => {
       const now = Date.now();
       if (now - lastUpdateTime >= UPDATE_INTERVAL) {
         try {
-          await processingMessage.edit(content);
+          await message.reply(content);
           lastUpdateTime = now;
-        } catch (editError) {
-          console.error("メッセージ編集エラー:", editError);
+        } catch (replyError) {
+          console.error("メッセージ送信エラー:", replyError);
         }
       }
     };
@@ -486,13 +481,8 @@ client.on(Events.MessageCreate, async (message) => {
       onProgress,
     );
 
-    // 最終的な返信を送信（処理中メッセージを編集）
-    try {
-      await processingMessage.edit(reply);
-    } catch (editError) {
-      // 編集に失敗した場合は新しいメッセージとして送信
-      await message.reply(reply);
-    }
+    // 最終的な返信を送信
+    await message.reply(reply);
   } catch (error) {
     if ((error as Error).message.includes("Worker not found")) {
       // このスレッド用のWorkerがまだ作成されていない場合
