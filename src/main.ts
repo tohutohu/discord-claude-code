@@ -73,6 +73,11 @@ const commands = [
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`ログイン完了: ${readyClient.user.tag}`);
 
+  // アクティブなスレッドを復旧
+  console.log("アクティブなスレッドを復旧しています...");
+  await admin.restoreActiveThreads();
+  console.log("スレッドの復旧が完了しました。");
+
   // スラッシュコマンドを登録
   const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);
 
