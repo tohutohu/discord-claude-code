@@ -22,7 +22,7 @@
   "lint": {
     "rules": {
       "tags": ["recommended"],
-      "exclude": ["require-await", "no-unused-vars"]
+      "exclude": ["require-await", "no-unused-vars", "no-unused-variables"]
     }
   }
 }

@@ -1,6 +1,10 @@
 import { IWorker, Worker } from "./worker.ts";
 import { generateWorkerName } from "./worker-name-generator.ts";
 import { AuditEntry, ThreadInfo, WorkspaceManager } from "./workspace.ts";
+import {
+  checkDevcontainerCli,
+  checkDevcontainerConfig,
+} from "./devcontainer.ts";
 
 export interface DiscordButtonComponent {
   type: 2;
@@ -144,6 +148,99 @@ export class Admin implements IAdmin {
         workerName: worker.getName(),
         repository: worker.getRepository()?.fullName,
       });
+    }
+  }
+
+  /**
+   * リポジトリにdevcontainer.jsonが存在するかチェックし、存在する場合は起動確認を行う
+   */
+  async checkAndSetupDevcontainer(
+    _threadId: string,
+    repositoryPath: string,
+  ): Promise<{
+    hasDevcontainer: boolean;
+    message: string;
+    useDevcontainer?: boolean;
+    warning?: string;
+  }> {
+    const devcontainerInfo = await checkDevcontainerConfig(repositoryPath);
+
+    if (!devcontainerInfo.configExists) {
+      return {
+        hasDevcontainer: false,
+        message:
+          "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。",
+      };
+    }
+
+    // devcontainer CLIの確認
+    const hasDevcontainerCli = await checkDevcontainerCli();
+    if (!hasDevcontainerCli) {
+      return {
+        hasDevcontainer: true,
+        message:
+          "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。",
+        warning:
+          "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",
+      };
+    }
+
+    // anthropics featureの確認
+    let warningMessage = "";
+    if (!devcontainerInfo.hasAnthropicsFeature) {
+      warningMessage =
+        "⚠️ 警告: anthropics/devcontainer-featuresが設定に含まれていません。Claude CLIが正常に動作しない可能性があります。";
+    }
+
+    return {
+      hasDevcontainer: true,
+      message:
+        `devcontainer.jsonが見つかりました。devcontainer内でClaudeを実行しますか？\n\n**確認事項:**\n- devcontainer CLI: ✅ 利用可能\n- Anthropics features: ${
+          devcontainerInfo.hasAnthropicsFeature ? "✅" : "❌"
+        }\n\n回答してください: yes/no`,
+      warning: warningMessage,
+    };
+  }
+
+  /**
+   * devcontainerの起動を処理する
+   */
+  async startDevcontainerForWorker(threadId: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return {
+        success: false,
+        message: "Workerが見つかりません。",
+      };
+    }
+
+    const workerTyped = worker as Worker;
+    workerTyped.setUseDevcontainer(true);
+
+    const result = await workerTyped.startDevcontainer();
+
+    if (result.success) {
+      await this.logAuditEntry(threadId, "devcontainer_started", {
+        containerId: result.containerId || "unknown",
+      });
+
+      return {
+        success: true,
+        message:
+          "devcontainerが正常に起動しました。Claude実行環境が準備完了です。",
+      };
+    } else {
+      await this.logAuditEntry(threadId, "devcontainer_start_failed", {
+        error: result.error,
+      });
+
+      return {
+        success: false,
+        message: `devcontainerの起動に失敗しました: ${result.error}`,
+      };
     }
   }
 

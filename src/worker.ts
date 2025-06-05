@@ -1,5 +1,6 @@
 import { GitRepository } from "./git-utils.ts";
 import { SessionLog, WorkspaceManager } from "./workspace.ts";
+import { execInDevcontainer } from "./devcontainer.ts";
 
 interface ClaudeStreamMessage {
   type: string;
@@ -48,6 +49,23 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
   }
 }
 
+export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
+  private readonly repositoryPath: string;
+
+  constructor(repositoryPath: string) {
+    this.repositoryPath = repositoryPath;
+  }
+
+  async execute(
+    args: string[],
+    _cwd: string,
+  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
+    // devcontainer内でclaudeコマンドを実行
+    const command = ["claude", ...args];
+    return await execInDevcontainer(this.repositoryPath, command);
+  }
+}
+
 export interface IWorker {
   processMessage(message: string): Promise<string>;
   getName(): string;
@@ -62,8 +80,10 @@ export class Worker implements IWorker {
   private worktreePath: string | null = null;
   private sessionId: string | null = null;
   private threadId: string | null = null;
-  private readonly claudeExecutor: ClaudeCommandExecutor;
+  private claudeExecutor: ClaudeCommandExecutor;
   private readonly workspaceManager: WorkspaceManager;
+  private useDevcontainer: boolean = false;
+  private devcontainerStarted: boolean = false;
 
   constructor(
     name: string,
@@ -268,11 +288,58 @@ export class Worker implements IWorker {
       this.worktreePath = localPath;
     }
 
+    // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
+    if (this.useDevcontainer && this.worktreePath) {
+      this.claudeExecutor = new DevcontainerClaudeExecutor(this.worktreePath);
+    }
+
     this.sessionId = null;
   }
 
   setThreadId(threadId: string): void {
     this.threadId = threadId;
+  }
+
+  /**
+   * devcontainerの使用を設定する
+   */
+  setUseDevcontainer(useDevcontainer: boolean): void {
+    this.useDevcontainer = useDevcontainer;
+  }
+
+  /**
+   * devcontainerが使用されているかを取得
+   */
+  isUsingDevcontainer(): boolean {
+    return this.useDevcontainer;
+  }
+
+  /**
+   * devcontainerが起動済みかを取得
+   */
+  isDevcontainerStarted(): boolean {
+    return this.devcontainerStarted;
+  }
+
+  /**
+   * devcontainerを起動する
+   */
+  async startDevcontainer(): Promise<{ success: boolean; containerId?: string; error?: string }> {
+    if (!this.repository || !this.worktreePath) {
+      return {
+        success: false,
+        error: "リポジトリが設定されていません",
+      };
+    }
+
+    const { startDevcontainer } = await import("./devcontainer.ts");
+    const result = await startDevcontainer(this.worktreePath);
+
+    if (result.success) {
+      this.devcontainerStarted = true;
+    }
+
+    return result;
   }
 
   private async logSessionActivity(
