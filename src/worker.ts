@@ -789,9 +789,15 @@ export class Worker implements IWorker {
   ): string | null {
     for (const item of content) {
       if (item.type === "tool_result") {
+        const resultContent = item.content || "";
+        
+        // TodoWrite成功の定型文はスキップ
+        if (!item.is_error && this.isTodoWriteSuccessMessage(resultContent)) {
+          return null;
+        }
+        
         // ツール結果を進捗として投稿
         const resultIcon = item.is_error ? "❌" : "✅";
-        const resultContent = item.content || "";
 
         // 長さに応じて処理を分岐
         const formattedContent = this.formatToolResult(
@@ -1144,6 +1150,23 @@ export class Worker implements IWorker {
       // JSON解析エラーの場合は通常の処理を続行
       return null;
     }
+  }
+
+  /**
+   * TodoWrite成功メッセージかどうかを判定する
+   */
+  private isTodoWriteSuccessMessage(content: string): boolean {
+    // TodoWrite成功時の定型文パターン
+    const successPatterns = [
+      "Todos have been modified successfully",
+      "Todo list has been updated",
+      "Todos updated successfully",
+      "Task list updated successfully"
+    ];
+    
+    return successPatterns.some(pattern => 
+      content.includes(pattern) && content.includes("todo")
+    );
   }
 
   /**
