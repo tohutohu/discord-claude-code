@@ -3,9 +3,18 @@ import {
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
+import { WorkspaceManager } from "../src/workspace.ts";
+
+async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
+  const testDir = await Deno.makeTempDir({ prefix: "admin_test_" });
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+  return workspace;
+}
 
 Deno.test("Admin - スレッドIDとWorkerを作成できる", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadId = "thread-123";
 
   const worker = await admin.createWorker(threadId);
@@ -16,7 +25,8 @@ Deno.test("Admin - スレッドIDとWorkerを作成できる", async () => {
 });
 
 Deno.test("Admin - 同じスレッドIDに対して同じWorkerを返す", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadId = "thread-456";
 
   const worker1 = await admin.createWorker(threadId);
@@ -26,7 +36,8 @@ Deno.test("Admin - 同じスレッドIDに対して同じWorkerを返す", async
 });
 
 Deno.test("Admin - 異なるスレッドIDに対して異なるWorkerを作成する", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadId1 = "thread-789";
   const threadId2 = "thread-999";
 
@@ -39,7 +50,8 @@ Deno.test("Admin - 異なるスレッドIDに対して異なるWorkerを作成�
 });
 
 Deno.test("Admin - スレッドIDに基づいてWorkerを取得できる", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadId = "thread-111";
 
   const createdWorker = await admin.createWorker(threadId);
@@ -49,15 +61,17 @@ Deno.test("Admin - スレッドIDに基づいてWorkerを取得できる", async
   assertEquals(createdWorker.getName(), fetchedWorker?.getName());
 });
 
-Deno.test("Admin - 存在しないスレッドIDの場合nullを返す", () => {
-  const admin = new Admin();
+Deno.test("Admin - 存在しないスレッドIDの場合nullを返す", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const worker = admin.getWorker("non-existent");
 
   assertEquals(worker, null);
 });
 
 Deno.test("Admin - スレッドにメッセージをルーティングできる", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadId = "thread-222";
   const message = "テストメッセージ";
 
@@ -73,7 +87,8 @@ Deno.test("Admin - スレッドにメッセージをルーティングできる"
 });
 
 Deno.test("Admin - 存在しないスレッドへのメッセージはエラーを返す", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
 
   try {
     await admin.routeMessage("non-existent", "test");

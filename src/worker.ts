@@ -1,4 +1,5 @@
 import { GitRepository } from "./git-utils.ts";
+import { SessionLog, WorkspaceManager } from "./workspace.ts";
 
 interface ClaudeStreamMessage {
   type: string;
@@ -52,6 +53,7 @@ export interface IWorker {
   getName(): string;
   getRepository(): GitRepository | null;
   setRepository(repository: GitRepository, localPath: string): void;
+  setThreadId(threadId: string): void;
 }
 
 export class Worker implements IWorker {
@@ -59,10 +61,17 @@ export class Worker implements IWorker {
   private repository: GitRepository | null = null;
   private localPath: string | null = null;
   private sessionId: string | null = null;
+  private threadId: string | null = null;
   private readonly claudeExecutor: ClaudeCommandExecutor;
+  private readonly workspaceManager: WorkspaceManager;
 
-  constructor(name: string, claudeExecutor?: ClaudeCommandExecutor) {
+  constructor(
+    name: string,
+    workspaceManager: WorkspaceManager,
+    claudeExecutor?: ClaudeCommandExecutor,
+  ) {
     this.name = name;
+    this.workspaceManager = workspaceManager;
     this.claudeExecutor = claudeExecutor || new DefaultClaudeCommandExecutor();
   }
 
@@ -72,11 +81,33 @@ export class Worker implements IWorker {
     }
 
     try {
+      // セッションログの記録（コマンド）
+      if (this.threadId) {
+        await this.logSessionActivity("command", message);
+      }
+
       const result = await this.executeClaude(message);
-      return this.formatResponse(result);
+      const formattedResponse = this.formatResponse(result);
+
+      // セッションログの記録（レスポンス）
+      if (this.threadId) {
+        await this.logSessionActivity("response", formattedResponse);
+      }
+
+      return formattedResponse;
     } catch (error) {
       console.error(`Worker ${this.name} - Claude実行エラー:`, error);
-      return `エラーが発生しました: ${(error as Error).message}`;
+      const errorMessage = `エラーが発生しました: ${(error as Error).message}`;
+
+      // エラーもセッションログに記録
+      if (this.threadId) {
+        await this.logSessionActivity("error", errorMessage, {
+          originalError: (error as Error).message,
+          stack: (error as Error).stack,
+        });
+      }
+
+      return errorMessage;
     }
   }
 
@@ -193,5 +224,36 @@ export class Worker implements IWorker {
     this.localPath = localPath;
     // 新しいリポジトリが設定された場合、セッションIDをリセット
     this.sessionId = null;
+  }
+
+  setThreadId(threadId: string): void {
+    this.threadId = threadId;
+  }
+
+  private async logSessionActivity(
+    type: "command" | "response" | "error",
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.threadId) return;
+
+    const sessionLog: SessionLog = {
+      sessionId: this.sessionId || "no-session",
+      threadId: this.threadId,
+      timestamp: new Date().toISOString(),
+      type,
+      content,
+      metadata: {
+        ...metadata,
+        repository: this.repository?.fullName,
+        workerName: this.name,
+      },
+    };
+
+    try {
+      await this.workspaceManager.saveSessionLog(sessionLog);
+    } catch (error) {
+      console.error("セッションログの保存に失敗しました:", error);
+    }
   }
 }

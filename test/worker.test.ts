@@ -1,6 +1,14 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { ClaudeCommandExecutor, Worker } from "../src/worker.ts";
 import { parseRepository } from "../src/git-utils.ts";
+import { WorkspaceManager } from "../src/workspace.ts";
+
+async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
+  const testDir = await Deno.makeTempDir({ prefix: "worker_test_" });
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+  return workspace;
+}
 
 // テスト用のモックClaudeCommandExecutor
 class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
@@ -29,8 +37,9 @@ class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
 }
 
 Deno.test("Worker - メッセージを受け取って返信する（リポジトリ未設定）", async () => {
+  const workspace = await createTestWorkspaceManager();
   const workerName = "happy-panda";
-  const worker = new Worker(workerName);
+  const worker = new Worker(workerName, workspace);
 
   const message = "テストメッセージです";
   const reply = await worker.processMessage(message);
@@ -41,16 +50,18 @@ Deno.test("Worker - メッセージを受け取って返信する（リポジト
   );
 });
 
-Deno.test("Worker - 名前を取得できる", () => {
+Deno.test("Worker - 名前を取得できる", async () => {
+  const workspace = await createTestWorkspaceManager();
   const workerName = "clever-fox";
-  const worker = new Worker(workerName);
+  const worker = new Worker(workerName, workspace);
 
   assertEquals(worker.getName(), workerName);
 });
 
 Deno.test("Worker - 空のメッセージも処理できる", async () => {
+  const workspace = await createTestWorkspaceManager();
   const workerName = "gentle-bear";
-  const worker = new Worker(workerName);
+  const worker = new Worker(workerName, workspace);
 
   const message = "";
   const reply = await worker.processMessage(message);
@@ -61,9 +72,10 @@ Deno.test("Worker - 空のメッセージも処理できる", async () => {
   );
 });
 
-Deno.test("Worker - リポジトリ情報を設定・取得できる", () => {
+Deno.test("Worker - リポジトリ情報を設定・取得できる", async () => {
+  const workspace = await createTestWorkspaceManager();
   const workerName = "smart-cat";
-  const worker = new Worker(workerName);
+  const worker = new Worker(workerName, workspace);
 
   // 初期状態ではリポジトリは未設定
   assertEquals(worker.getRepository(), null);
@@ -85,7 +97,8 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
   const mockExecutor = new MockClaudeCommandExecutor(
     "テストメッセージに対するClaude応答です。",
   );
-  const worker = new Worker(workerName, mockExecutor);
+  const workspace = await createTestWorkspaceManager();
+  const worker = new Worker(workerName, workspace, mockExecutor);
 
   // リポジトリ情報を設定
   const repository = parseRepository("test-org/test-repo");

@@ -9,9 +9,12 @@ import {
 import { Admin } from "./admin.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
+import { WorkspaceManager } from "./workspace.ts";
 
 const env = await getEnv();
-const admin = new Admin();
+const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
+await workspaceManager.initialize();
+const admin = new Admin(workspaceManager);
 
 // Discord Clientの初期化
 const client = new Client({
@@ -87,7 +90,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // リポジトリをclone/更新
       let repositoryPath;
       try {
-        repositoryPath = await ensureRepository(repository, env.CLONE_BASE_DIR);
+        repositoryPath = await ensureRepository(repository, workspaceManager);
       } catch (error) {
         await interaction.editReply(
           `リポジトリの取得に失敗しました: ${(error as Error).message}`,
@@ -110,6 +113,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // Workerを作成してリポジトリ情報を設定
       const worker = await admin.createWorker(thread.id);
       worker.setRepository(repository, repositoryPath);
+
+      // スレッド情報を更新（リポジトリ情報を追加）
+      const threadInfo = await workspaceManager.loadThreadInfo(thread.id);
+      if (threadInfo) {
+        threadInfo.repositoryFullName = repository.fullName;
+        threadInfo.repositoryLocalPath = repositoryPath;
+        await workspaceManager.saveThreadInfo(threadInfo);
+      }
 
       await interaction.editReply(
         `${repository.fullName}用のチャットスレッドを作成しました: ${thread.toString()}`,

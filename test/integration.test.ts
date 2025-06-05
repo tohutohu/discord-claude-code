@@ -3,9 +3,18 @@ import {
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
+import { WorkspaceManager } from "../src/workspace.ts";
+
+async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
+  const testDir = await Deno.makeTempDir({ prefix: "integration_test_" });
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+  return workspace;
+}
 
 Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadId = "integration-test-thread";
 
   // Workerを作成
@@ -29,7 +38,8 @@ Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", asyn
 });
 
 Deno.test("統合テスト - 複数のスレッドを同時に処理できる", async () => {
-  const admin = new Admin();
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
   const threadIds = ["thread-a", "thread-b", "thread-c"];
   const workers = new Map<string, string>();
 

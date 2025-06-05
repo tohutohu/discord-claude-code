@@ -1,4 +1,5 @@
 import { join } from "std/path/mod.ts";
+import { WorkspaceManager } from "./workspace.ts";
 
 export interface GitRepository {
   org: string;
@@ -24,9 +25,12 @@ export function parseRepository(repoSpec: string): GitRepository {
 
 export async function ensureRepository(
   repository: GitRepository,
-  baseDir: string,
+  workspaceManager: WorkspaceManager,
 ): Promise<string> {
-  const fullPath = join(baseDir, repository.localPath);
+  const fullPath = workspaceManager.getRepositoryPath(
+    repository.org,
+    repository.repo,
+  );
   const gitUrl = `https://github.com/${repository.fullName}.git`;
 
   try {
@@ -42,7 +46,10 @@ export async function ensureRepository(
   }
 
   // 親ディレクトリを作成
-  await Deno.mkdir(join(baseDir, repository.org), { recursive: true });
+  await Deno.mkdir(
+    join(workspaceManager.getRepositoriesDir(), repository.org),
+    { recursive: true },
+  );
 
   // リポジトリをclone
   const cloneProcess = new Deno.Command("git", {
