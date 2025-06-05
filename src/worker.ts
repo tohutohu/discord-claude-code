@@ -324,7 +324,9 @@ export class Worker implements IWorker {
   /**
    * devcontainerを起動する
    */
-  async startDevcontainer(): Promise<{ success: boolean; containerId?: string; error?: string }> {
+  async startDevcontainer(): Promise<
+    { success: boolean; containerId?: string; error?: string }
+  > {
     if (!this.repository || !this.worktreePath) {
       return {
         success: false,

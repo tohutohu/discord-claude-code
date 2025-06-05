@@ -5,7 +5,9 @@ import { parseRepository } from "./git-utils.ts";
 
 // モック用のClaudeCommandExecutor
 class MockClaudeExecutor {
-  async execute(): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
+  async execute(): Promise<
+    { code: number; stdout: Uint8Array; stderr: Uint8Array }
+  > {
     const response = JSON.stringify({
       type: "result",
       result: "Claude からのテスト応答",
@@ -27,7 +29,11 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
     workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
 
-    worker = new Worker("test-worker", workspaceManager, new MockClaudeExecutor());
+    worker = new Worker(
+      "test-worker",
+      workspaceManager,
+      new MockClaudeExecutor(),
+    );
     worker.setThreadId("test-thread-123");
 
     await t.step("devcontainerの使用設定", () => {
@@ -65,7 +71,7 @@ Deno.test("DevcontainerClaudeExecutorのテスト", async (t) => {
     // DevcontainerClaudeExecutorは実際のdevcontainer環境が必要なため、
     // ここでは構造のテストのみ実行
     const { DevcontainerClaudeExecutor } = await import("./worker.ts");
-    
+
     // プライベートクラスなので、テストは構造確認のみ
     // 実際の動作テストは統合テストで行う
     assertEquals(typeof DevcontainerClaudeExecutor, "function");

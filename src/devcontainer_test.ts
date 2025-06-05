@@ -1,6 +1,9 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
-import { checkDevcontainerConfig, checkDevcontainerCli } from "./devcontainer.ts";
+import {
+  checkDevcontainerCli,
+  checkDevcontainerConfig,
+} from "./devcontainer.ts";
 
 Deno.test("devcontainer設定のチェック機能", async (t) => {
   await t.step("devcontainer.jsonが存在しない場合", async () => {
@@ -37,7 +40,10 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
 
       const result = await checkDevcontainerConfig(tempDir);
       assertEquals(result.configExists, true);
-      assertEquals(result.configPath, join(devcontainerDir, "devcontainer.json"));
+      assertEquals(
+        result.configPath,
+        join(devcontainerDir, "devcontainer.json"),
+      );
       assertEquals(result.config?.name, "test");
       assertEquals(result.hasAnthropicsFeature, true);
     } finally {

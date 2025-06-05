@@ -15,12 +15,18 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
 
     await t.step("devcontainer.jsonが存在しない場合のチェック", async () => {
       const repoDir = await Deno.makeTempDir();
-      
+
       try {
-        const result = await admin.checkAndSetupDevcontainer("test-thread", repoDir);
-        
+        const result = await admin.checkAndSetupDevcontainer(
+          "test-thread",
+          repoDir,
+        );
+
         assertEquals(result.hasDevcontainer, false);
-        assertStringIncludes(result.message, "devcontainer.jsonが見つかりませんでした");
+        assertStringIncludes(
+          result.message,
+          "devcontainer.jsonが見つかりませんでした",
+        );
       } finally {
         await Deno.remove(repoDir, { recursive: true });
       }
@@ -28,7 +34,7 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
 
     await t.step("devcontainer.jsonが存在するがCLIがない場合", async () => {
       const repoDir = await Deno.makeTempDir();
-      
+
       try {
         // devcontainer.jsonを作成
         const config = {
@@ -38,19 +44,25 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
             "ghcr.io/anthropics/devcontainer-features/claude-cli:latest": {},
           },
         };
-        
+
         await Deno.writeTextFile(
           join(repoDir, ".devcontainer.json"),
           JSON.stringify(config, null, 2),
         );
 
-        const result = await admin.checkAndSetupDevcontainer("test-thread", repoDir);
-        
+        const result = await admin.checkAndSetupDevcontainer(
+          "test-thread",
+          repoDir,
+        );
+
         assertEquals(result.hasDevcontainer, true);
         // devcontainer CLIがインストールされていない環境でのテストなので、
         // CLIが見つからないメッセージが返されることを期待
         if (!result.message.includes("devcontainer内でClaudeを実行しますか")) {
-          assertStringIncludes(result.message, "devcontainer CLIがインストールされていません");
+          assertStringIncludes(
+            result.message,
+            "devcontainer CLIがインストールされていません",
+          );
         }
       } finally {
         await Deno.remove(repoDir, { recursive: true });
@@ -59,7 +71,7 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
 
     await t.step("anthropics featuresがない場合の警告", async () => {
       const repoDir = await Deno.makeTempDir();
-      
+
       try {
         // anthropics featuresのないdevcontainer.jsonを作成
         const config = {
@@ -69,18 +81,27 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
             "ghcr.io/devcontainers/features/node:1": {},
           },
         };
-        
+
         await Deno.writeTextFile(
           join(repoDir, ".devcontainer.json"),
           JSON.stringify(config, null, 2),
         );
 
-        const result = await admin.checkAndSetupDevcontainer("test-thread", repoDir);
-        
+        const result = await admin.checkAndSetupDevcontainer(
+          "test-thread",
+          repoDir,
+        );
+
         assertEquals(result.hasDevcontainer, true);
         // devcontainer CLIがインストールされていない環境では警告メッセージが異なる
-        if (result.warning && result.warning.includes("anthropics/devcontainer-features")) {
-          assertStringIncludes(result.warning, "anthropics/devcontainer-features");
+        if (
+          result.warning &&
+          result.warning.includes("anthropics/devcontainer-features")
+        ) {
+          assertStringIncludes(
+            result.warning,
+            "anthropics/devcontainer-features",
+          );
         } else {
           // CLIがない場合のメッセージの確認
           assertStringIncludes(result.message, "devcontainer CLI");
@@ -91,18 +112,22 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
     });
 
     await t.step("存在しないWorkerでのdevcontainer起動", async () => {
-      const result = await admin.startDevcontainerForWorker("nonexistent-thread");
-      
+      const result = await admin.startDevcontainerForWorker(
+        "nonexistent-thread",
+      );
+
       assertEquals(result.success, false);
       assertEquals(result.message, "Workerが見つかりません。");
     });
 
     await t.step("Workerが存在する場合のdevcontainer起動", async () => {
       await admin.createWorker("test-thread-devcontainer");
-      
+
       // リポジトリが設定されていない状態でのテスト
-      const result = await admin.startDevcontainerForWorker("test-thread-devcontainer");
-      
+      const result = await admin.startDevcontainerForWorker(
+        "test-thread-devcontainer",
+      );
+
       assertEquals(result.success, false);
       assertStringIncludes(result.message, "devcontainerの起動に失敗しました");
     });
