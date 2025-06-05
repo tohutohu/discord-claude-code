@@ -144,6 +144,11 @@ export class Worker implements IWorker {
     let result = "";
     let newSessionId: string | null = null;
 
+    // 生のjsonlを保存
+    if (this.repository?.fullName && output.trim()) {
+      this.saveRawJsonlOutput(output);
+    }
+
     for (const line of lines) {
       if (!line.trim()) continue;
 
@@ -181,6 +186,20 @@ export class Worker implements IWorker {
     }
 
     return result.trim() || "Claude からの応答を取得できませんでした。";
+  }
+
+  private async saveRawJsonlOutput(output: string): Promise<void> {
+    if (!this.repository?.fullName || !this.sessionId) return;
+
+    try {
+      await this.workspaceManager.saveRawSessionJsonl(
+        this.repository.fullName,
+        this.sessionId,
+        output,
+      );
+    } catch (error) {
+      console.error("生JSONLの保存に失敗しました:", error);
+    }
   }
 
   private formatResponse(response: string): string {

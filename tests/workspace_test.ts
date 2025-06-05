@@ -224,6 +224,118 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
   await Deno.remove(uniqueTestDir, { recursive: true });
 });
 
+Deno.test("生のJSONLセッションデータを保存できる", async () => {
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+
+  const repositoryFullName = "test-org/test-repo";
+  const sessionId = "session-12345";
+  const rawJsonlContent =
+    `{"type":"assistant","subtype":"tool_use","session_id":"session-12345","message":{"id":"msg_123","type":"message","role":"assistant","content":[{"type":"text","text":"Hello World"}]}}
+{"type":"result","session_id":"session-12345","result":"Task completed"}`;
+
+  // 生のJSONLを保存
+  await workspace.saveRawSessionJsonl(
+    repositoryFullName,
+    sessionId,
+    rawJsonlContent,
+  );
+
+  // ファイルが正しい場所に保存されているかチェック
+  const expectedDir = join(testDir, "sessions", repositoryFullName);
+  const dirStat = await Deno.stat(expectedDir);
+  assertEquals(dirStat.isDirectory, true);
+
+  // ファイル一覧を取得して、正しい形式で保存されているかチェック
+  const files = [];
+  for await (const entry of Deno.readDir(expectedDir)) {
+    if (entry.isFile && entry.name.endsWith(".jsonl")) {
+      files.push(entry.name);
+    }
+  }
+
+  assertEquals(files.length, 1);
+
+  // ファイル名の形式をチェック（タイムスタンプ_セッションID.jsonl）
+  const fileName = files[0];
+  assertEquals(fileName.endsWith(`_${sessionId}.jsonl`), true);
+
+  // ファイル内容をチェック
+  const filePath = join(expectedDir, fileName);
+  const savedContent = await Deno.readTextFile(filePath);
+  assertEquals(savedContent, rawJsonlContent);
+});
+
+Deno.test("複数のリポジトリで生のJSONLセッションデータを保存できる", async () => {
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+
+  const repositories = ["org1/repo1", "org2/repo2"];
+  const sessionIds = ["session-001", "session-002"];
+
+  for (let i = 0; i < repositories.length; i++) {
+    const repositoryFullName = repositories[i];
+    const sessionId = sessionIds[i];
+    const rawJsonlContent =
+      `{"type":"test","session_id":"${sessionId}","data":"test-${i}"}`;
+
+    await workspace.saveRawSessionJsonl(
+      repositoryFullName,
+      sessionId,
+      rawJsonlContent,
+    );
+
+    // 各リポジトリ用ディレクトリが作成されているかチェック
+    const expectedDir = join(testDir, "sessions", repositoryFullName);
+    const dirStat = await Deno.stat(expectedDir);
+    assertEquals(dirStat.isDirectory, true);
+  }
+});
+
+Deno.test("同じセッションIDでJSONLデータを追記できる", async () => {
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+
+  const repositoryFullName = "test-org/append-test";
+  const sessionId = "session-append-123";
+
+  // 最初のデータを保存
+  const firstContent =
+    `{"type":"first","session_id":"${sessionId}","data":"first"}`;
+  await workspace.saveRawSessionJsonl(
+    repositoryFullName,
+    sessionId,
+    firstContent,
+  );
+
+  // 同じセッションIDで追加のデータを保存
+  const secondContent =
+    `{"type":"second","session_id":"${sessionId}","data":"second"}`;
+  await workspace.saveRawSessionJsonl(
+    repositoryFullName,
+    sessionId,
+    secondContent,
+  );
+
+  // ファイルが1つだけ存在することを確認
+  const expectedDir = join(testDir, "sessions", repositoryFullName);
+  const files = [];
+  for await (const entry of Deno.readDir(expectedDir)) {
+    if (entry.isFile && entry.name.endsWith(".jsonl")) {
+      files.push(entry.name);
+    }
+  }
+  assertEquals(files.length, 1);
+
+  // ファイル内容が追記されていることを確認
+  const filePath = join(expectedDir, files[0]);
+  const savedContent = await Deno.readTextFile(filePath);
+  const lines = savedContent.trim().split("\n");
+  assertEquals(lines.length, 2);
+  assertEquals(lines[0], firstContent);
+  assertEquals(lines[1], secondContent);
+});
+
 // テスト後のクリーンアップ
 Deno.test({
   name: "テストディレクトリをクリーンアップ",

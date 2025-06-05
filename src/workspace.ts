@@ -74,6 +74,21 @@ export class WorkspaceManager {
     return join(this.getSessionDirPath(threadId), `${sessionId}.json`);
   }
 
+  private getRepositorySessionDirPath(repositoryFullName: string): string {
+    return join(this.config.sessionsDir, repositoryFullName);
+  }
+
+  private getRawSessionFilePath(
+    repositoryFullName: string,
+    timestamp: string,
+    sessionId: string,
+  ): string {
+    return join(
+      this.getRepositorySessionDirPath(repositoryFullName),
+      `${timestamp}_${sessionId}.jsonl`,
+    );
+  }
+
   private getAuditFilePath(date: string): string {
     return join(this.config.auditDir, date, "activity.jsonl");
   }
@@ -153,6 +168,50 @@ export class WorkspaceManager {
       } else {
         throw error;
       }
+    }
+  }
+
+  async saveRawSessionJsonl(
+    repositoryFullName: string,
+    sessionId: string,
+    rawJsonlContent: string,
+  ): Promise<void> {
+    const repositorySessionDir = this.getRepositorySessionDirPath(
+      repositoryFullName,
+    );
+    await ensureDir(repositorySessionDir);
+
+    // 既存のファイルを探す
+    let existingFilePath: string | null = null;
+    try {
+      for await (const entry of Deno.readDir(repositorySessionDir)) {
+        if (entry.isFile && entry.name.endsWith(`_${sessionId}.jsonl`)) {
+          existingFilePath = join(repositorySessionDir, entry.name);
+          break;
+        }
+      }
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    }
+
+    let filePath: string;
+    if (existingFilePath) {
+      // 既存ファイルに追記
+      filePath = existingFilePath;
+      await Deno.writeTextFile(filePath, "\n" + rawJsonlContent, {
+        append: true,
+      });
+    } else {
+      // 新規ファイル作成
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      filePath = this.getRawSessionFilePath(
+        repositoryFullName,
+        timestamp,
+        sessionId,
+      );
+      await Deno.writeTextFile(filePath, rawJsonlContent);
     }
   }
 
