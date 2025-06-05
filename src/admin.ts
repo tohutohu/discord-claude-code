@@ -31,6 +31,7 @@ export interface IAdmin {
   handleButtonInteraction(threadId: string, customId: string): Promise<string>;
   createInitialMessage(threadId: string): DiscordMessage;
   terminateThread(threadId: string): Promise<void>;
+  restoreActiveThreads(): Promise<void>;
 }
 
 export class Admin implements IAdmin {
@@ -49,6 +50,137 @@ export class Admin implements IAdmin {
         workspaceBaseDir: workspaceManager.getBaseDir(),
       });
     }
+  }
+
+  /**
+   * 既存のアクティブなスレッドを復旧する
+   */
+  async restoreActiveThreads(): Promise<void> {
+    this.logVerbose("アクティブスレッド復旧開始");
+
+    try {
+      const allThreadInfos = await this.workspaceManager.getAllThreadInfos();
+      const activeThreads = allThreadInfos.filter(
+        (thread) => thread.status === "active",
+      );
+
+      this.logVerbose("復旧対象スレッド発見", {
+        totalThreads: allThreadInfos.length,
+        activeThreads: activeThreads.length,
+      });
+
+      for (const threadInfo of activeThreads) {
+        try {
+          await this.restoreThread(threadInfo);
+        } catch (error) {
+          this.logVerbose("スレッド復旧失敗", {
+            threadId: threadInfo.threadId,
+            error: (error as Error).message,
+          });
+          console.error(
+            `スレッド ${threadInfo.threadId} の復旧に失敗しました:`,
+            error,
+          );
+        }
+      }
+
+      this.logVerbose("アクティブスレッド復旧完了", {
+        restoredCount: this.workers.size,
+      });
+    } catch (error) {
+      this.logVerbose("アクティブスレッド復旧でエラー", {
+        error: (error as Error).message,
+      });
+      console.error("アクティブスレッドの復旧でエラーが発生しました:", error);
+    }
+  }
+
+  /**
+   * 単一のスレッドを復旧する
+   */
+  private async restoreThread(threadInfo: ThreadInfo): Promise<void> {
+    const { threadId } = threadInfo;
+
+    this.logVerbose("スレッド復旧開始", {
+      threadId,
+      repositoryFullName: threadInfo.repositoryFullName,
+      hasDevcontainerConfig: !!threadInfo.devcontainerConfig,
+    });
+
+    // Workerを作成（ただし既存のWorker作成ロジックをスキップして直接作成）
+    const workerName = generateWorkerName();
+    const worker = new Worker(
+      workerName,
+      this.workspaceManager,
+      undefined,
+      this.verbose,
+    );
+    worker.setThreadId(threadId);
+
+    // devcontainer設定を復旧
+    if (threadInfo.devcontainerConfig) {
+      const config = threadInfo.devcontainerConfig;
+      worker.setUseDevcontainer(config.useDevcontainer);
+      worker.setSkipPermissions(config.skipPermissions);
+
+      this.logVerbose("devcontainer設定復旧", {
+        threadId,
+        useDevcontainer: config.useDevcontainer,
+        skipPermissions: config.skipPermissions,
+        hasContainerId: !!config.containerId,
+        isStarted: config.isStarted,
+      });
+    }
+
+    // リポジトリ情報を復旧
+    if (
+      threadInfo.repositoryFullName && threadInfo.repositoryLocalPath &&
+      threadInfo.worktreePath
+    ) {
+      try {
+        // リポジトリ情報を再構築
+        const { parseRepository } = await import("./git-utils.ts");
+        const repository = parseRepository(threadInfo.repositoryFullName);
+
+        if (repository) {
+          await worker.setRepository(repository, threadInfo.repositoryLocalPath);
+          this.logVerbose("リポジトリ情報復旧完了", {
+            threadId,
+            repositoryFullName: threadInfo.repositoryFullName,
+            worktreePath: threadInfo.worktreePath,
+          });
+        }
+      } catch (error) {
+        this.logVerbose("リポジトリ情報復旧失敗", {
+          threadId,
+          repositoryFullName: threadInfo.repositoryFullName,
+          error: (error as Error).message,
+        });
+        console.warn(
+          `スレッド ${threadId} のリポジトリ情報復旧に失敗しました:`,
+          error,
+        );
+      }
+    }
+
+    // Workerを管理Mapに追加
+    this.workers.set(threadId, worker);
+
+    // 最終アクティブ時刻を更新
+    await this.workspaceManager.updateThreadLastActive(threadId);
+
+    // 監査ログに記録
+    await this.logAuditEntry(threadId, "thread_restored", {
+      workerName,
+      repositoryFullName: threadInfo.repositoryFullName,
+      hasDevcontainerConfig: !!threadInfo.devcontainerConfig,
+    });
+
+    this.logVerbose("スレッド復旧完了", {
+      threadId,
+      workerName,
+      hasRepository: !!worker.getRepository(),
+    });
   }
 
   /**
@@ -119,6 +251,7 @@ export class Admin implements IAdmin {
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active",
+      devcontainerConfig: null,
     };
 
     await this.workspaceManager.saveThreadInfo(threadInfo);
@@ -325,6 +458,17 @@ export class Admin implements IAdmin {
       this.logVerbose("devcontainer.json未発見、ローカル環境で実行", {
         threadId,
       });
+
+      // devcontainer設定情報を保存（ファイル未存在）
+      const config = {
+        useDevcontainer: false,
+        skipPermissions: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      };
+      await this.saveDevcontainerConfig(threadId, config);
+
       return {
         hasDevcontainer: false,
         message:
@@ -362,6 +506,17 @@ export class Admin implements IAdmin {
       this.logVerbose("devcontainer CLI未インストール、ローカル環境で実行", {
         threadId,
       });
+
+      // devcontainer設定情報を保存（CLI未インストール）
+      const config = {
+        useDevcontainer: false,
+        skipPermissions: false,
+        hasDevcontainerFile: true,
+        hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature ?? false,
+        isStarted: false,
+      };
+      await this.saveDevcontainerConfig(threadId, config);
+
       return {
         hasDevcontainer: true,
         message:
@@ -402,6 +557,16 @@ export class Admin implements IAdmin {
       hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature,
       hasWarning: !!warningMessage,
     });
+
+    // devcontainer設定情報を保存（ファイル存在状況とfeature情報のみ）
+    const config = {
+      useDevcontainer: false, // まだ選択されていない
+      skipPermissions: false,
+      hasDevcontainerFile: true,
+      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature ?? false,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
 
     return {
       hasDevcontainer: true,
@@ -476,6 +641,17 @@ export class Admin implements IAdmin {
     });
 
     if (result.success) {
+      // devcontainer設定情報を更新（起動状態とcontainerId）
+      const existingConfig = await this.getDevcontainerConfig(threadId);
+      if (existingConfig) {
+        const updatedConfig = {
+          ...existingConfig,
+          containerId: result.containerId || "unknown",
+          isStarted: true,
+        };
+        await this.saveDevcontainerConfig(threadId, updatedConfig);
+      }
+
       await this.logAuditEntry(threadId, "devcontainer_started", {
         containerId: result.containerId || "unknown",
       });
@@ -516,6 +692,18 @@ export class Admin implements IAdmin {
       return "Workerが見つかりません。";
     }
 
+    // devcontainer設定情報を保存（部分的）
+    const existingConfig = await this.getDevcontainerConfig(threadId);
+    const config = {
+      useDevcontainer: true,
+      skipPermissions: existingConfig?.skipPermissions ?? false,
+      hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
+      hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
+      containerId: existingConfig?.containerId,
+      isStarted: existingConfig?.isStarted ?? false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
+
     // 権限設定の選択ボタンを表示するため、返信メッセージで更新する必要がある
     // この処理は main.ts のhandleButtonInteractionで別途実装する
     return "devcontainer_permissions_choice";
@@ -532,6 +720,18 @@ export class Admin implements IAdmin {
 
     const workerTyped = worker as Worker;
     workerTyped.setUseDevcontainer(false);
+
+    // devcontainer設定情報を保存（部分的）
+    const existingConfig = await this.getDevcontainerConfig(threadId);
+    const config = {
+      useDevcontainer: false,
+      skipPermissions: existingConfig?.skipPermissions ?? false,
+      hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
+      hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
+      containerId: existingConfig?.containerId,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
 
     // 権限設定の選択ボタンを表示するため、返信メッセージで更新する必要がある
     return "local_permissions_choice";
@@ -551,6 +751,18 @@ export class Admin implements IAdmin {
 
     const workerTyped = worker as Worker;
     workerTyped.setSkipPermissions(skipPermissions);
+
+    // devcontainer設定情報を保存（権限設定を更新）
+    const existingConfig = await this.getDevcontainerConfig(threadId);
+    const config = {
+      useDevcontainer: false,
+      skipPermissions,
+      hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
+      hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
+      containerId: existingConfig?.containerId,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
 
     const permissionMsg = skipPermissions
       ? "権限チェックスキップを有効にしました。"
@@ -575,8 +787,58 @@ export class Admin implements IAdmin {
     workerTyped.setUseDevcontainer(true);
     workerTyped.setSkipPermissions(skipPermissions);
 
+    // devcontainer設定情報を保存（権限設定を更新）
+    const existingConfig = await this.getDevcontainerConfig(threadId);
+    const config = {
+      useDevcontainer: true,
+      skipPermissions,
+      hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
+      hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
+      containerId: existingConfig?.containerId,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
+
     // devcontainerを起動 (進捗コールバックはmain.tsから渡される)
     return "devcontainer_start_with_progress";
+  }
+
+  /**
+   * スレッドのdevcontainer設定を保存する
+   */
+  async saveDevcontainerConfig(
+    threadId: string,
+    config: {
+      useDevcontainer: boolean;
+      skipPermissions: boolean;
+      hasDevcontainerFile: boolean;
+      hasAnthropicsFeature: boolean;
+      containerId?: string;
+      isStarted: boolean;
+    },
+  ): Promise<void> {
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+    if (threadInfo) {
+      threadInfo.devcontainerConfig = config;
+      threadInfo.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveThreadInfo(threadInfo);
+      this.logVerbose("devcontainer設定保存完了", { threadId, config });
+    }
+  }
+
+  /**
+   * スレッドのdevcontainer設定を取得する
+   */
+  async getDevcontainerConfig(threadId: string): Promise<{
+    useDevcontainer: boolean;
+    skipPermissions: boolean;
+    hasDevcontainerFile: boolean;
+    hasAnthropicsFeature: boolean;
+    containerId?: string;
+    isStarted: boolean;
+  } | null> {
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+    return threadInfo?.devcontainerConfig || null;
   }
 
   private async logAuditEntry(

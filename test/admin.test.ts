@@ -402,3 +402,204 @@ Deno.test("Admin - verboseモードでのメッセージルーティングログ
     console.log = originalConsoleLog;
   }
 });
+
+Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "devcontainer-config-test";
+
+  // Worker作成
+  await admin.createWorker(threadId);
+
+  // devcontainer設定を保存
+  const config = {
+    useDevcontainer: true,
+    skipPermissions: false,
+    hasDevcontainerFile: true,
+    hasAnthropicsFeature: true,
+    containerId: "container123",
+    isStarted: true,
+  };
+
+  await admin.saveDevcontainerConfig(threadId, config);
+
+  // 設定を取得して確認
+  const retrievedConfig = await admin.getDevcontainerConfig(threadId);
+
+  assertEquals(retrievedConfig?.useDevcontainer, true);
+  assertEquals(retrievedConfig?.skipPermissions, false);
+  assertEquals(retrievedConfig?.hasDevcontainerFile, true);
+  assertEquals(retrievedConfig?.hasAnthropicsFeature, true);
+  assertEquals(retrievedConfig?.containerId, "container123");
+  assertEquals(retrievedConfig?.isStarted, true);
+});
+
+Deno.test("Admin - ThreadInfoにdevcontainer設定が永続化される", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "devcontainer-persist-test";
+
+  // Worker作成
+  await admin.createWorker(threadId);
+
+  // devcontainer設定を保存
+  const config = {
+    useDevcontainer: false,
+    skipPermissions: true,
+    hasDevcontainerFile: false,
+    hasAnthropicsFeature: false,
+    isStarted: false,
+  };
+
+  await admin.saveDevcontainerConfig(threadId, config);
+
+  // WorkspaceManagerから直接ThreadInfoを読み込んで確認
+  const threadInfo = await workspace.loadThreadInfo(threadId);
+
+  assertEquals(threadInfo?.devcontainerConfig?.useDevcontainer, false);
+  assertEquals(threadInfo?.devcontainerConfig?.skipPermissions, true);
+  assertEquals(threadInfo?.devcontainerConfig?.hasDevcontainerFile, false);
+  assertEquals(threadInfo?.devcontainerConfig?.hasAnthropicsFeature, false);
+  assertEquals(threadInfo?.devcontainerConfig?.isStarted, false);
+});
+
+Deno.test("Admin - 存在しないスレッドのdevcontainer設定取得はnullを返す", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+
+  const config = await admin.getDevcontainerConfig("non-existent-thread");
+
+  assertEquals(config, null);
+});
+
+Deno.test("Admin - アクティブなスレッドを復旧できる", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // 最初のAdminでスレッドを作成・設定
+  const admin1 = new Admin(workspace);
+  const threadId = "restore-test-thread";
+
+  // Worker作成
+  await admin1.createWorker(threadId);
+
+  // devcontainer設定を保存
+  const config = {
+    useDevcontainer: true,
+    skipPermissions: false,
+    hasDevcontainerFile: true,
+    hasAnthropicsFeature: true,
+    containerId: "test-container-456",
+    isStarted: true,
+  };
+  await admin1.saveDevcontainerConfig(threadId, config);
+
+  // Workerが存在することを確認
+  assertEquals(admin1.getWorker(threadId) !== null, true);
+
+  // 新しいAdminを作成（再起動をシミュレート）
+  const admin2 = new Admin(workspace);
+
+  // 復旧前はWorkerが存在しない
+  assertEquals(admin2.getWorker(threadId), null);
+
+  // アクティブスレッドを復旧
+  await admin2.restoreActiveThreads();
+
+  // 復旧後はWorkerが存在する
+  const restoredWorker = admin2.getWorker(threadId);
+  assertEquals(restoredWorker !== null, true);
+  assertEquals(typeof restoredWorker?.getName(), "string");
+
+  // devcontainer設定も復旧されている
+  const restoredConfig = await admin2.getDevcontainerConfig(threadId);
+  assertEquals(restoredConfig?.useDevcontainer, true);
+  assertEquals(restoredConfig?.skipPermissions, false);
+  assertEquals(restoredConfig?.hasDevcontainerFile, true);
+  assertEquals(restoredConfig?.hasAnthropicsFeature, true);
+  assertEquals(restoredConfig?.containerId, "test-container-456");
+  assertEquals(restoredConfig?.isStarted, true);
+});
+
+Deno.test("Admin - アーカイブされたスレッドは復旧されない", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // スレッド情報を直接作成（アーカイブ状態）
+  const threadId = "archived-thread";
+  const threadInfo = {
+    threadId,
+    repositoryFullName: null,
+    repositoryLocalPath: null,
+    worktreePath: null,
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+    status: "archived" as const,
+    devcontainerConfig: null,
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // Adminを作成してアクティブスレッドを復旧
+  const admin = new Admin(workspace);
+  await admin.restoreActiveThreads();
+
+  // アーカイブされたスレッドは復旧されない
+  assertEquals(admin.getWorker(threadId), null);
+});
+
+Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // 無効なリポジトリ情報を持つスレッド情報を作成
+  const threadId = "invalid-repo-thread";
+  const threadInfo = {
+    threadId,
+    repositoryFullName: "invalid/repository",
+    repositoryLocalPath: "/nonexistent/path",
+    worktreePath: "/nonexistent/worktree",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+    status: "active" as const,
+    devcontainerConfig: {
+      useDevcontainer: false,
+      skipPermissions: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // Adminを作成してアクティブスレッドを復旧
+  const admin = new Admin(workspace);
+
+  // エラーハンドリングのため、コンソールエラーをキャプチャ
+  const originalConsoleError = console.error;
+  const originalConsoleWarn = console.warn;
+  const errorMessages: string[] = [];
+  const warnMessages: string[] = [];
+
+  console.error = (...args: unknown[]) => {
+    errorMessages.push(args.join(" "));
+  };
+  console.warn = (...args: unknown[]) => {
+    warnMessages.push(args.join(" "));
+  };
+
+  try {
+    await admin.restoreActiveThreads();
+
+    // Workerは作成され、リポジトリオブジェクトも作成される（parseRepositoryは成功するため）
+    const worker = admin.getWorker(threadId);
+    assertEquals(worker !== null, true);
+    // parseRepositoryは有効なリポジトリオブジェクトを返すが、worktreeの作成に失敗する可能性がある
+    assertExists(worker?.getRepository());
+
+    // エラーハンドリングが適切に動作していることを確認
+    // 実際のエラーが発生するかは環境に依存するため、ここではWorkerの状態のみを確認
+  } finally {
+    // コンソールを元に戻す
+    console.error = originalConsoleError;
+    console.warn = originalConsoleWarn;
+  }
+});

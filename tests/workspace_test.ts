@@ -30,6 +30,7 @@ Deno.test("スレッド情報を保存・読み込みできる", async () => {
     createdAt: "2024-01-01T00:00:00.000Z",
     lastActiveAt: "2024-01-01T01:00:00.000Z",
     status: "active",
+    devcontainerConfig: null,
   };
 
   // 保存
@@ -63,6 +64,7 @@ Deno.test("スレッドの最終アクティブ時刻を更新できる", async 
     createdAt: "2024-01-01T00:00:00.000Z",
     lastActiveAt: "2024-01-01T00:00:00.000Z",
     status: "active",
+    devcontainerConfig: null,
   };
 
   await workspace.saveThreadInfo(threadInfo);
@@ -193,6 +195,7 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
       createdAt: "2024-01-01T00:00:00.000Z",
       lastActiveAt: "2024-01-01T01:00:00.000Z",
       status: "inactive",
+      devcontainerConfig: null,
     },
     {
       threadId: "thread-new",
@@ -202,6 +205,7 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
       createdAt: "2024-01-01T00:00:00.000Z",
       lastActiveAt: "2024-01-01T03:00:00.000Z",
       status: "active",
+      devcontainerConfig: null,
     },
     {
       threadId: "thread-mid",
@@ -211,6 +215,7 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
       createdAt: "2024-01-01T00:00:00.000Z",
       lastActiveAt: "2024-01-01T02:00:00.000Z",
       status: "active",
+      devcontainerConfig: null,
     },
   ];
 

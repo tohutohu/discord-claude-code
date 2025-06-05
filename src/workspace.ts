@@ -18,6 +18,14 @@ export interface ThreadInfo {
   createdAt: string;
   lastActiveAt: string;
   status: "active" | "inactive" | "archived";
+  devcontainerConfig: {
+    useDevcontainer: boolean;
+    skipPermissions: boolean;
+    hasDevcontainerFile: boolean;
+    hasAnthropicsFeature: boolean;
+    containerId?: string;
+    isStarted: boolean;
+  } | null;
 }
 
 export interface SessionLog {
