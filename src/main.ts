@@ -1,4 +1,5 @@
 import {
+  AutocompleteInteraction,
   ButtonInteraction,
   ChatInputCommandInteraction,
   Client,
@@ -36,6 +37,7 @@ const commands = [
       option.setName("repository")
         .setDescription("対象のGitHubリポジトリ（例: owner/repo）")
         .setRequired(true)
+        .setAutocomplete(true)
     )
     .toJSON(),
 ];
@@ -67,6 +69,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await handleSlashCommand(interaction);
   } else if (interaction.isButton()) {
     await handleButtonInteraction(interaction);
+  } else if (interaction.isAutocomplete()) {
+    await handleAutocomplete(interaction);
   }
 });
 
@@ -92,6 +96,36 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
     } catch {
       await interaction.reply("エラーが発生しました。");
     }
+  }
+}
+
+async function handleAutocomplete(interaction: AutocompleteInteraction) {
+  try {
+    if (interaction.commandName === "start") {
+      const focusedOption = interaction.options.getFocused(true);
+
+      if (focusedOption.name === "repository") {
+        const localRepositories = await workspaceManager.getLocalRepositories();
+        const input = focusedOption.value.toLowerCase();
+
+        // 入力文字列でフィルタリング
+        const filtered = localRepositories.filter((repo) =>
+          repo.toLowerCase().includes(input)
+        );
+
+        // Discord.jsの制限により最大25件まで
+        const choices = filtered.slice(0, 25).map((repo) => ({
+          name: repo,
+          value: repo,
+        }));
+
+        await interaction.respond(choices);
+      }
+    }
+  } catch (error) {
+    console.error("オートコンプリートエラー:", error);
+    // エラー時は空の選択肢を返す
+    await interaction.respond([]);
   }
 }
 

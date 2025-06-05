@@ -341,6 +341,85 @@ Deno.test("同じセッションIDでJSONLデータを追記できる", async ()
   assertEquals(lines[1], secondContent);
 });
 
+Deno.test("ローカルリポジトリの一覧を取得できる", async () => {
+  const uniqueTestDir = await Deno.makeTempDir({
+    prefix: "workspace_test_local_repos_",
+  });
+  const workspace = new WorkspaceManager(uniqueTestDir);
+  await workspace.initialize();
+
+  // テスト用のリポジトリディレクトリ構造を作成
+  const repoStructure = [
+    "org1/repo1",
+    "org1/repo2",
+    "org2/repo3",
+    "user1/personal-project",
+  ];
+
+  for (const repo of repoStructure) {
+    const [org, repoName] = repo.split("/");
+    const repoPath = workspace.getRepositoryPath(org, repoName);
+    await Deno.mkdir(repoPath, { recursive: true });
+  }
+
+  // ローカルリポジトリ一覧を取得
+  const localRepos = await workspace.getLocalRepositories();
+
+  assertEquals(localRepos.length, 4);
+  assertEquals(localRepos, [
+    "org1/repo1",
+    "org1/repo2",
+    "org2/repo3",
+    "user1/personal-project",
+  ]);
+
+  // テストディレクトリをクリーンアップ
+  await Deno.remove(uniqueTestDir, { recursive: true });
+});
+
+Deno.test("ローカルリポジトリが存在しない場合は空の配列を返す", async () => {
+  const uniqueTestDir = await Deno.makeTempDir({
+    prefix: "workspace_test_empty_repos_",
+  });
+  const workspace = new WorkspaceManager(uniqueTestDir);
+  await workspace.initialize();
+
+  const localRepos = await workspace.getLocalRepositories();
+  assertEquals(localRepos, []);
+
+  // テストディレクトリをクリーンアップ
+  await Deno.remove(uniqueTestDir, { recursive: true });
+});
+
+Deno.test("不正なディレクトリ構造があってもエラーにならない", async () => {
+  const uniqueTestDir = await Deno.makeTempDir({
+    prefix: "workspace_test_invalid_repos_",
+  });
+  const workspace = new WorkspaceManager(uniqueTestDir);
+  await workspace.initialize();
+
+  // 正常なリポジトリ
+  const validRepoPath = workspace.getRepositoryPath("valid-org", "valid-repo");
+  await Deno.mkdir(validRepoPath, { recursive: true });
+
+  // org レベルに不正なファイルを作成
+  await Deno.writeTextFile(
+    join(workspace.getRepositoriesDir(), "not-a-directory.txt"),
+    "test",
+  );
+
+  // repo レベルに不正なファイルを作成
+  const orgPath = join(workspace.getRepositoriesDir(), "test-org");
+  await Deno.mkdir(orgPath, { recursive: true });
+  await Deno.writeTextFile(join(orgPath, "not-a-repo.txt"), "test");
+
+  const localRepos = await workspace.getLocalRepositories();
+  assertEquals(localRepos, ["valid-org/valid-repo"]);
+
+  // テストディレクトリをクリーンアップ
+  await Deno.remove(uniqueTestDir, { recursive: true });
+});
+
 // テスト後のクリーンアップ
 Deno.test({
   name: "テストディレクトリをクリーンアップ",

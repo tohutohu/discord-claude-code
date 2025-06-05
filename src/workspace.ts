@@ -333,4 +333,37 @@ export class WorkspaceManager {
       }
     }
   }
+
+  async getLocalRepositories(): Promise<string[]> {
+    try {
+      const repositories: string[] = [];
+
+      for await (const orgEntry of Deno.readDir(this.config.repositoriesDir)) {
+        if (orgEntry.isDirectory) {
+          const orgPath = join(this.config.repositoriesDir, orgEntry.name);
+
+          try {
+            for await (const repoEntry of Deno.readDir(orgPath)) {
+              if (repoEntry.isDirectory) {
+                repositories.push(`${orgEntry.name}/${repoEntry.name}`);
+              }
+            }
+          } catch (error) {
+            if (!(error instanceof Deno.errors.NotFound)) {
+              console.warn(
+                `リポジトリディレクトリの読み取りに失敗しました (${orgPath}): ${error}`,
+              );
+            }
+          }
+        }
+      }
+
+      return repositories.sort();
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return [];
+      }
+      throw error;
+    }
+  }
 }
