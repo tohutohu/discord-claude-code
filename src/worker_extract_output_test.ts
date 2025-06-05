@@ -410,6 +410,83 @@ Deno.test("extractOutputMessage - 短いツール結果を正しく処理する"
   }
 });
 
+Deno.test("extractOutputMessage - TodoWrite成功メッセージをスキップする", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const workspaceManager = new WorkspaceManager(tempDir);
+  await workspaceManager.initialize();
+
+  const worker = new Worker(
+    "test-worker",
+    workspaceManager,
+    new TestClaudeCommandExecutor(),
+  );
+
+  const extractOutputMessage = (worker as unknown as {
+    extractOutputMessage: (parsed: Record<string, unknown>) => string | null;
+  }).extractOutputMessage.bind(worker);
+
+  try {
+    // TodoWrite成功の定型文
+    const todoSuccessMessage = {
+      "type": "user",
+      "message": {
+        "content": [{
+          "type": "tool_result",
+          "content":
+            "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable",
+          "is_error": false,
+        }],
+      },
+    };
+
+    const result = extractOutputMessage(todoSuccessMessage);
+
+    // TodoWrite成功メッセージはnullを返す（スキップされる）
+    assertEquals(result, null);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("extractOutputMessage - TodoWriteエラーメッセージは表示する", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const workspaceManager = new WorkspaceManager(tempDir);
+  await workspaceManager.initialize();
+
+  const worker = new Worker(
+    "test-worker",
+    workspaceManager,
+    new TestClaudeCommandExecutor(),
+  );
+
+  const extractOutputMessage = (worker as unknown as {
+    extractOutputMessage: (parsed: Record<string, unknown>) => string | null;
+  }).extractOutputMessage.bind(worker);
+
+  try {
+    // TodoWriteエラーメッセージ
+    const todoErrorMessage = {
+      "type": "user",
+      "message": {
+        "content": [{
+          "type": "tool_result",
+          "content": "Error: Failed to update todos - Invalid todo format",
+          "is_error": true,
+        }],
+      },
+    };
+
+    const result = extractOutputMessage(todoErrorMessage);
+
+    // エラーメッセージは表示される
+    assertEquals(typeof result, "string");
+    assertEquals(result?.includes("❌ **ツール実行結果:**"), true);
+    assertEquals(result?.includes("Failed to update todos"), true);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
 Deno.test("extractOutputMessage - 長いツール結果をスマート要約する", async () => {
   const tempDir = await Deno.makeTempDir();
   const workspaceManager = new WorkspaceManager(tempDir);
