@@ -72,6 +72,9 @@ interface ClaudeStreamMessage {
     content: Array<{
       type: string;
       text?: string;
+      id?: string;
+      name?: string;
+      input?: Record<string, unknown>;
     }>;
     stop_reason: string;
     usage?: {
@@ -420,6 +423,11 @@ export class Worker implements IWorker {
           line: line.substring(0, 100),
         });
         console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
+
+        // JSONとしてパースできなかった場合は全文を投稿
+        if (onProgress && line.trim()) {
+          onProgress(this.formatResponse(line)).catch(console.error);
+        }
       }
     };
 
@@ -703,34 +711,132 @@ export class Worker implements IWorker {
    * JSONL行からClaude Codeの実際の出力メッセージを抽出する
    */
   private extractOutputMessage(parsed: ClaudeStreamMessage): string | null {
-    // assistantメッセージからテキスト内容を抽出
+    // assistantメッセージの場合
     if (parsed.type === "assistant" && parsed.message?.content) {
-      let textContent = "";
-      for (const content of parsed.message.content) {
-        if (content.type === "text" && content.text) {
-          textContent += content.text;
-        }
-      }
-      return textContent || null;
+      return this.extractAssistantMessage(parsed.message.content);
     }
 
-    // resultメッセージから最終結果を抽出
+    // resultメッセージの場合
     if (parsed.type === "result" && parsed.result) {
       return parsed.result;
     }
 
-    // エラーメッセージを抽出
+    // エラーメッセージの場合
     if (parsed.is_error && parsed.message?.content) {
-      let errorContent = "";
-      for (const content of parsed.message.content) {
-        if (content.type === "text" && content.text) {
-          errorContent += content.text;
-        }
-      }
-      return errorContent || null;
+      return this.extractErrorMessage(parsed.message.content);
     }
 
     return null;
+  }
+
+  /**
+   * assistantメッセージのcontentを処理する
+   */
+  private extractAssistantMessage(
+    content: Array<{
+      type: string;
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: Record<string, unknown>;
+    }>,
+  ): string | null {
+    let textContent = "";
+
+    for (const item of content) {
+      if (item.type === "text" && item.text) {
+        textContent += item.text;
+      } else if (item.type === "tool_use" && item.name === "TodoWrite") {
+        // TodoWriteツールの場合はチェックマーク付きリストで表示
+        const todoWriteInput = item.input as {
+          todos?: Array<{
+            status: string;
+            content: string;
+          }>;
+        };
+        if (todoWriteInput?.todos && Array.isArray(todoWriteInput.todos)) {
+          return this.formatTodoList(todoWriteInput.todos);
+        }
+      }
+    }
+
+    // テキスト内容からTODOリスト更新の検出も試行（fallback）
+    const todoListUpdate = this.extractTodoListUpdate(textContent);
+    if (todoListUpdate) {
+      return todoListUpdate;
+    }
+
+    return textContent || null;
+  }
+
+  /**
+   * エラーメッセージのcontentを処理する
+   */
+  private extractErrorMessage(
+    content: Array<{
+      type: string;
+      text?: string;
+    }>,
+  ): string | null {
+    let errorContent = "";
+    for (const item of content) {
+      if (item.type === "text" && item.text) {
+        errorContent += item.text;
+      }
+    }
+    return errorContent || null;
+  }
+
+  /**
+   * TODOリストをチェックマーク付きリスト形式でフォーマットする
+   */
+  private formatTodoList(
+    todos: Array<{
+      status: string;
+      content: string;
+    }>,
+  ): string {
+    const todoList = todos.map((todo) => {
+      const checkbox = todo.status === "completed"
+        ? "✅"
+        : todo.status === "in_progress"
+        ? "🔄"
+        : "⬜";
+      return `${checkbox} ${todo.content}`;
+    }).join("\n");
+
+    return `📋 **TODOリスト更新:**\n${todoList}`;
+  }
+
+  /**
+   * TODOリストの更新ログから変更後の状態をチェックマーク付きリスト形式で抽出する
+   */
+  private extractTodoListUpdate(textContent: string): string | null {
+    try {
+      // TodoWriteツールの使用を検出
+      if (
+        !textContent.includes('"name": "TodoWrite"') &&
+        !textContent.includes("TodoWrite")
+      ) {
+        return null;
+      }
+
+      // JSONからtodosを抽出する正規表現
+      const todoWriteMatch = textContent.match(/"todos":\s*(\[[\s\S]*?\])/);
+      if (!todoWriteMatch) {
+        return null;
+      }
+
+      const todosArray = JSON.parse(todoWriteMatch[1]);
+      if (!Array.isArray(todosArray) || todosArray.length === 0) {
+        return null;
+      }
+
+      return this.formatTodoList(todosArray);
+    } catch (error) {
+      // JSON解析エラーの場合は通常の処理を続行
+      return null;
+    }
   }
 
   /**
