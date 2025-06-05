@@ -138,13 +138,15 @@ export async function startDevcontainer(
     let output = "";
     let errorOutput = "";
 
-    // stdoutをストリーミングで読み取る
-    const reader = process.stdout.getReader();
+    // stdoutとstderrをストリーミングで読み取る
+    const stdoutReader = process.stdout.getReader();
+    const stderrReader = process.stderr.getReader();
 
-    (async () => {
+    // stdoutの読み取り
+    const stdoutPromise = (async () => {
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await stdoutReader.read();
           if (done) break;
           if (value) {
             const chunk = decoder.decode(value, { stream: true });
@@ -168,15 +170,36 @@ export async function startDevcontainer(
       } catch (error) {
         console.error("stdout読み取りエラー:", error);
       } finally {
-        reader.releaseLock();
+        stdoutReader.releaseLock();
       }
     })();
 
-    // プロセスの終了を待つ
-    const { code, stderr } = await process.output();
+    // stderrの読み取り
+    const stderrPromise = (async () => {
+      try {
+        while (true) {
+          const { done, value } = await stderrReader.read();
+          if (done) break;
+          if (value) {
+            const chunk = decoder.decode(value, { stream: true });
+            errorOutput += chunk;
+          }
+        }
+      } catch (error) {
+        console.error("stderr読み取りエラー:", error);
+      } finally {
+        stderrReader.releaseLock();
+      }
+    })();
+
+    // プロセスの終了とストリーミング読み取りの完了を待つ
+    const [{ code }] = await Promise.all([
+      process.output(),
+      stdoutPromise,
+      stderrPromise,
+    ]);
 
     if (code !== 0) {
-      errorOutput = decoder.decode(stderr);
       return {
         success: false,
         error: `devcontainer起動に失敗しました: ${errorOutput}`,
