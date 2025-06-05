@@ -117,19 +117,19 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
 Deno.test("Worker - verboseモードが正しく設定される", async () => {
   const workspace = await createTestWorkspaceManager();
   const workerName = "verbose-eagle";
-  
+
   // verboseモード無効でWorkerを作成
   const workerQuiet = new Worker(workerName, workspace, undefined, false);
   assertEquals(workerQuiet.isVerbose(), false);
-  
+
   // verboseモード有効でWorkerを作成
   const workerVerbose = new Worker(workerName, workspace, undefined, true);
   assertEquals(workerVerbose.isVerbose(), true);
-  
+
   // verboseモードを動的に変更
   workerQuiet.setVerbose(true);
   assertEquals(workerQuiet.isVerbose(), true);
-  
+
   workerVerbose.setVerbose(false);
   assertEquals(workerVerbose.isVerbose(), false);
 });
@@ -140,37 +140,40 @@ Deno.test("Worker - verboseモードでログが出力される", async () => {
   const mockExecutor = new MockClaudeCommandExecutor(
     "verboseモードのテスト応答です。",
   );
-  
+
   // コンソールログをキャプチャするためのモック
   const originalConsoleLog = console.log;
   const logMessages: string[] = [];
   console.log = (...args: unknown[]) => {
-    logMessages.push(args.join(' '));
+    logMessages.push(args.join(" "));
   };
-  
+
   try {
     // verboseモード有効でWorkerを作成
     const worker = new Worker(workerName, workspace, mockExecutor, true);
-    
+
     // リポジトリ情報を設定（ログが出力される）
     const repository = parseRepository("verbose-test/repo");
     const localPath = "/tmp/verbose-test/repo";
     await worker.setRepository(repository, localPath);
-    
+
     // メッセージ処理（ログが出力される）
     const message = "verboseテストメッセージ";
     const reply = await worker.processMessage(message);
-    
+
     assertEquals(reply, "verboseモードのテスト応答です。");
-    
+
     // verboseログが出力されていることを確認
-    const verboseLogs = logMessages.filter(log => 
-      log.includes(`[Worker:${workerName}]`) && 
+    const verboseLogs = logMessages.filter((log) =>
+      log.includes(`[Worker:${workerName}]`) &&
       (log.includes("リポジトリ設定開始") || log.includes("メッセージ処理開始"))
     );
-    
-    assertEquals(verboseLogs.length >= 2, true, `期待される数のverboseログが出力されていません。実際のログ: ${verboseLogs.length}`);
-    
+
+    assertEquals(
+      verboseLogs.length >= 2,
+      true,
+      `期待される数のverboseログが出力されていません。実際のログ: ${verboseLogs.length}`,
+    );
   } finally {
     // コンソールログを元に戻す
     console.log = originalConsoleLog;
@@ -183,36 +186,39 @@ Deno.test("Worker - verboseモード無効時はログが出力されない", as
   const mockExecutor = new MockClaudeCommandExecutor(
     "通常モードのテスト応答です。",
   );
-  
+
   // コンソールログをキャプチャするためのモック
   const originalConsoleLog = console.log;
   const logMessages: string[] = [];
   console.log = (...args: unknown[]) => {
-    logMessages.push(args.join(' '));
+    logMessages.push(args.join(" "));
   };
-  
+
   try {
     // verboseモード無効でWorkerを作成
     const worker = new Worker(workerName, workspace, mockExecutor, false);
-    
+
     // リポジトリ情報を設定
     const repository = parseRepository("quiet-test/repo");
     const localPath = "/tmp/quiet-test/repo";
     await worker.setRepository(repository, localPath);
-    
+
     // メッセージ処理
     const message = "通常モードテストメッセージ";
     const reply = await worker.processMessage(message);
-    
+
     assertEquals(reply, "通常モードのテスト応答です。");
-    
+
     // verboseログが出力されていないことを確認
-    const verboseLogs = logMessages.filter(log => 
+    const verboseLogs = logMessages.filter((log) =>
       log.includes(`[Worker:${workerName}]`)
     );
-    
-    assertEquals(verboseLogs.length, 0, `verboseログが出力されるべきではありません。実際のログ: ${verboseLogs.length}`);
-    
+
+    assertEquals(
+      verboseLogs.length,
+      0,
+      `verboseログが出力されるべきではありません。実際のログ: ${verboseLogs.length}`,
+    );
   } finally {
     // コンソールログを元に戻す
     console.log = originalConsoleLog;

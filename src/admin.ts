@@ -42,7 +42,7 @@ export class Admin implements IAdmin {
     this.workers = new Map();
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
-    
+
     if (this.verbose) {
       this.logVerbose("Admin初期化完了", {
         verboseMode: this.verbose,
@@ -54,12 +54,15 @@ export class Admin implements IAdmin {
   /**
    * verboseログを出力する
    */
-  private logVerbose(message: string, metadata?: Record<string, unknown>): void {
+  private logVerbose(
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): void {
     if (this.verbose) {
       const timestamp = new Date().toISOString();
       const logMessage = `[${timestamp}] [Admin] ${message}`;
       console.log(logMessage);
-      
+
       if (metadata && Object.keys(metadata).length > 0) {
         console.log(`[${timestamp}] [Admin] メタデータ:`, metadata);
       }
@@ -86,9 +89,18 @@ export class Admin implements IAdmin {
 
     // 新しいWorkerを作成
     const workerName = generateWorkerName();
-    this.logVerbose("新規Worker作成開始", { threadId, workerName, verboseMode: this.verbose });
-    
-    const worker = new Worker(workerName, this.workspaceManager, undefined, this.verbose);
+    this.logVerbose("新規Worker作成開始", {
+      threadId,
+      workerName,
+      verboseMode: this.verbose,
+    });
+
+    const worker = new Worker(
+      workerName,
+      this.workspaceManager,
+      undefined,
+      this.verbose,
+    );
     worker.setThreadId(threadId);
     this.workers.set(threadId, worker);
 
@@ -145,7 +157,10 @@ export class Admin implements IAdmin {
 
     const worker = this.workers.get(threadId);
     if (!worker) {
-      this.logVerbose("Worker見つからず", { threadId, availableThreads: Array.from(this.workers.keys()) });
+      this.logVerbose("Worker見つからず", {
+        threadId,
+        availableThreads: Array.from(this.workers.keys()),
+      });
       throw new Error(`Worker not found for thread: ${threadId}`);
     }
 
@@ -168,7 +183,7 @@ export class Admin implements IAdmin {
 
     this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
     const result = await worker.processMessage(message, onProgress);
-    
+
     this.logVerbose("メッセージ処理完了", {
       threadId,
       responseLength: result.length,
@@ -255,7 +270,7 @@ export class Admin implements IAdmin {
 
       this.logVerbose("worktree削除開始", { threadId });
       await this.workspaceManager.removeWorktree(threadId);
-      
+
       this.logVerbose("Worker管理Mapから削除", { threadId });
       this.workers.delete(threadId);
 
@@ -307,7 +322,9 @@ export class Admin implements IAdmin {
     });
 
     if (!devcontainerInfo.configExists) {
-      this.logVerbose("devcontainer.json未発見、ローカル環境で実行", { threadId });
+      this.logVerbose("devcontainer.json未発見、ローカル環境で実行", {
+        threadId,
+      });
       return {
         hasDevcontainer: false,
         message:
@@ -342,7 +359,9 @@ export class Admin implements IAdmin {
     });
 
     if (!hasDevcontainerCli) {
-      this.logVerbose("devcontainer CLI未インストール、ローカル環境で実行", { threadId });
+      this.logVerbose("devcontainer CLI未インストール、ローカル環境で実行", {
+        threadId,
+      });
       return {
         hasDevcontainer: true,
         message:

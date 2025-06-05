@@ -180,9 +180,11 @@ export class Worker implements IWorker {
       this.logVerbose("Claude実行開始");
       const result = await this.executeClaude(message, onProgress);
       this.logVerbose("Claude実行完了", { resultLength: result.length });
-      
+
       const formattedResponse = this.formatResponse(result);
-      this.logVerbose("レスポンス整形完了", { formattedLength: formattedResponse.length });
+      this.logVerbose("レスポンス整形完了", {
+        formattedLength: formattedResponse.length,
+      });
 
       // セッションログの記録（レスポンス）
       if (this.threadId) {
@@ -307,7 +309,9 @@ export class Worker implements IWorker {
         // セッションIDを更新
         if (parsed.session_id) {
           newSessionId = parsed.session_id;
-          this.logVerbose("新しいセッションID取得", { sessionId: newSessionId });
+          this.logVerbose("新しいセッションID取得", {
+            sessionId: newSessionId,
+          });
         }
 
         // アシスタントメッセージからテキストを抽出
@@ -328,9 +332,9 @@ export class Worker implements IWorker {
                 if (lastNewline > 0) {
                   const toSend = progressContent.substring(0, lastNewline);
                   if (toSend.trim()) {
-                    this.logVerbose("進捗更新送信", { 
+                    this.logVerbose("進捗更新送信", {
                       contentLength: toSend.length,
-                      timeSinceLastUpdate: now - lastProgressUpdate 
+                      timeSinceLastUpdate: now - lastProgressUpdate,
                     });
                     onProgress(this.formatResponse(toSend)).catch(
                       console.error,
@@ -349,7 +353,9 @@ export class Worker implements IWorker {
           this.logVerbose("最終結果取得", { resultLength: result.length });
         }
       } catch (parseError) {
-        this.logVerbose(`JSON解析エラー: ${parseError}`, { line: line.substring(0, 100) });
+        this.logVerbose(`JSON解析エラー: ${parseError}`, {
+          line: line.substring(0, 100),
+        });
         console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
       }
     };
@@ -390,14 +396,20 @@ export class Worker implements IWorker {
 
     if (code !== 0) {
       const errorMessage = decoder.decode(stderr);
-      this.logVerbose("ストリーミング実行エラー", { exitCode: code, errorMessage });
+      this.logVerbose("ストリーミング実行エラー", {
+        exitCode: code,
+        errorMessage,
+      });
       throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
     }
 
     // セッションIDを更新
     if (newSessionId) {
       this.sessionId = newSessionId;
-      this.logVerbose("セッションID更新", { oldSessionId: this.sessionId, newSessionId });
+      this.logVerbose("セッションID更新", {
+        oldSessionId: this.sessionId,
+        newSessionId,
+      });
     }
 
     // 生のjsonlを保存
@@ -406,8 +418,11 @@ export class Worker implements IWorker {
       await this.saveRawJsonlOutput(allOutput);
     }
 
-    const finalResult = result.trim() || "Claude からの応答を取得できませんでした。";
-    this.logVerbose("ストリーミング処理完了", { finalResultLength: finalResult.length });
+    const finalResult = result.trim() ||
+      "Claude からの応答を取得できませんでした。";
+    this.logVerbose("ストリーミング処理完了", {
+      finalResultLength: finalResult.length,
+    });
     return finalResult;
   }
 
@@ -556,7 +571,9 @@ export class Worker implements IWorker {
           this.threadId,
           localPath,
         );
-        this.logVerbose("worktree作成完了", { worktreePath: this.worktreePath });
+        this.logVerbose("worktree作成完了", {
+          worktreePath: this.worktreePath,
+        });
 
         const threadInfo = await this.workspaceManager.loadThreadInfo(
           this.threadId,
@@ -569,9 +586,9 @@ export class Worker implements IWorker {
           this.logVerbose("スレッド情報更新完了");
         }
       } catch (error) {
-        this.logVerbose("worktree作成失敗、localPathを使用", { 
+        this.logVerbose("worktree作成失敗、localPathを使用", {
           error: (error as Error).message,
-          fallbackPath: localPath 
+          fallbackPath: localPath,
         });
         console.error(`worktreeの作成に失敗しました: ${error}`);
         this.worktreePath = localPath;
@@ -590,7 +607,9 @@ export class Worker implements IWorker {
     this.sessionId = null;
     this.logVerbose("リポジトリ設定完了", {
       finalWorktreePath: this.worktreePath,
-      executorType: this.useDevcontainer ? "DevcontainerClaudeExecutor" : "DefaultClaudeCommandExecutor",
+      executorType: this.useDevcontainer
+        ? "DevcontainerClaudeExecutor"
+        : "DefaultClaudeCommandExecutor",
     });
   }
 
@@ -650,14 +669,20 @@ export class Worker implements IWorker {
   /**
    * verboseログを出力する
    */
-  private logVerbose(message: string, metadata?: Record<string, unknown>): void {
+  private logVerbose(
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): void {
     if (this.verbose) {
       const timestamp = new Date().toISOString();
       const logMessage = `[${timestamp}] [Worker:${this.name}] ${message}`;
       console.log(logMessage);
-      
+
       if (metadata && Object.keys(metadata).length > 0) {
-        console.log(`[${timestamp}] [Worker:${this.name}] メタデータ:`, metadata);
+        console.log(
+          `[${timestamp}] [Worker:${this.name}] メタデータ:`,
+          metadata,
+        );
       }
     }
   }
