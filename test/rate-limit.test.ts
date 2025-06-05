@@ -118,3 +118,134 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
 
   await Deno.remove(baseDir, { recursive: true });
 });
+
+Deno.test("レートリミットタイマーの復旧 - 時間が残っている場合", async () => {
+  const baseDir = await Deno.makeTempDir({
+    prefix: "test_rate_limit_restore_",
+  });
+  const workspaceManager = new WorkspaceManager(baseDir);
+  await workspaceManager.initialize();
+
+  const admin = new Admin(workspaceManager);
+  const threadId = "test-thread-restore-1";
+
+  // 未来のタイムスタンプ（30秒後）
+  const futureTimestamp = Math.floor((Date.now() + 30 * 1000) / 1000);
+
+  // Workerを作成してスレッド情報を準備
+  await admin.createWorker(threadId);
+
+  // レートリミット情報を保存（自動継続有効）
+  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
+  if (threadInfo) {
+    threadInfo.rateLimitTimestamp = futureTimestamp;
+    threadInfo.autoResumeAfterRateLimit = true;
+    await workspaceManager.saveThreadInfo(threadInfo);
+  }
+
+  // 新しいAdminインスタンスで復旧をテスト
+  const admin2 = new Admin(workspaceManager);
+  await admin2.restoreActiveThreads();
+
+  // タイマーが設定されていることを確認（実際にはprivateなのでMapのサイズで確認）
+  const adminAny = (admin2 as unknown) as {
+    autoResumeTimers: Map<string, number>;
+  };
+  assertEquals(adminAny.autoResumeTimers.has(threadId), true);
+
+  // クリーンアップ
+  await admin2.terminateThread(threadId);
+  await Deno.remove(baseDir, { recursive: true });
+});
+
+Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている場合", async () => {
+  const baseDir = await Deno.makeTempDir({
+    prefix: "test_rate_limit_restore_expired_",
+  });
+  const workspaceManager = new WorkspaceManager(baseDir);
+  await workspaceManager.initialize();
+
+  const admin = new Admin(workspaceManager);
+  const threadId = "test-thread-restore-2";
+
+  // 過去のタイムスタンプ（10分前）
+  const pastTimestamp = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
+
+  // Workerを作成してスレッド情報を準備
+  await admin.createWorker(threadId);
+
+  // レートリミット情報を保存（自動継続有効）
+  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
+  if (threadInfo) {
+    threadInfo.rateLimitTimestamp = pastTimestamp;
+    threadInfo.autoResumeAfterRateLimit = true;
+    await workspaceManager.saveThreadInfo(threadInfo);
+  }
+
+  // 自動再開コールバックをモック
+  let autoResumeCallbackCalled = false;
+  let autoResumeThreadId = "";
+  let autoResumeMessage = "";
+
+  admin.setAutoResumeCallback(async (threadId: string, message: string) => {
+    autoResumeCallbackCalled = true;
+    autoResumeThreadId = threadId;
+    autoResumeMessage = message;
+  });
+
+  // 新しいAdminインスタンスで復旧をテスト（コールバックは引き継がれないのでadminを使用）
+  await admin.restoreActiveThreads();
+
+  // 即座に自動再開が実行されたことを確認
+  assertEquals(autoResumeCallbackCalled, true);
+  assertEquals(autoResumeThreadId, threadId);
+  assertEquals(autoResumeMessage, "続けて");
+
+  // レートリミット情報がリセットされていることを確認
+  const updatedThreadInfo = await workspaceManager.loadThreadInfo(threadId);
+  assertEquals(updatedThreadInfo?.rateLimitTimestamp, undefined);
+  assertEquals(updatedThreadInfo?.autoResumeAfterRateLimit, undefined);
+
+  // クリーンアップ
+  await admin.terminateThread(threadId);
+  await Deno.remove(baseDir, { recursive: true });
+});
+
+Deno.test("レートリミットタイマーの復旧 - 自動継続が無効の場合", async () => {
+  const baseDir = await Deno.makeTempDir({
+    prefix: "test_rate_limit_restore_disabled_",
+  });
+  const workspaceManager = new WorkspaceManager(baseDir);
+  await workspaceManager.initialize();
+
+  const admin = new Admin(workspaceManager);
+  const threadId = "test-thread-restore-3";
+
+  // 未来のタイムスタンプ
+  const futureTimestamp = Math.floor((Date.now() + 30 * 1000) / 1000);
+
+  // Workerを作成してスレッド情報を準備
+  await admin.createWorker(threadId);
+
+  // レートリミット情報を保存（自動継続無効）
+  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
+  if (threadInfo) {
+    threadInfo.rateLimitTimestamp = futureTimestamp;
+    threadInfo.autoResumeAfterRateLimit = false;
+    await workspaceManager.saveThreadInfo(threadInfo);
+  }
+
+  // 新しいAdminインスタンスで復旧をテスト
+  const admin2 = new Admin(workspaceManager);
+  await admin2.restoreActiveThreads();
+
+  // タイマーが設定されていないことを確認
+  const adminAny = (admin2 as unknown) as {
+    autoResumeTimers: Map<string, number>;
+  };
+  assertEquals(adminAny.autoResumeTimers.has(threadId), false);
+
+  // クリーンアップ
+  await admin2.terminateThread(threadId);
+  await Deno.remove(baseDir, { recursive: true });
+});

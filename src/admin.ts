@@ -96,6 +96,9 @@ export class Admin implements IAdmin {
         }
       }
 
+      // レートリミット自動継続タイマーを復旧
+      await this.restoreRateLimitTimers();
+
       this.logVerbose("アクティブスレッド復旧完了", {
         restoredCount: this.workers.size,
       });
@@ -738,6 +741,112 @@ export class Admin implements IAdmin {
       clearTimeout(timerId);
       this.autoResumeTimers.delete(threadId);
       this.logVerbose("自動再開タイマーをクリア", { threadId });
+    }
+  }
+
+  /**
+   * レートリミット自動継続タイマーを復旧する
+   */
+  private async restoreRateLimitTimers(): Promise<void> {
+    this.logVerbose("レートリミットタイマー復旧開始");
+
+    try {
+      const allThreadInfos = await this.workspaceManager.getAllThreadInfos();
+      const rateLimitThreads = allThreadInfos.filter(
+        (thread) =>
+          thread.status === "active" &&
+          thread.autoResumeAfterRateLimit === true &&
+          thread.rateLimitTimestamp,
+      );
+
+      this.logVerbose("レートリミット復旧対象スレッド発見", {
+        totalThreads: allThreadInfos.length,
+        rateLimitThreads: rateLimitThreads.length,
+      });
+
+      for (const threadInfo of rateLimitThreads) {
+        try {
+          await this.restoreRateLimitTimer(threadInfo);
+        } catch (error) {
+          this.logVerbose("レートリミットタイマー復旧失敗", {
+            threadId: threadInfo.threadId,
+            error: (error as Error).message,
+          });
+          console.error(
+            `レートリミットタイマーの復旧に失敗しました (threadId: ${threadInfo.threadId}):`,
+            error,
+          );
+        }
+      }
+
+      this.logVerbose("レートリミットタイマー復旧完了", {
+        restoredTimerCount: rateLimitThreads.length,
+      });
+    } catch (error) {
+      this.logVerbose("レートリミットタイマー復旧でエラー", {
+        error: (error as Error).message,
+      });
+      console.error(
+        "レートリミットタイマーの復旧でエラーが発生しました:",
+        error,
+      );
+    }
+  }
+
+  /**
+   * 単一スレッドのレートリミットタイマーを復旧する
+   */
+  private async restoreRateLimitTimer(threadInfo: ThreadInfo): Promise<void> {
+    if (!threadInfo.rateLimitTimestamp) {
+      return;
+    }
+
+    const currentTime = Date.now();
+    const resumeTime = threadInfo.rateLimitTimestamp * 1000 + 5 * 60 * 1000;
+
+    // 既に時間が過ぎている場合は即座に実行
+    if (currentTime >= resumeTime) {
+      this.logVerbose("レートリミット時間が既に過ぎているため即座に実行", {
+        threadId: threadInfo.threadId,
+        rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+        currentTime: new Date(currentTime).toISOString(),
+        resumeTime: new Date(resumeTime).toISOString(),
+      });
+
+      // 即座に自動再開を実行
+      await this.executeAutoResume(threadInfo.threadId);
+
+      await this.logAuditEntry(
+        threadInfo.threadId,
+        "rate_limit_timer_restored_immediate",
+        {
+          rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+          currentTime: new Date(currentTime).toISOString(),
+        },
+      );
+    } else {
+      // まだ時間が残っている場合はタイマーを再設定
+      this.logVerbose("レートリミットタイマーを再設定", {
+        threadId: threadInfo.threadId,
+        rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+        resumeTime: new Date(resumeTime).toISOString(),
+        delayMs: resumeTime - currentTime,
+      });
+
+      this.scheduleAutoResume(
+        threadInfo.threadId,
+        threadInfo.rateLimitTimestamp,
+      );
+
+      await this.logAuditEntry(
+        threadInfo.threadId,
+        "rate_limit_timer_restored",
+        {
+          rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+          resumeTime: new Date(resumeTime).toISOString(),
+          delayMs: resumeTime - currentTime,
+        },
+      );
     }
   }
 
