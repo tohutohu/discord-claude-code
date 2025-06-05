@@ -84,6 +84,7 @@ export class Worker implements IWorker {
   private readonly workspaceManager: WorkspaceManager;
   private useDevcontainer: boolean = false;
   private devcontainerStarted: boolean = false;
+  private skipPermissions: boolean = false;
 
   constructor(
     name: string,
@@ -143,6 +144,11 @@ export class Worker implements IWorker {
     // セッション継続の場合
     if (this.sessionId) {
       args.push("--resume", this.sessionId);
+    }
+
+    // --dangerously-skip-permissions オプション
+    if (this.skipPermissions) {
+      args.push("--dangerously-skip-permissions");
     }
 
     const { code, stdout, stderr } = await this.claudeExecutor.execute(
@@ -319,6 +325,20 @@ export class Worker implements IWorker {
    */
   isDevcontainerStarted(): boolean {
     return this.devcontainerStarted;
+  }
+
+  /**
+   * --dangerously-skip-permissions オプションの使用を設定する
+   */
+  setSkipPermissions(skipPermissions: boolean): void {
+    this.skipPermissions = skipPermissions;
+  }
+
+  /**
+   * --dangerously-skip-permissions オプションが使用されているかを取得
+   */
+  isSkipPermissions(): boolean {
+    return this.skipPermissions;
   }
 
   /**

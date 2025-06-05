@@ -169,7 +169,7 @@ export class Admin implements IAdmin {
       return {
         hasDevcontainer: false,
         message:
-          "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。",
+          "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）\n\n回答してください: yes/no",
       };
     }
 
@@ -179,7 +179,7 @@ export class Admin implements IAdmin {
       return {
         hasDevcontainer: true,
         message:
-          "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。",
+          "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）\n\n回答してください: yes/no",
         warning:
           "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",
       };
@@ -197,7 +197,7 @@ export class Admin implements IAdmin {
       message:
         `devcontainer.jsonが見つかりました。devcontainer内でClaudeを実行しますか？\n\n**確認事項:**\n- devcontainer CLI: ✅ 利用可能\n- Anthropics features: ${
           devcontainerInfo.hasAnthropicsFeature ? "✅" : "❌"
-        }\n\n回答してください: yes/no`,
+        }\n\n追加で、\`--dangerously-skip-permissions\`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）\n\n回答してください: devcontainer-yes-skip/devcontainer-yes-no-skip/devcontainer-no-skip/devcontainer-no-no-skip`,
       warning: warningMessage,
     };
   }
