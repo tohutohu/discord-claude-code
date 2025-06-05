@@ -32,21 +32,13 @@ export async function ensureRepository(
     repository.repo,
   );
 
-  // ghコマンドでリポジトリの存在とメタデータを確認
-  const metadata = await getRepositoryMetadata(repository.fullName);
-  if (!metadata) {
-    throw new Error(
-      `リポジトリ ${repository.fullName} が見つかりません（アクセス権限がない可能性があります）`,
-    );
-  }
-
   try {
     // ディレクトリが存在するかチェック
     const stat = await Deno.stat(fullPath);
     if (stat.isDirectory) {
       // 既存リポジトリを最新に更新
-      await updateRepositoryWithGh(fullPath, metadata.defaultBranch);
-      return { path: fullPath, wasUpdated: true, metadata };
+      await updateRepositoryWithGh(fullPath, "main");
+      return { path: fullPath, wasUpdated: true };
     }
   } catch (_error) {
     // ディレクトリが存在しない場合は新規clone
@@ -71,7 +63,7 @@ export async function ensureRepository(
     throw new Error(`リポジトリのcloneに失敗しました: ${error}`);
   }
 
-  return { path: fullPath, wasUpdated: false, metadata };
+  return { path: fullPath, wasUpdated: false };
 }
 
 export interface RepoMetadata {
@@ -82,44 +74,6 @@ export interface RepoMetadata {
   language: string;
   updatedAt: string;
   isPrivate: boolean;
-}
-
-async function getRepositoryMetadata(
-  repoFullName: string,
-): Promise<RepoMetadata | null> {
-  try {
-    const metadataProcess = new Deno.Command("gh", {
-      args: [
-        "repo",
-        "view",
-        repoFullName,
-        "--json",
-        "name,nameWithOwner,description,defaultBranch,primaryLanguage,updatedAt,isPrivate",
-      ],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const metadataResult = await metadataProcess.output();
-    if (!metadataResult.success) {
-      return null;
-    }
-
-    const output = new TextDecoder().decode(metadataResult.stdout);
-    const data = JSON.parse(output);
-
-    return {
-      name: data.name,
-      fullName: data.nameWithOwner,
-      description: data.description || "",
-      defaultBranch: data.defaultBranch,
-      language: data.primaryLanguage?.name || "",
-      updatedAt: data.updatedAt,
-      isPrivate: data.isPrivate,
-    };
-  } catch (_error) {
-    return null;
-  }
 }
 
 async function updateRepositoryWithGh(

@@ -156,3 +156,124 @@ Deno.test("Admin - 未知のボタンIDの場合は適切なメッセージを�
 
   assertEquals(result, "未知のボタンが押されました。");
 });
+
+Deno.test("Admin - devcontainer.jsonが存在しない場合の設定確認", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-devcontainer-1";
+
+  // devcontainer.jsonが存在しないテンポラリディレクトリを作成
+  const testRepoDir = await Deno.makeTempDir({ prefix: "test_repo_" });
+
+  const result = await admin.checkAndSetupDevcontainer(threadId, testRepoDir);
+
+  assertEquals(result.hasDevcontainer, false);
+  assertEquals(
+    result.message.includes("devcontainer.jsonが見つかりませんでした"),
+    true,
+  );
+  assertEquals(result.message.includes("--dangerously-skip-permissions"), true);
+
+  // クリーンアップ
+  await Deno.remove(testRepoDir, { recursive: true });
+});
+
+Deno.test("Admin - devcontainer.jsonが存在する場合の設定確認", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-devcontainer-2";
+
+  // devcontainer.jsonが存在するテンポラリディレクトリを作成
+  const testRepoDir = await Deno.makeTempDir({ prefix: "test_repo_" });
+  const devcontainerDir = `${testRepoDir}/.devcontainer`;
+  await Deno.mkdir(devcontainerDir);
+
+  // 基本的なdevcontainer.jsonを作成
+  const devcontainerConfig = {
+    "name": "Test Container",
+    "image": "mcr.microsoft.com/devcontainers/javascript-node:16",
+  };
+  await Deno.writeTextFile(
+    `${devcontainerDir}/devcontainer.json`,
+    JSON.stringify(devcontainerConfig, null, 2),
+  );
+
+  const result = await admin.checkAndSetupDevcontainer(threadId, testRepoDir);
+
+  assertEquals(result.hasDevcontainer, true);
+  assertEquals(
+    result.message.includes("devcontainer.jsonが見つかりました"),
+    true,
+  );
+
+  // クリーンアップ
+  await Deno.remove(testRepoDir, { recursive: true });
+});
+
+Deno.test("Admin - anthropics featureを含むdevcontainer.jsonの設定確認", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-devcontainer-3";
+
+  // anthropics featureを含むdevcontainer.jsonを作成
+  const testRepoDir = await Deno.makeTempDir({ prefix: "test_repo_" });
+  const devcontainerDir = `${testRepoDir}/.devcontainer`;
+  await Deno.mkdir(devcontainerDir);
+
+  const devcontainerConfig = {
+    "name": "Test Container with Anthropics",
+    "image": "mcr.microsoft.com/devcontainers/javascript-node:16",
+    "features": {
+      "ghcr.io/anthropics/devcontainer-features/claude-cli:1": {},
+    },
+  };
+  await Deno.writeTextFile(
+    `${devcontainerDir}/devcontainer.json`,
+    JSON.stringify(devcontainerConfig, null, 2),
+  );
+
+  const result = await admin.checkAndSetupDevcontainer(threadId, testRepoDir);
+
+  assertEquals(result.hasDevcontainer, true);
+  // devcontainer CLIがインストールされていない環境では警告メッセージが出る
+  if (
+    result.warning && result.warning.includes("devcontainer CLIをインストール")
+  ) {
+    assertEquals(
+      result.message.includes(
+        "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません",
+      ),
+      true,
+    );
+    assertEquals(
+      result.message.includes("--dangerously-skip-permissions"),
+      true,
+    );
+  } else {
+    // devcontainer CLIが利用可能な場合
+    assertEquals(result.message.includes("Anthropics features: ✅"), true);
+    assertEquals(result.warning, "");
+  }
+
+  // クリーンアップ
+  await Deno.remove(testRepoDir, { recursive: true });
+});
+
+Deno.test("Admin - 初期メッセージにdevcontainer流れの説明が含まれる", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-666";
+
+  const initialMessage = admin.createInitialMessage(threadId);
+
+  assertEquals(
+    initialMessage.content.includes("devcontainer.jsonの存在確認"),
+    true,
+  );
+  assertEquals(
+    initialMessage.content.includes("devcontainer利用の可否選択"),
+    true,
+  );
+  assertEquals(initialMessage.content.includes("権限設定の選択"), true);
+  assertEquals(initialMessage.content.includes("Claude実行環境の準備"), true);
+});

@@ -229,11 +229,26 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
         `${statusMessage}\nチャットスレッドを作成しました: ${thread.toString()}`,
       );
 
+      // devcontainer.jsonの存在確認と設定
+      const devcontainerInfo = await admin.checkAndSetupDevcontainer(
+        thread.id,
+        repositoryResult.path,
+      );
+
       // 初期メッセージを終了ボタン付きで送信
       const initialMessage = admin.createInitialMessage(thread.id);
+      const greeting =
+        `こんにちは！私は${worker.getName()}です。${repository.fullName}について何か質問はありますか？\n\n`;
+
+      let devcontainerMessage = "";
+      if (devcontainerInfo.warning) {
+        devcontainerMessage += `${devcontainerInfo.warning}\n\n`;
+      }
+      devcontainerMessage += devcontainerInfo.message;
+
       await thread.send({
         content:
-          `こんにちは！私は${worker.getName()}です。${repository.fullName}について何か質問はありますか？\n\n${initialMessage.content}`,
+          `${greeting}${devcontainerMessage}\n\n${initialMessage.content}`,
         components: initialMessage.components,
       });
     } catch (error) {
@@ -258,6 +273,13 @@ client.on(Events.MessageCreate, async (message) => {
   const threadId = message.channel.id;
 
   try {
+    // devcontainer設定に関する応答かチェック
+    const content = message.content.trim().toLowerCase();
+    if (isDevcontainerConfigurationMessage(content)) {
+      await handleDevcontainerConfiguration(message, threadId, content);
+      return;
+    }
+
     // AdminにメッセージをルーティングしてWorkerからの返信を取得
     const reply = await admin.routeMessage(threadId, message.content);
 
@@ -275,6 +297,81 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 });
+
+function isDevcontainerConfigurationMessage(content: string): boolean {
+  const devcontainerResponses = [
+    "devcontainer-yes-skip",
+    "devcontainer-yes-no-skip",
+    "devcontainer-no-skip",
+    "devcontainer-no-no-skip",
+    "yes",
+    "no",
+  ];
+
+  return devcontainerResponses.includes(content);
+}
+
+async function handleDevcontainerConfiguration(
+  message: { reply: (content: string) => Promise<unknown> },
+  threadId: string,
+  content: string,
+): Promise<void> {
+  const worker = admin.getWorker(threadId);
+  if (!worker) {
+    await message.reply("Workerが見つかりません。");
+    return;
+  }
+
+  const workerTyped = worker as import("./worker.ts").Worker;
+
+  if (content.startsWith("devcontainer-")) {
+    // devcontainer関連の設定
+    const useDevcontainer = content.includes("-yes-");
+    const skipPermissions = content.includes("-skip");
+
+    workerTyped.setUseDevcontainer(useDevcontainer);
+    workerTyped.setSkipPermissions(skipPermissions);
+
+    if (useDevcontainer) {
+      await message.reply("devcontainerを起動しています...");
+
+      const result = await admin.startDevcontainerForWorker(threadId);
+
+      if (result.success) {
+        const permissionMsg = skipPermissions
+          ? " (権限チェックスキップ有効)"
+          : " (権限チェック有効)";
+        await message.reply(
+          `${result.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+        );
+      } else {
+        await message.reply(
+          `${result.message}\n\n通常環境でClaude実行を継続します。`,
+        );
+        workerTyped.setUseDevcontainer(false);
+      }
+    } else {
+      const permissionMsg = skipPermissions
+        ? " (権限チェックスキップ有効)"
+        : " (権限チェック有効)";
+      workerTyped.setSkipPermissions(skipPermissions);
+      await message.reply(
+        `通常のローカル環境でClaude実行を設定しました。${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+      );
+    }
+  } else if (content === "yes" || content === "no") {
+    // 権限スキップの設定のみ
+    const skipPermissions = content === "yes";
+    workerTyped.setSkipPermissions(skipPermissions);
+
+    const permissionMsg = skipPermissions
+      ? "権限チェックスキップを有効にしました。"
+      : "権限チェックを有効にしました。";
+    await message.reply(
+      `${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+    );
+  }
+}
 
 // Botを起動
 client.login(env.DISCORD_TOKEN);

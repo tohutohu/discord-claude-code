@@ -113,7 +113,7 @@ export class Admin implements IAdmin {
   createInitialMessage(threadId: string): DiscordMessage {
     return {
       content:
-        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n終了する場合は下のボタンを押してください。",
+        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. 権限設定の選択\n4. Claude実行環境の準備\n\n終了する場合は下のボタンを押してください。",
       components: [
         {
           type: 1,
