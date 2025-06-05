@@ -432,7 +432,8 @@ Deno.test("extractOutputMessage - TodoWrite成功メッセージをスキップ�
       "message": {
         "content": [{
           "type": "tool_result",
-          "content": "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable",
+          "content":
+            "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable",
           "is_error": false,
         }],
       },

@@ -790,12 +790,12 @@ export class Worker implements IWorker {
     for (const item of content) {
       if (item.type === "tool_result") {
         const resultContent = item.content || "";
-        
+
         // TodoWrite成功の定型文はスキップ
         if (!item.is_error && this.isTodoWriteSuccessMessage(resultContent)) {
           return null;
         }
-        
+
         // ツール結果を進捗として投稿
         const resultIcon = item.is_error ? "❌" : "✅";
 
@@ -1161,10 +1161,10 @@ export class Worker implements IWorker {
       "Todos have been modified successfully",
       "Todo list has been updated",
       "Todos updated successfully",
-      "Task list updated successfully"
+      "Task list updated successfully",
     ];
-    
-    return successPatterns.some(pattern => 
+
+    return successPatterns.some((pattern) =>
       content.includes(pattern) && content.includes("todo")
     );
   }

@@ -270,7 +270,7 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
       // 問題のあるスレッドはworktreeが存在しないためアーカイブされ、Workerは作成されない
       const badWorker = admin2.getWorker(badThreadId);
       assertEquals(badWorker, null);
-      
+
       // スレッドはアーカイブされている
       const badThreadInfo = await workspace.loadThreadInfo(badThreadId);
       assertEquals(badThreadInfo?.status, "archived");
