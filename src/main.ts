@@ -252,15 +252,20 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       let lastUpdateTime = Date.now();
       const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
 
-      // 進捗更新用のコールバック（新規メッセージ投稿）
+      // 進捗更新用のコールバック（新規メッセージ投稿、通知なし）
       const onProgress = async (content: string) => {
         const now = Date.now();
         if (now - lastUpdateTime >= UPDATE_INTERVAL) {
           try {
-            await interaction.followUp(content);
+            if (interaction.channel && "send" in interaction.channel) {
+              await interaction.channel.send({
+                content: content,
+                flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+              });
+            }
             lastUpdateTime = now;
-          } catch (followUpError) {
-            console.error("メッセージ送信エラー:", followUpError);
+          } catch (sendError) {
+            console.error("メッセージ送信エラー:", sendError);
           }
         }
       };
@@ -278,16 +283,20 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         const permissionMsg = skipPermissions
           ? " (権限チェックスキップ有効)"
           : " (権限チェック有効)";
-        await interaction.followUp(
-          `${startResult.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
-        );
+        if (interaction.channel && "send" in interaction.channel) {
+          await interaction.channel.send(
+            `<@${interaction.user.id}> ${startResult.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+          );
+        }
       } else {
         if (worker) {
           (worker as Worker).setUseDevcontainer(false);
         }
-        await interaction.followUp(
-          `${startResult.message}\n\n通常環境でClaude実行を継続します。`,
-        );
+        if (interaction.channel && "send" in interaction.channel) {
+          await interaction.channel.send(
+            `<@${interaction.user.id}> ${startResult.message}\n\n通常環境でClaude実行を継続します。`,
+          );
+        }
       }
     } else {
       await interaction.editReply(result);
@@ -461,15 +470,18 @@ client.on(Events.MessageCreate, async (message) => {
     let lastUpdateTime = Date.now();
     const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
 
-    // 進捗更新用のコールバック（新規メッセージ投稿）
+    // 進捗更新用のコールバック（新規メッセージ投稿、通知なし）
     const onProgress = async (content: string) => {
       const now = Date.now();
       if (now - lastUpdateTime >= UPDATE_INTERVAL) {
         try {
-          await message.reply(content);
+          await message.channel.send({
+            content: content,
+            flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+          });
           lastUpdateTime = now;
-        } catch (replyError) {
-          console.error("メッセージ送信エラー:", replyError);
+        } catch (sendError) {
+          console.error("メッセージ送信エラー:", sendError);
         }
       }
     };
@@ -481,17 +493,17 @@ client.on(Events.MessageCreate, async (message) => {
       onProgress,
     );
 
-    // 最終的な返信を送信
-    await message.reply(reply);
+    // 最終的な返信を送信（メンション付きで通知あり）
+    await message.channel.send(`<@${message.author.id}> ${reply}`);
   } catch (error) {
     if ((error as Error).message.includes("Worker not found")) {
       // このスレッド用のWorkerがまだ作成されていない場合
-      await message.reply(
+      await message.channel.send(
         "このスレッドはアクティブではありません。/start コマンドで新しいスレッドを開始してください。",
       );
     } else {
       console.error("メッセージ処理エラー:", error);
-      await message.reply("エラーが発生しました。");
+      await message.channel.send("エラーが発生しました。");
     }
   }
 });
