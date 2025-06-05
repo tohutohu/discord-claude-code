@@ -706,3 +706,100 @@ Deno.test("Admin - worktreeが存在するスレッドは正常に復旧され�
 
   // クリーンアップ - workspace全体を削除（テンポラリディレクトリなので）
 });
+
+Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // 実際に存在するworktreeを作成
+  const threadId = "devcontainer-worker-restore";
+  const worktreePath = workspace.getWorktreePath(threadId);
+  await Deno.mkdir(worktreePath, { recursive: true });
+
+  // devcontainer設定を含むスレッド情報を作成
+  const threadInfo = {
+    threadId,
+    repositoryFullName: "test/repo",
+    repositoryLocalPath: workspace.getBaseDir(),
+    worktreePath,
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+    status: "active" as const,
+    devcontainerConfig: {
+      useDevcontainer: true,
+      skipPermissions: true,
+      hasDevcontainerFile: true,
+      hasAnthropicsFeature: true,
+      containerId: "restored-container-123",
+      isStarted: true,
+    },
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // Adminを作成してアクティブスレッドを復旧
+  const admin = new Admin(workspace);
+  await admin.restoreActiveThreads();
+
+  // Workerが作成される
+  const worker = admin.getWorker(threadId);
+  assertEquals(worker !== null, true);
+
+  // Worker内のdevcontainer設定が復旧されていることを確認
+  if (worker) {
+    // Workerの型をキャストしてメソッドにアクセス
+    const workerImpl = worker as any;
+    assertEquals(workerImpl.isUsingDevcontainer(), true);
+    assertEquals(workerImpl.isSkipPermissions(), true);
+  }
+
+  // devcontainer設定がAdminからも取得できることを確認
+  const restoredConfig = await admin.getDevcontainerConfig(threadId);
+  assertEquals(restoredConfig?.useDevcontainer, true);
+  assertEquals(restoredConfig?.skipPermissions, true);
+  assertEquals(restoredConfig?.hasDevcontainerFile, true);
+  assertEquals(restoredConfig?.hasAnthropicsFeature, true);
+  assertEquals(restoredConfig?.containerId, "restored-container-123");
+  assertEquals(restoredConfig?.isStarted, true);
+});
+
+Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // 実際に存在するworktreeを作成
+  const threadId = "no-devcontainer-config-restore";
+  const worktreePath = workspace.getWorktreePath(threadId);
+  await Deno.mkdir(worktreePath, { recursive: true });
+
+  // devcontainer設定がnullのスレッド情報を作成
+  const threadInfo = {
+    threadId,
+    repositoryFullName: "test/repo",
+    repositoryLocalPath: workspace.getBaseDir(),
+    worktreePath,
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+    status: "active" as const,
+    devcontainerConfig: null,
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // Adminを作成してアクティブスレッドを復旧
+  const admin = new Admin(workspace);
+  await admin.restoreActiveThreads();
+
+  // Workerが作成される
+  const worker = admin.getWorker(threadId);
+  assertEquals(worker !== null, true);
+
+  // Worker内のdevcontainer設定がデフォルト値であることを確認
+  if (worker) {
+    const workerImpl = worker as any;
+    assertEquals(workerImpl.isUsingDevcontainer(), false);
+    assertEquals(workerImpl.isSkipPermissions(), false);
+  }
+
+  // devcontainer設定がnullであることを確認
+  const restoredConfig = await admin.getDevcontainerConfig(threadId);
+  assertEquals(restoredConfig, null);
+});
