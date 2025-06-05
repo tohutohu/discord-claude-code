@@ -30,6 +30,12 @@ export interface ClaudeCommandExecutor {
     args: string[],
     cwd: string,
   ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }>;
+
+  executeStreaming?(
+    args: string[],
+    cwd: string,
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }>;
 }
 
 class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
@@ -46,6 +52,45 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
 
     const { code, stdout, stderr } = await command.output();
     return { code, stdout, stderr };
+  }
+
+  async executeStreaming(
+    args: string[],
+    cwd: string,
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
+    const command = new Deno.Command("claude", {
+      args,
+      cwd,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const process = command.spawn();
+
+    // stdoutをストリーミングで読み取る
+    const reader = process.stdout.getReader();
+
+    (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            onData(value);
+          }
+        }
+      } catch (error) {
+        console.error("stdout読み取りエラー:", error);
+      } finally {
+        reader.releaseLock();
+      }
+    })();
+
+    // プロセスの終了を待つ
+    const { code, stderr } = await process.output();
+
+    return { code, stderr };
   }
 }
 
@@ -67,7 +112,10 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 }
 
 export interface IWorker {
-  processMessage(message: string): Promise<string>;
+  processMessage(
+    message: string,
+    onProgress?: (content: string) => Promise<void>,
+  ): Promise<string>;
   getName(): string;
   getRepository(): GitRepository | null;
   setRepository(repository: GitRepository, localPath: string): Promise<void>;
@@ -96,7 +144,10 @@ export class Worker implements IWorker {
     this.claudeExecutor = claudeExecutor || new DefaultClaudeCommandExecutor();
   }
 
-  async processMessage(message: string): Promise<string> {
+  async processMessage(
+    message: string,
+    onProgress?: (content: string) => Promise<void>,
+  ): Promise<string> {
     if (!this.repository || !this.worktreePath) {
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
@@ -107,7 +158,12 @@ export class Worker implements IWorker {
         await this.logSessionActivity("command", message);
       }
 
-      const result = await this.executeClaude(message);
+      // 処理開始の通知
+      if (onProgress) {
+        await onProgress("🤖 Claudeが考えています...");
+      }
+
+      const result = await this.executeClaude(message, onProgress);
       const formattedResponse = this.formatResponse(result);
 
       // セッションログの記録（レスポンス）
@@ -132,7 +188,10 @@ export class Worker implements IWorker {
     }
   }
 
-  private async executeClaude(prompt: string): Promise<string> {
+  private async executeClaude(
+    prompt: string,
+    onProgress?: (content: string) => Promise<void>,
+  ): Promise<string> {
     const args = [
       "-p",
       prompt,
@@ -151,6 +210,12 @@ export class Worker implements IWorker {
       args.push("--dangerously-skip-permissions");
     }
 
+    // ストリーミング実行が可能な場合
+    if (this.claudeExecutor.executeStreaming && onProgress) {
+      return await this.executeClaudeStreaming(args, onProgress);
+    }
+
+    // 通常の実行
     const { code, stdout, stderr } = await this.claudeExecutor.execute(
       args,
       this.worktreePath!,
@@ -162,13 +227,124 @@ export class Worker implements IWorker {
     }
 
     const output = new TextDecoder().decode(stdout);
-    return this.parseStreamJsonOutput(output);
+    return this.parseStreamJsonOutput(output, onProgress);
   }
 
-  private parseStreamJsonOutput(output: string): string {
+  private async executeClaudeStreaming(
+    args: string[],
+    onProgress: (content: string) => Promise<void>,
+  ): Promise<string> {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result = "";
+    let newSessionId: string | null = null;
+    let progressContent = "";
+    let lastProgressUpdate = 0;
+    const PROGRESS_UPDATE_INTERVAL = 1000; // 1秒ごとに更新
+    let allOutput = "";
+
+    const processLine = (line: string) => {
+      if (!line.trim()) return;
+
+      try {
+        const parsed: ClaudeStreamMessage = JSON.parse(line);
+
+        // セッションIDを更新
+        if (parsed.session_id) {
+          newSessionId = parsed.session_id;
+        }
+
+        // アシスタントメッセージからテキストを抽出
+        if (parsed.type === "assistant" && parsed.message?.content) {
+          for (const content of parsed.message.content) {
+            if (content.type === "text" && content.text) {
+              result += content.text;
+              progressContent += content.text;
+
+              // 進捗の更新（一定間隔で）
+              const now = Date.now();
+              if (
+                progressContent.length > 50 &&
+                now - lastProgressUpdate > PROGRESS_UPDATE_INTERVAL
+              ) {
+                // 最後の完全な文または段落を送信
+                const lastNewline = progressContent.lastIndexOf("\n");
+                if (lastNewline > 0) {
+                  const toSend = progressContent.substring(0, lastNewline);
+                  if (toSend.trim()) {
+                    onProgress(this.formatResponse(toSend)).catch(
+                      console.error,
+                    );
+                    lastProgressUpdate = now;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // 最終結果を取得
+        if (parsed.type === "result" && parsed.result) {
+          result = parsed.result;
+        }
+      } catch (parseError) {
+        console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
+      }
+    };
+
+    const onData = (data: Uint8Array) => {
+      const chunk = decoder.decode(data, { stream: true });
+      allOutput += chunk;
+      buffer += chunk;
+
+      // 改行で分割して処理
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        processLine(line);
+      }
+    };
+
+    const { code, stderr } = await this.claudeExecutor.executeStreaming!(
+      args,
+      this.worktreePath!,
+      onData,
+    );
+
+    // 最後のバッファを処理
+    if (buffer) {
+      processLine(buffer);
+    }
+
+    if (code !== 0) {
+      const errorMessage = decoder.decode(stderr);
+      throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+    }
+
+    // セッションIDを更新
+    if (newSessionId) {
+      this.sessionId = newSessionId;
+    }
+
+    // 生のjsonlを保存
+    if (this.repository?.fullName && allOutput.trim()) {
+      await this.saveRawJsonlOutput(allOutput);
+    }
+
+    return result.trim() || "Claude からの応答を取得できませんでした。";
+  }
+
+  private parseStreamJsonOutput(
+    output: string,
+    onProgress?: (content: string) => Promise<void>,
+  ): string {
     const lines = output.trim().split("\n");
     let result = "";
     let newSessionId: string | null = null;
+    let progressContent = "";
+    let lastProgressUpdate = 0;
+    const PROGRESS_UPDATE_INTERVAL = 1000; // 1秒ごとに更新
 
     // 生のjsonlを保存
     if (this.repository?.fullName && output.trim()) {
@@ -191,6 +367,26 @@ export class Worker implements IWorker {
           for (const content of parsed.message.content) {
             if (content.type === "text" && content.text) {
               result += content.text;
+              progressContent += content.text;
+
+              // 進捗の更新（一定間隔で）
+              const now = Date.now();
+              if (
+                onProgress && progressContent.length > 50 &&
+                now - lastProgressUpdate > PROGRESS_UPDATE_INTERVAL
+              ) {
+                // 最後の完全な文または段落を送信
+                const lastNewline = progressContent.lastIndexOf("\n");
+                if (lastNewline > 0) {
+                  const toSend = progressContent.substring(0, lastNewline);
+                  if (toSend.trim()) {
+                    onProgress(this.formatResponse(toSend)).catch(
+                      console.error,
+                    );
+                    lastProgressUpdate = now;
+                  }
+                }
+              }
             }
           }
         }
@@ -344,7 +540,9 @@ export class Worker implements IWorker {
   /**
    * devcontainerを起動する
    */
-  async startDevcontainer(): Promise<
+  async startDevcontainer(
+    onProgress?: (message: string) => Promise<void>,
+  ): Promise<
     { success: boolean; containerId?: string; error?: string }
   > {
     if (!this.repository || !this.worktreePath) {
@@ -355,7 +553,7 @@ export class Worker implements IWorker {
     }
 
     const { startDevcontainer } = await import("./devcontainer.ts");
-    const result = await startDevcontainer(this.worktreePath);
+    const result = await startDevcontainer(this.worktreePath, onProgress);
 
     if (result.success) {
       this.devcontainerStarted = true;

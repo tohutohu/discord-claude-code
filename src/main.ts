@@ -10,6 +10,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import { Admin } from "./admin.ts";
+import { Worker } from "./worker.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import { WorkspaceManager } from "./workspace.ts";
@@ -194,7 +195,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       return;
     }
 
-    // すべてのボタン選択でボタンを削除し、選択結果をテキストに置き換え
+    // すべてのボタン選択でボタンを削除し、選択結果をテキストに置き換えて、終了ボタンを追加
     try {
       let selectedChoice = "";
 
@@ -216,14 +217,74 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       if (selectedChoice) {
         await interaction.message.edit({
           content: interaction.message.content + selectedChoice,
-          components: [], // ボタンを削除
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 4,
+                  label: "スレッドを終了",
+                  custom_id: `terminate_${threadId}`,
+                },
+              ],
+            },
+          ],
         });
       }
     } catch (error) {
       console.error("ボタン削除エラー:", error);
     }
 
-    await interaction.editReply(result);
+    // devcontainerの起動処理を特別扱い
+    if (result === "devcontainer_start_with_progress") {
+      const progressMessage = await interaction.editReply(
+        "🐳 devcontainerを起動しています...",
+      );
+
+      let lastUpdateTime = Date.now();
+      const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
+
+      // 進捗更新用のコールバック
+      const onProgress = async (content: string) => {
+        const now = Date.now();
+        if (now - lastUpdateTime >= UPDATE_INTERVAL) {
+          try {
+            await progressMessage.edit(content);
+            lastUpdateTime = now;
+          } catch (editError) {
+            console.error("メッセージ編集エラー:", editError);
+          }
+        }
+      };
+
+      // devcontainerを起動
+      const startResult = await admin.startDevcontainerForWorker(
+        threadId,
+        onProgress,
+      );
+
+      const worker = admin.getWorker(threadId);
+      const skipPermissions = (worker as Worker)?.isSkipPermissions() || false;
+
+      if (startResult.success) {
+        const permissionMsg = skipPermissions
+          ? " (権限チェックスキップ有効)"
+          : " (権限チェック有効)";
+        await progressMessage.edit(
+          `${startResult.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+        );
+      } else {
+        if (worker) {
+          (worker as Worker).setUseDevcontainer(false);
+        }
+        await progressMessage.edit(
+          `${startResult.message}\n\n通常環境でClaude実行を継続します。`,
+        );
+      }
+    } else {
+      await interaction.editReply(result);
+    }
   } catch (error) {
     console.error("ボタンインタラクションエラー:", error);
     try {
@@ -390,11 +451,39 @@ client.on(Events.MessageCreate, async (message) => {
   const threadId = message.channel.id;
 
   try {
-    // AdminにメッセージをルーティングしてWorkerからの返信を取得
-    const reply = await admin.routeMessage(threadId, message.content);
+    // 即座に処理中メッセージを送信
+    const processingMessage = await message.reply("⏳ 処理中...");
 
-    // Workerからの返信をDiscordに送信
-    await message.reply(reply);
+    let lastUpdateTime = Date.now();
+    const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
+
+    // 進捗更新用のコールバック
+    const onProgress = async (content: string) => {
+      const now = Date.now();
+      if (now - lastUpdateTime >= UPDATE_INTERVAL) {
+        try {
+          await processingMessage.edit(content);
+          lastUpdateTime = now;
+        } catch (editError) {
+          console.error("メッセージ編集エラー:", editError);
+        }
+      }
+    };
+
+    // AdminにメッセージをルーティングしてWorkerからの返信を取得
+    const reply = await admin.routeMessage(
+      threadId,
+      message.content,
+      onProgress,
+    );
+
+    // 最終的な返信を送信（処理中メッセージを編集）
+    try {
+      await processingMessage.edit(reply);
+    } catch (editError) {
+      // 編集に失敗した場合は新しいメッセージとして送信
+      await message.reply(reply);
+    }
   } catch (error) {
     if ((error as Error).message.includes("Worker not found")) {
       // このスレッド用のWorkerがまだ作成されていない場合

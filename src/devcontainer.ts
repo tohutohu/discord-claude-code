@@ -108,12 +108,19 @@ export async function checkDevcontainerCli(): Promise<boolean> {
 /**
  * devcontainerを起動する
  */
-export async function startDevcontainer(repositoryPath: string): Promise<{
+export async function startDevcontainer(
+  repositoryPath: string,
+  onProgress?: (message: string) => Promise<void>,
+): Promise<{
   success: boolean;
   containerId?: string;
   error?: string;
 }> {
   try {
+    if (onProgress) {
+      await onProgress("🐳 Dockerコンテナを準備しています...");
+    }
+
     // devcontainer up コマンドを実行
     const command = new Deno.Command("devcontainer", {
       args: ["up", "--workspace-folder", repositoryPath],
@@ -126,20 +133,63 @@ export async function startDevcontainer(repositoryPath: string): Promise<{
       },
     });
 
-    const result = await command.output();
+    const process = command.spawn();
+    const decoder = new TextDecoder();
+    let output = "";
+    let errorOutput = "";
 
-    if (!result.success) {
-      const error = new TextDecoder().decode(result.stderr);
+    // stdoutをストリーミングで読み取る
+    const reader = process.stdout.getReader();
+
+    (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            const chunk = decoder.decode(value, { stream: true });
+            output += chunk;
+
+            // 進捗メッセージを抽出して送信
+            if (onProgress) {
+              const lines = chunk.split("\n");
+              for (const line of lines) {
+                if (
+                  line.includes("Building") || line.includes("Creating") ||
+                  line.includes("Starting") || line.includes("Attaching") ||
+                  line.includes("Running") || line.includes("Installing")
+                ) {
+                  await onProgress(`🐳 ${line.trim()}`).catch(console.error);
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("stdout読み取りエラー:", error);
+      } finally {
+        reader.releaseLock();
+      }
+    })();
+
+    // プロセスの終了を待つ
+    const { code, stderr } = await process.output();
+
+    if (code !== 0) {
+      errorOutput = decoder.decode(stderr);
       return {
         success: false,
-        error: `devcontainer起動に失敗しました: ${error}`,
+        error: `devcontainer起動に失敗しました: ${errorOutput}`,
       };
     }
 
     // コンテナIDを取得（出力から抽出）
-    const output = new TextDecoder().decode(result.stdout);
     const containerIdMatch = output.match(/container\s+id:\s*([a-f0-9]+)/i);
     const containerId = containerIdMatch?.[1];
+
+    if (onProgress) {
+      await onProgress("✅ devcontainerが正常に起動しました");
+    }
 
     return {
       success: true,

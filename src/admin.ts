@@ -80,7 +80,11 @@ export class Admin implements IAdmin {
     return this.workers.get(threadId) || null;
   }
 
-  async routeMessage(threadId: string, message: string): Promise<string> {
+  async routeMessage(
+    threadId: string,
+    message: string,
+    onProgress?: (content: string) => Promise<void>,
+  ): Promise<string> {
     const worker = this.workers.get(threadId);
     if (!worker) {
       throw new Error(`Worker not found for thread: ${threadId}`);
@@ -95,7 +99,7 @@ export class Admin implements IAdmin {
       hasRepository: worker.getRepository() !== null,
     });
 
-    return worker.processMessage(message);
+    return worker.processMessage(message, onProgress);
   }
 
   async handleButtonInteraction(
@@ -290,7 +294,10 @@ export class Admin implements IAdmin {
   /**
    * devcontainerの起動を処理する
    */
-  async startDevcontainerForWorker(threadId: string): Promise<{
+  async startDevcontainerForWorker(
+    threadId: string,
+    onProgress?: (message: string) => Promise<void>,
+  ): Promise<{
     success: boolean;
     message: string;
   }> {
@@ -305,7 +312,7 @@ export class Admin implements IAdmin {
     const workerTyped = worker as Worker;
     workerTyped.setUseDevcontainer(true);
 
-    const result = await workerTyped.startDevcontainer();
+    const result = await workerTyped.startDevcontainer(onProgress);
 
     if (result.success) {
       await this.logAuditEntry(threadId, "devcontainer_started", {
@@ -397,18 +404,8 @@ export class Admin implements IAdmin {
     workerTyped.setUseDevcontainer(true);
     workerTyped.setSkipPermissions(skipPermissions);
 
-    // devcontainerを起動
-    const result = await this.startDevcontainerForWorker(threadId);
-
-    if (result.success) {
-      const permissionMsg = skipPermissions
-        ? " (権限チェックスキップ有効)"
-        : " (権限チェック有効)";
-      return `${result.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`;
-    } else {
-      workerTyped.setUseDevcontainer(false);
-      return `${result.message}\n\n通常環境でClaude実行を継続します。`;
-    }
+    // devcontainerを起動 (進捗コールバックはmain.tsから渡される)
+    return "devcontainer_start_with_progress";
   }
 
   private async logAuditEntry(
