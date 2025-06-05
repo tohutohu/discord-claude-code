@@ -157,9 +157,9 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       await interaction.deferReply();
 
       // リポジトリをclone/更新
-      let repositoryPath;
+      let repositoryResult;
       try {
-        repositoryPath = await ensureRepository(repository, workspaceManager);
+        repositoryResult = await ensureRepository(repository, workspaceManager);
       } catch (error) {
         await interaction.editReply(
           `リポジトリの取得に失敗しました: ${(error as Error).message}`,
@@ -181,10 +181,30 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
 
       // Workerを作成してリポジトリ情報を設定
       const worker = await admin.createWorker(thread.id);
-      await worker.setRepository(repository, repositoryPath);
+      await worker.setRepository(repository, repositoryResult.path);
+
+      // 更新状況に応じたメッセージを作成
+      let statusMessage = repositoryResult.wasUpdated
+        ? `${repository.fullName}の既存リポジトリをデフォルトブランチの最新に更新しました。`
+        : `${repository.fullName}を新規取得しました。`;
+
+      // メタデータがある場合は追加情報を表示
+      if (repositoryResult.metadata) {
+        const metadata = repositoryResult.metadata;
+        const repoInfo = [
+          metadata.description ? `説明: ${metadata.description}` : "",
+          metadata.language ? `言語: ${metadata.language}` : "",
+          `デフォルトブランチ: ${metadata.defaultBranch}`,
+          metadata.isPrivate
+            ? "🔒 プライベートリポジトリ"
+            : "🌐 パブリックリポジトリ",
+        ].filter(Boolean).join(" | ");
+
+        statusMessage += `\n📋 ${repoInfo}`;
+      }
 
       await interaction.editReply(
-        `${repository.fullName}用のチャットスレッドを作成しました: ${thread.toString()}`,
+        `${statusMessage}\nチャットスレッドを作成しました: ${thread.toString()}`,
       );
 
       // 初期メッセージを終了ボタン付きで送信

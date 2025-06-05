@@ -251,25 +251,9 @@ export class WorkspaceManager {
   async createWorktree(
     threadId: string,
     repositoryPath: string,
-    branch = "main",
   ): Promise<string> {
-    const worktreePath = this.getWorktreePath(threadId);
-
-    const command = new Deno.Command("git", {
-      args: ["worktree", "add", worktreePath, branch],
-      cwd: repositoryPath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stderr } = await command.output();
-
-    if (code !== 0) {
-      const errorMessage = new TextDecoder().decode(stderr);
-      throw new Error(`git worktreeの作成に失敗しました: ${errorMessage}`);
-    }
-
-    return worktreePath;
+    const { createWorktree } = await import("./git-utils.ts");
+    return await createWorktree(repositoryPath, threadId, this);
   }
 
   async removeWorktree(threadId: string): Promise<void> {
