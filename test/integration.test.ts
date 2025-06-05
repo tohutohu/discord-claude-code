@@ -1,0 +1,58 @@
+import {
+  assertEquals,
+  assertExists,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { Admin } from "../src/admin.ts";
+
+Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", async () => {
+  const admin = new Admin();
+  const threadId = "integration-test-thread";
+
+  // Workerを作成
+  const worker = await admin.createWorker(threadId);
+  assertExists(worker);
+
+  // メッセージを送信して返信を確認
+  const messages = [
+    "こんにちは",
+    "元気ですか？",
+    "今日の天気はどうですか？",
+  ];
+
+  for (const message of messages) {
+    const reply = await admin.routeMessage(threadId, message);
+    assertEquals(
+      reply,
+      `こんにちは、${worker.getName()}です。${message}というメッセージを受け取りました！`,
+    );
+  }
+});
+
+Deno.test("統合テスト - 複数のスレッドを同時に処理できる", async () => {
+  const admin = new Admin();
+  const threadIds = ["thread-a", "thread-b", "thread-c"];
+  const workers = new Map<string, string>();
+
+  // 複数のWorkerを作成
+  for (const threadId of threadIds) {
+    const worker = await admin.createWorker(threadId);
+    workers.set(threadId, worker.getName());
+  }
+
+  // 各スレッドにメッセージを送信
+  const message = "マルチスレッドテスト";
+  const promises = threadIds.map((threadId) =>
+    admin.routeMessage(threadId, message)
+  );
+
+  const replies = await Promise.all(promises);
+
+  // 各返信が正しいWorkerからのものか確認
+  for (let i = 0; i < threadIds.length; i++) {
+    const expectedWorkerName = workers.get(threadIds[i]);
+    assertEquals(
+      replies[i],
+      `こんにちは、${expectedWorkerName}です。${message}というメッセージを受け取りました！`,
+    );
+  }
+});

@@ -1,0 +1,24 @@
+# 環境変数
+.env
+.env.local
+
+# カバレッジ
+coverage/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ログ
+*.log
+
+# 一時ファイル
+*.tmp
+*.temp
+
+# Claude設定ファイル
+.claude/settings.local.json
