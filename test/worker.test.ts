@@ -265,22 +265,35 @@ class MockStreamingClaudeCommandExecutor implements ClaudeCommandExecutor {
   }
 }
 
-Deno.test("Worker - JSONL進捗メッセージが正しく生成される", async () => {
+Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const workerName = "progress-test";
+  const workerName = "output-test";
 
-  // モックJSONLデータ
+  // モックJSONLデータ（実際の出力を含む）
   const mockJsonlLines = [
     JSON.stringify({ type: "session_start", session_id: "test-session-1" }),
-    JSON.stringify({ type: "task_start" }),
-    JSON.stringify({ type: "thinking" }),
-    JSON.stringify({ type: "tool_use" }),
     JSON.stringify({
       type: "assistant",
-      message: { content: [{ type: "text", text: "Hello" }] },
+      message: {
+        content: [{
+          type: "text",
+          text: "ファイルを編集しています\n新しい関数を追加しました",
+        }],
+      },
     }),
-    JSON.stringify({ type: "result", result: "完了しました" }),
-    JSON.stringify({ type: "session_end" }),
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [{
+          type: "text",
+          text: "テストを実行中...\n✅ すべてのテストが通過しました",
+        }],
+      },
+    }),
+    JSON.stringify({
+      type: "result",
+      result: "処理が完了しました\n変更内容を確認してください",
+    }),
   ];
 
   const mockExecutor = new MockStreamingClaudeCommandExecutor(mockJsonlLines);
@@ -291,47 +304,54 @@ Deno.test("Worker - JSONL進捗メッセージが正しく生成される", asyn
   const localPath = "/tmp/test/repo";
   await worker.setRepository(repository, localPath);
 
-  // 進捗メッセージをキャプチャ
-  const progressMessages: string[] = [];
+  // 出力メッセージをキャプチャ
+  const outputMessages: string[] = [];
   const onProgress = async (message: string) => {
-    progressMessages.push(message);
+    outputMessages.push(message);
   };
 
   // メッセージ処理実行
   await worker.processMessage("テストメッセージ", onProgress);
 
-  // 期待される進捗メッセージが送信されたことを確認
+  // 期待される出力メッセージが送信されたことを確認
   const expectedMessages = [
-    "🎯 [1] セッション開始",
-    "🔍 [2] タスク開始: 分析中...",
-    "💭 [3] 思考中...",
-    "🛠️ [4] ツール使用中...",
-    "✍️ [5] 回答生成中...",
-    "✅ [6] 処理完了",
-    "🏁 [7] セッション終了",
+    "ファイルを編集しています\n新しい関数を追加しました",
+    "テストを実行中...\n✅ すべてのテストが通過しました",
+    "処理が完了しました\n変更内容を確認してください",
   ];
 
   // すべての期待されるメッセージが含まれているかチェック
   for (const expectedMessage of expectedMessages) {
     assertEquals(
-      progressMessages.some((msg) => msg === expectedMessage),
+      outputMessages.some((msg) => msg.includes(expectedMessage)),
       true,
-      `期待されるメッセージが見つかりません: ${expectedMessage}`,
+      `期待される出力メッセージが見つかりません: ${expectedMessage}`,
     );
   }
 });
 
-Deno.test("Worker - 未知のJSONLタイプに対する進捗メッセージ", async () => {
+Deno.test("Worker - エラーメッセージも正しく出力される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const workerName = "unknown-type-test";
+  const workerName = "error-test";
 
-  // 未知のタイプを含むモックJSONLデータ
+  // エラーを含むモックJSONLデータ
   const mockJsonlLines = [
-    JSON.stringify({ type: "unknown_type" }),
-    JSON.stringify({ type: "ping" }), // 除外されるタイプ
-    JSON.stringify({ type: "metadata" }), // 除外されるタイプ
-    JSON.stringify({ type: "debug" }), // 除外されるタイプ
-    JSON.stringify({ type: "custom_event" }),
+    JSON.stringify({ type: "session_start", session_id: "test-session-1" }),
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "ファイルを読み込み中..." }] },
+    }),
+    JSON.stringify({
+      type: "error",
+      is_error: true,
+      message: {
+        content: [{
+          type: "text",
+          text: "ファイルが見つかりません\nパスを確認してください",
+        }],
+      },
+    }),
+    JSON.stringify({ type: "result", result: "エラーが発生しました" }),
   ];
 
   const mockExecutor = new MockStreamingClaudeCommandExecutor(mockJsonlLines);
@@ -342,41 +362,28 @@ Deno.test("Worker - 未知のJSONLタイプに対する進捗メッセージ", a
   const localPath = "/tmp/test/repo";
   await worker.setRepository(repository, localPath);
 
-  // 進捗メッセージをキャプチャ
-  const progressMessages: string[] = [];
+  // 出力メッセージをキャプチャ
+  const outputMessages: string[] = [];
   const onProgress = async (message: string) => {
-    progressMessages.push(message);
+    outputMessages.push(message);
   };
 
   // メッセージ処理実行
   await worker.processMessage("テストメッセージ", onProgress);
 
-  // 未知のタイプは表示され、除外対象タイプは表示されないことを確認
-  assertEquals(
-    progressMessages.some((msg) => msg.includes("unknown_type")),
-    true,
-    "未知のタイプが表示されていません",
-  );
-  assertEquals(
-    progressMessages.some((msg) => msg.includes("custom_event")),
-    true,
-    "カスタムイベントが表示されていません",
-  );
+  // 期待される出力メッセージが含まれることを確認
+  const expectedMessages = [
+    "ファイルを読み込み中...",
+    "ファイルが見つかりません\nパスを確認してください",
+    "エラーが発生しました",
+  ];
 
-  // 除外対象のタイプは表示されないことを確認
-  assertEquals(
-    progressMessages.some((msg) => msg.includes("ping")),
-    false,
-    "除外対象のpingタイプが表示されています",
-  );
-  assertEquals(
-    progressMessages.some((msg) => msg.includes("metadata")),
-    false,
-    "除外対象のmetadataタイプが表示されています",
-  );
-  assertEquals(
-    progressMessages.some((msg) => msg.includes("debug")),
-    false,
-    "除外対象のdebugタイプが表示されています",
-  );
+  // すべての期待されるメッセージが含まれているかチェック
+  for (const expectedMessage of expectedMessages) {
+    assertEquals(
+      outputMessages.some((msg) => msg.includes(expectedMessage)),
+      true,
+      `期待される出力メッセージが見つかりません: ${expectedMessage}`,
+    );
+  }
 });

@@ -410,9 +410,6 @@ export class Worker implements IWorker {
     let buffer = "";
     let result = "";
     let newSessionId: string | null = null;
-    let progressContent = "";
-    let lastProgressUpdate = 0;
-    const PROGRESS_UPDATE_INTERVAL = 1000; // 1秒ごとに更新
     let allOutput = "";
     let processedLines = 0;
 
@@ -428,14 +425,11 @@ export class Worker implements IWorker {
           hasMessage: !!parsed.message,
         });
 
-        // JSONL各行の進捗をDiscordに送信
+        // Claude Codeの実際の出力内容をDiscordに送信
         if (onProgress) {
-          const progressMessage = this.createProgressMessage(
-            parsed,
-            processedLines,
-          );
-          if (progressMessage) {
-            onProgress(progressMessage).catch(console.error);
+          const outputMessage = this.extractOutputMessage(parsed);
+          if (outputMessage) {
+            onProgress(this.formatResponse(outputMessage)).catch(console.error);
           }
         }
 
@@ -447,35 +441,11 @@ export class Worker implements IWorker {
           });
         }
 
-        // アシスタントメッセージからテキストを抽出
+        // アシスタントメッセージからテキストを抽出（結果の蓄積のみ）
         if (parsed.type === "assistant" && parsed.message?.content) {
           for (const content of parsed.message.content) {
             if (content.type === "text" && content.text) {
               result += content.text;
-              progressContent += content.text;
-
-              // 進捗の更新（一定間隔で）
-              const now = Date.now();
-              if (
-                progressContent.length > 50 &&
-                now - lastProgressUpdate > PROGRESS_UPDATE_INTERVAL
-              ) {
-                // 最後の完全な文または段落を送信
-                const lastNewline = progressContent.lastIndexOf("\n");
-                if (lastNewline > 0) {
-                  const toSend = progressContent.substring(0, lastNewline);
-                  if (toSend.trim()) {
-                    this.logVerbose("進捗更新送信", {
-                      contentLength: toSend.length,
-                      timeSinceLastUpdate: now - lastProgressUpdate,
-                    });
-                    onProgress(this.formatResponse(toSend)).catch(
-                      console.error,
-                    );
-                    lastProgressUpdate = now;
-                  }
-                }
-              }
             }
           }
         }
@@ -566,9 +536,6 @@ export class Worker implements IWorker {
     const lines = output.trim().split("\n");
     let result = "";
     let newSessionId: string | null = null;
-    let progressContent = "";
-    let lastProgressUpdate = 0;
-    const PROGRESS_UPDATE_INTERVAL = 1000; // 1秒ごとに更新
     let processedLines = 0;
 
     // 生のjsonlを保存
@@ -583,14 +550,11 @@ export class Worker implements IWorker {
       try {
         const parsed: ClaudeStreamMessage = JSON.parse(line);
 
-        // JSONL各行の進捗をDiscordに送信
+        // Claude Codeの実際の出力内容をDiscordに送信
         if (onProgress) {
-          const progressMessage = this.createProgressMessage(
-            parsed,
-            processedLines,
-          );
-          if (progressMessage) {
-            onProgress(progressMessage).catch(console.error);
+          const outputMessage = this.extractOutputMessage(parsed);
+          if (outputMessage) {
+            onProgress(this.formatResponse(outputMessage)).catch(console.error);
           }
         }
 
@@ -599,31 +563,11 @@ export class Worker implements IWorker {
           newSessionId = parsed.session_id;
         }
 
-        // アシスタントメッセージからテキストを抽出
+        // アシスタントメッセージからテキストを抽出（結果の蓄積のみ）
         if (parsed.type === "assistant" && parsed.message?.content) {
           for (const content of parsed.message.content) {
             if (content.type === "text" && content.text) {
               result += content.text;
-              progressContent += content.text;
-
-              // 進捗の更新（一定間隔で）
-              const now = Date.now();
-              if (
-                onProgress && progressContent.length > 50 &&
-                now - lastProgressUpdate > PROGRESS_UPDATE_INTERVAL
-              ) {
-                // 最後の完全な文または段落を送信
-                const lastNewline = progressContent.lastIndexOf("\n");
-                if (lastNewline > 0) {
-                  const toSend = progressContent.substring(0, lastNewline);
-                  if (toSend.trim()) {
-                    onProgress(this.formatResponse(toSend)).catch(
-                      console.error,
-                    );
-                    lastProgressUpdate = now;
-                  }
-                }
-              }
             }
           }
         }
@@ -813,49 +757,37 @@ export class Worker implements IWorker {
   }
 
   /**
-   * JSONL行から進捗メッセージを作成する
+   * JSONL行からClaude Codeの実際の出力メッセージを抽出する
    */
-  private createProgressMessage(
-    parsed: ClaudeStreamMessage,
-    lineNumber: number,
-  ): string | null {
-    switch (parsed.type) {
-      case "task_start":
-        return `🔍 [${lineNumber}] タスク開始: 分析中...`;
-
-      case "tool_use":
-        return `🛠️ [${lineNumber}] ツール使用中...`;
-
-      case "thinking":
-        return `💭 [${lineNumber}] 思考中...`;
-
-      case "assistant":
-        if (parsed.message?.content?.some((c) => c.type === "text")) {
-          return `✍️ [${lineNumber}] 回答生成中...`;
+  private extractOutputMessage(parsed: ClaudeStreamMessage): string | null {
+    // assistantメッセージからテキスト内容を抽出
+    if (parsed.type === "assistant" && parsed.message?.content) {
+      let textContent = "";
+      for (const content of parsed.message.content) {
+        if (content.type === "text" && content.text) {
+          textContent += content.text;
         }
-        return null;
-
-      case "result":
-        return `✅ [${lineNumber}] 処理完了`;
-
-      case "error":
-        return `❌ [${lineNumber}] エラーが発生しました`;
-
-      case "session_start":
-        return `🎯 [${lineNumber}] セッション開始`;
-
-      case "session_end":
-        return `🏁 [${lineNumber}] セッション終了`;
-
-      default:
-        // その他のタイプは限定的に表示
-        if (
-          parsed.type && !["ping", "metadata", "debug"].includes(parsed.type)
-        ) {
-          return `⚡ [${lineNumber}] ${parsed.type}`;
-        }
-        return null;
+      }
+      return textContent || null;
     }
+
+    // resultメッセージから最終結果を抽出
+    if (parsed.type === "result" && parsed.result) {
+      return parsed.result;
+    }
+
+    // エラーメッセージを抽出
+    if (parsed.is_error && parsed.message?.content) {
+      let errorContent = "";
+      for (const content of parsed.message.content) {
+        if (content.type === "text" && content.text) {
+          errorContent += content.text;
+        }
+      }
+      return errorContent || null;
+    }
+
+    return null;
   }
 
   /**
