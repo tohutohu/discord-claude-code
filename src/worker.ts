@@ -1,5 +1,52 @@
 import { GitRepository } from "./git-utils.ts";
 
+interface ClaudeStreamMessage {
+  type: string;
+  subtype?: string;
+  session_id?: string;
+  message?: {
+    id: string;
+    type: string;
+    role: string;
+    model: string;
+    content: Array<{
+      type: string;
+      text?: string;
+    }>;
+    stop_reason: string;
+    usage?: {
+      input_tokens: number;
+      output_tokens: number;
+    };
+  };
+  result?: string;
+  is_error?: boolean;
+}
+
+export interface ClaudeCommandExecutor {
+  execute(
+    args: string[],
+    cwd: string,
+  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }>;
+}
+
+class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
+  async execute(
+    args: string[],
+    cwd: string,
+  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
+    const command = new Deno.Command("claude", {
+      args,
+      cwd,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const { code, stdout, stderr } = await command.output();
+    return { code, stdout, stderr };
+  }
+}
+
 export interface IWorker {
   processMessage(message: string): Promise<string>;
   getName(): string;
@@ -10,19 +57,127 @@ export interface IWorker {
 export class Worker implements IWorker {
   private readonly name: string;
   private repository: GitRepository | null = null;
+  private localPath: string | null = null;
+  private sessionId: string | null = null;
+  private readonly claudeExecutor: ClaudeCommandExecutor;
 
-  constructor(name: string) {
+  constructor(name: string, claudeExecutor?: ClaudeCommandExecutor) {
     this.name = name;
+    this.claudeExecutor = claudeExecutor || new DefaultClaudeCommandExecutor();
   }
 
-  processMessage(message: string): Promise<string> {
-    const repoInfo = this.repository
-      ? `（現在のリポジトリ: ${this.repository.fullName}）`
-      : "（リポジトリ未設定）";
+  async processMessage(message: string): Promise<string> {
+    if (!this.repository || !this.localPath) {
+      return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+    }
 
-    return Promise.resolve(
-      `こんにちは、${this.name}です。${message}というメッセージを受け取りました！${repoInfo}`,
+    try {
+      const result = await this.executeClaude(message);
+      return this.formatResponse(result);
+    } catch (error) {
+      console.error(`Worker ${this.name} - Claude実行エラー:`, error);
+      return `エラーが発生しました: ${(error as Error).message}`;
+    }
+  }
+
+  private async executeClaude(prompt: string): Promise<string> {
+    const args = [
+      "-p",
+      prompt,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ];
+
+    // セッション継続の場合
+    if (this.sessionId) {
+      args.push("--resume", this.sessionId);
+    }
+
+    const { code, stdout, stderr } = await this.claudeExecutor.execute(
+      args,
+      this.localPath!,
     );
+
+    if (code !== 0) {
+      const errorMessage = new TextDecoder().decode(stderr);
+      throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+    }
+
+    const output = new TextDecoder().decode(stdout);
+    return this.parseStreamJsonOutput(output);
+  }
+
+  private parseStreamJsonOutput(output: string): string {
+    const lines = output.trim().split("\n");
+    let result = "";
+    let newSessionId: string | null = null;
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      try {
+        const parsed: ClaudeStreamMessage = JSON.parse(line);
+
+        // セッションIDを更新
+        if (parsed.session_id) {
+          newSessionId = parsed.session_id;
+        }
+
+        // アシスタントメッセージからテキストを抽出
+        if (parsed.type === "assistant" && parsed.message?.content) {
+          for (const content of parsed.message.content) {
+            if (content.type === "text" && content.text) {
+              result += content.text;
+            }
+          }
+        }
+
+        // 最終結果を取得
+        if (parsed.type === "result" && parsed.result) {
+          result = parsed.result;
+        }
+      } catch (parseError) {
+        console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
+        // JSON解析できない行はそのまま結果に含める
+        result += line + "\n";
+      }
+    }
+
+    // セッションIDを更新
+    if (newSessionId) {
+      this.sessionId = newSessionId;
+    }
+
+    return result.trim() || "Claude からの応答を取得できませんでした。";
+  }
+
+  private formatResponse(response: string): string {
+    // Discordの文字数制限（2000文字）を考慮
+    const maxLength = 1900; // 余裕を持って少し短く
+
+    if (response.length <= maxLength) {
+      // ANSIエスケープシーケンスを除去
+      return this.stripAnsiCodes(response);
+    }
+
+    // 長すぎる場合は分割して最初の部分だけ返す
+    const truncated = response.substring(0, maxLength);
+    const lastNewline = truncated.lastIndexOf("\n");
+
+    // 改行で綺麗に切れる位置があれば、そこで切る
+    const finalResponse = lastNewline > maxLength * 0.8
+      ? truncated.substring(0, lastNewline)
+      : truncated;
+
+    return this.stripAnsiCodes(finalResponse) +
+      "\n\n*（応答が長いため、一部のみ表示しています）*";
+  }
+
+  private stripAnsiCodes(text: string): string {
+    // ANSIエスケープシーケンスを除去する正規表現
+    // deno-lint-ignore no-control-regex
+    return text.replace(/\x1b\[[0-9;]*[mGKHF]/g, "");
   }
 
   getName(): string {
@@ -33,8 +188,10 @@ export class Worker implements IWorker {
     return this.repository;
   }
 
-  setRepository(repository: GitRepository, _localPath: string): void {
+  setRepository(repository: GitRepository, localPath: string): void {
     this.repository = repository;
-    // _localPath は将来的にファイル操作で使用予定
+    this.localPath = localPath;
+    // 新しいリポジトリが設定された場合、セッションIDをリセット
+    this.sessionId = null;
   }
 }

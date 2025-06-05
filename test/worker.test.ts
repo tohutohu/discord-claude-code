@@ -1,6 +1,32 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { Worker } from "../src/worker.ts";
+import { ClaudeCommandExecutor, Worker } from "../src/worker.ts";
 import { parseRepository } from "../src/git-utils.ts";
+
+// テスト用のモックClaudeCommandExecutor
+class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
+  private mockResponse: string;
+
+  constructor(mockResponse = "Claude Codeのモック応答です。") {
+    this.mockResponse = mockResponse;
+  }
+
+  execute(
+    _args: string[],
+    _cwd: string,
+  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
+    const mockOutput = JSON.stringify({
+      type: "result",
+      result: this.mockResponse,
+      session_id: "mock-session-id-12345",
+    });
+
+    return Promise.resolve({
+      code: 0,
+      stdout: new TextEncoder().encode(mockOutput),
+      stderr: new TextEncoder().encode(""),
+    });
+  }
+}
 
 Deno.test("Worker - メッセージを受け取って返信する（リポジトリ未設定）", async () => {
   const workerName = "happy-panda";
@@ -11,7 +37,7 @@ Deno.test("Worker - メッセージを受け取って返信する（リポジト
 
   assertEquals(
     reply,
-    `こんにちは、${workerName}です。${message}というメッセージを受け取りました！（リポジトリ未設定）`,
+    "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
   );
 });
 
@@ -31,7 +57,7 @@ Deno.test("Worker - 空のメッセージも処理できる", async () => {
 
   assertEquals(
     reply,
-    `こんにちは、${workerName}です。${message}というメッセージを受け取りました！（リポジトリ未設定）`,
+    "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
   );
 });
 
@@ -56,7 +82,10 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", () => {
 
 Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () => {
   const workerName = "wise-owl";
-  const worker = new Worker(workerName);
+  const mockExecutor = new MockClaudeCommandExecutor(
+    "テストメッセージに対するClaude応答です。",
+  );
+  const worker = new Worker(workerName, mockExecutor);
 
   // リポジトリ情報を設定
   const repository = parseRepository("test-org/test-repo");
@@ -68,6 +97,6 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
 
   assertEquals(
     reply,
-    `こんにちは、${workerName}です。${message}というメッセージを受け取りました！（現在のリポジトリ: test-org/test-repo）`,
+    "テストメッセージに対するClaude応答です。",
   );
 });

@@ -23,7 +23,7 @@ Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", asyn
     const reply = await admin.routeMessage(threadId, message);
     assertEquals(
       reply,
-      `こんにちは、${worker.getName()}です。${message}というメッセージを受け取りました！（リポジトリ未設定）`,
+      "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
     );
   }
 });
@@ -47,12 +47,11 @@ Deno.test("統合テスト - 複数のスレッドを同時に処理できる", 
 
   const replies = await Promise.all(promises);
 
-  // 各返信が正しいWorkerからのものか確認
+  // 各返信が正しいものか確認
   for (let i = 0; i < threadIds.length; i++) {
-    const expectedWorkerName = workers.get(threadIds[i]);
     assertEquals(
       replies[i],
-      `こんにちは、${expectedWorkerName}です。${message}というメッセージを受け取りました！（リポジトリ未設定）`,
+      "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
     );
   }
 });

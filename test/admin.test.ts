@@ -65,7 +65,11 @@ Deno.test("Admin - スレッドにメッセージをルーティングできる"
   const reply = await admin.routeMessage(threadId, message);
 
   assertExists(reply);
-  assertEquals(reply.includes(message), true);
+  // 新しい実装では、リポジトリ未設定時の固定メッセージが返される
+  assertEquals(
+    reply,
+    "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
+  );
 });
 
 Deno.test("Admin - 存在しないスレッドへのメッセージはエラーを返す", async () => {
