@@ -92,6 +92,10 @@ export async function checkDevcontainerCli(): Promise<boolean> {
       args: ["--version"],
       stdout: "piped",
       stderr: "piped",
+      env: {
+        ...Deno.env.toObject(),
+        DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+      },
     });
 
     const result = await command.output();
@@ -116,6 +120,10 @@ export async function startDevcontainer(repositoryPath: string): Promise<{
       stdout: "piped",
       stderr: "piped",
       cwd: repositoryPath,
+      env: {
+        ...Deno.env.toObject(),
+        DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+      },
     });
 
     const result = await command.output();
@@ -157,6 +165,10 @@ export async function execInDevcontainer(
     stdout: "piped",
     stderr: "piped",
     cwd: repositoryPath,
+    env: {
+      ...Deno.env.toObject(),
+      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+    },
   });
 
   const { code, stdout, stderr } = await devcontainerCommand.output();
