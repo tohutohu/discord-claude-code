@@ -291,6 +291,19 @@ export class Admin implements IAdmin {
       activeWorkerCount: this.workers.size,
     });
 
+    // VERBOSEモードでDiscordユーザーメッセージの詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${new Date().toISOString()}] [Admin] Discord受信メッセージ詳細:`,
+      );
+      console.log(`  スレッドID: ${threadId}`);
+      console.log(`  メッセージ長: ${message.length}文字`);
+      console.log(`  メッセージ内容:`);
+      console.log(
+        `    ${message.split("\n").map((line) => `    ${line}`).join("\n")}`,
+      );
+    }
+
     const worker = this.workers.get(threadId);
     if (!worker) {
       this.logVerbose("Worker見つからず", {

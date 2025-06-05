@@ -92,11 +92,28 @@ export interface ClaudeCommandExecutor {
 }
 
 class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
+  private readonly verbose: boolean;
+
+  constructor(verbose: boolean = false) {
+    this.verbose = verbose;
+  }
+
   async executeStreaming(
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
   ): Promise<{ code: number; stderr: Uint8Array }> {
+    // VERBOSEモードでコマンド詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [DefaultClaudeCommandExecutor] Claudeコマンド実行:`,
+      );
+      console.log(`  作業ディレクトリ: ${cwd}`);
+      console.log(`  引数: ${JSON.stringify(args)}`);
+    }
+
     const command = new Deno.Command("claude", {
       args,
       cwd,
@@ -112,15 +129,28 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
       processStreams(process.stdout, process.stderr, onData),
     ]);
 
+    // VERBOSEモードで実行結果詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [DefaultClaudeCommandExecutor] 実行完了:`,
+      );
+      console.log(`  終了コード: ${code}`);
+      console.log(`  stderr長: ${stderrOutput.length}バイト`);
+    }
+
     return { code, stderr: stderrOutput };
   }
 }
 
 export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
   private readonly repositoryPath: string;
+  private readonly verbose: boolean;
 
-  constructor(repositoryPath: string) {
+  constructor(repositoryPath: string, verbose: boolean = false) {
     this.repositoryPath = repositoryPath;
+    this.verbose = verbose;
   }
 
   async executeStreaming(
@@ -128,6 +158,17 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     _cwd: string,
     onData: (data: Uint8Array) => void,
   ): Promise<{ code: number; stderr: Uint8Array }> {
+    // VERBOSEモードでdevcontainerコマンド詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [DevcontainerClaudeExecutor] devcontainerコマンド実行:`,
+      );
+      console.log(`  リポジトリパス: ${this.repositoryPath}`);
+      console.log(`  引数: ${JSON.stringify(args)}`);
+    }
+
     // devcontainer内でclaudeコマンドをストリーミング実行
     const devcontainerCommand = new Deno.Command("devcontainer", {
       args: [
@@ -153,6 +194,15 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
       process.status,
       processStreams(process.stdout, process.stderr, onData),
     ]);
+
+    // VERBOSEモードで実行結果詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${new Date().toISOString()}] [DevcontainerClaudeExecutor] 実行完了:`,
+      );
+      console.log(`  終了コード: ${code}`);
+      console.log(`  stderr長: ${stderrOutput.length}バイト`);
+    }
 
     return { code, stderr: stderrOutput };
   }
@@ -190,8 +240,9 @@ export class Worker implements IWorker {
   ) {
     this.name = name;
     this.workspaceManager = workspaceManager;
-    this.claudeExecutor = claudeExecutor || new DefaultClaudeCommandExecutor();
     this.verbose = verbose || false;
+    this.claudeExecutor = claudeExecutor ||
+      new DefaultClaudeCommandExecutor(this.verbose);
   }
 
   async processMessage(
@@ -205,6 +256,19 @@ export class Worker implements IWorker {
       threadId: this.threadId,
       sessionId: this.sessionId,
     });
+
+    // VERBOSEモードでユーザーメッセージの詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [Worker:${this.name}] ユーザーメッセージ処理詳細:`,
+      );
+      console.log(`  メッセージ: "${message}"`);
+      console.log(`  リポジトリ: ${this.repository?.fullName || "なし"}`);
+      console.log(`  worktreePath: ${this.worktreePath || "なし"}`);
+      console.log(`  セッションID: ${this.sessionId || "なし"}`);
+    }
 
     if (!this.repository || !this.worktreePath) {
       this.logVerbose("リポジトリまたはworktreeパスが未設定");
@@ -364,6 +428,16 @@ export class Worker implements IWorker {
       allOutput += chunk;
       buffer += chunk;
 
+      // VERBOSEモードでstdoutを詳細ログ出力
+      if (this.verbose && chunk.trim()) {
+        console.log(
+          `[${new Date().toISOString()}] [Worker:${this.name}] Claude stdout:`,
+        );
+        console.log(
+          `  ${chunk.split("\n").map((line) => `  ${line}`).join("\n")}`,
+        );
+      }
+
       // 改行で分割して処理
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
@@ -395,11 +469,43 @@ export class Worker implements IWorker {
 
     if (code !== 0) {
       const errorMessage = decoder.decode(stderr);
+
+      // VERBOSEモードでstderrを詳細ログ出力
+      if (this.verbose && stderr.length > 0) {
+        console.log(
+          `[${new Date().toISOString()}] [Worker:${this.name}] Claude stderr:`,
+        );
+        console.log(`  終了コード: ${code}`);
+        console.log(`  エラー内容:`);
+        console.log(
+          `    ${
+            errorMessage.split("\n").map((line) => `    ${line}`).join("\n")
+          }`,
+        );
+      }
+
       this.logVerbose("ストリーミング実行エラー", {
         exitCode: code,
         errorMessage,
       });
       throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+    }
+
+    // VERBOSEモードで成功時のstderrも出力（警告等の情報がある場合）
+    if (this.verbose && stderr.length > 0) {
+      const stderrContent = decoder.decode(stderr);
+      if (stderrContent.trim()) {
+        console.log(
+          `[${
+            new Date().toISOString()
+          }] [Worker:${this.name}] Claude stderr (警告等):`,
+        );
+        console.log(
+          `  ${
+            stderrContent.split("\n").map((line) => `  ${line}`).join("\n")
+          }`,
+        );
+      }
     }
 
     // セッションIDを更新
@@ -525,7 +631,10 @@ export class Worker implements IWorker {
     // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
     if (this.useDevcontainer && this.worktreePath) {
       this.logVerbose("DevcontainerClaudeExecutorに切り替え");
-      this.claudeExecutor = new DevcontainerClaudeExecutor(this.worktreePath);
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.worktreePath,
+        this.verbose,
+      );
     }
 
     this.sessionId = null;
