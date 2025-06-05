@@ -121,9 +121,17 @@ export async function startDevcontainer(
       await onProgress("🐳 Dockerコンテナを準備しています...");
     }
 
-    // devcontainer up コマンドを実行
+    // devcontainer up コマンドを実行（デバッグログとJSON形式で出力）
     const command = new Deno.Command("devcontainer", {
-      args: ["up", "--workspace-folder", repositoryPath],
+      args: [
+        "up",
+        "--workspace-folder",
+        repositoryPath,
+        "--log-level",
+        "debug",
+        "--log-format",
+        "json",
+      ],
       stdout: "piped",
       stderr: "piped",
       cwd: repositoryPath,
@@ -137,10 +145,24 @@ export async function startDevcontainer(
     const decoder = new TextDecoder();
     let output = "";
     let errorOutput = "";
+    const logBuffer: string[] = [];
+    const maxLogLines = 30;
+    let lastProgressUpdate = Date.now();
+    const progressUpdateInterval = 3000; // 3秒
 
     // stdoutとstderrをストリーミングで読み取る
     const stdoutReader = process.stdout.getReader();
     const stderrReader = process.stderr.getReader();
+
+    // 定期的なログ更新タイマー
+    const progressTimer = setInterval(async () => {
+      if (onProgress && logBuffer.length > 0) {
+        const recentLogs = logBuffer.slice(-maxLogLines);
+        const logMessage = "🐳 起動中...\n```\n" + recentLogs.join("\n") +
+          "\n```";
+        await onProgress(logMessage).catch(console.error);
+      }
+    }, progressUpdateInterval);
 
     // stdoutの読み取り
     const stdoutPromise = (async () => {
@@ -152,16 +174,48 @@ export async function startDevcontainer(
             const chunk = decoder.decode(value, { stream: true });
             output += chunk;
 
-            // 進捗メッセージを抽出して送信
-            if (onProgress) {
-              const lines = chunk.split("\n");
-              for (const line of lines) {
+            // JSON形式のログをパースして処理
+            const lines = chunk.split("\n").filter((line) => line.trim());
+            for (const line of lines) {
+              try {
+                const logEntry = JSON.parse(line);
+                // ログエントリから意味のあるメッセージを抽出
+                const message = logEntry.message || logEntry.msg || line;
+                const timestamp = logEntry.timestamp || logEntry.time || "";
+
+                // 読みやすい形式でバッファに追加
+                const formattedLog = timestamp
+                  ? `[${timestamp}] ${message}`
+                  : message;
+                logBuffer.push(formattedLog);
+
+                // バッファサイズを制限
+                if (logBuffer.length > maxLogLines * 2) {
+                  logBuffer.splice(0, logBuffer.length - maxLogLines);
+                }
+
+                // 重要なイベントは即座に通知
                 if (
-                  line.includes("Building") || line.includes("Creating") ||
-                  line.includes("Starting") || line.includes("Attaching") ||
-                  line.includes("Running") || line.includes("Installing")
+                  message.toLowerCase().includes("pulling") ||
+                  message.toLowerCase().includes("downloading") ||
+                  message.toLowerCase().includes("extracting") ||
+                  message.toLowerCase().includes("building") ||
+                  message.toLowerCase().includes("creating") ||
+                  message.toLowerCase().includes("starting")
                 ) {
-                  await onProgress(`🐳 ${line.trim()}`).catch(console.error);
+                  const now = Date.now();
+                  if (now - lastProgressUpdate > 1000) { // 1秒以上経過していれば更新
+                    lastProgressUpdate = now;
+                    if (onProgress) {
+                      await onProgress(`🐳 ${message}`).catch(console.error);
+                    }
+                  }
+                }
+              } catch {
+                // JSON以外の行はそのまま追加
+                logBuffer.push(line);
+                if (logBuffer.length > maxLogLines * 2) {
+                  logBuffer.splice(0, logBuffer.length - maxLogLines);
                 }
               }
             }
@@ -198,6 +252,9 @@ export async function startDevcontainer(
       stdoutPromise,
       stderrPromise,
     ]);
+
+    // タイマーをクリア
+    clearInterval(progressTimer);
 
     if (code !== 0) {
       return {
