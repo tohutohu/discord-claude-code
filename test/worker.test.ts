@@ -18,21 +18,24 @@ class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
     this.mockResponse = mockResponse;
   }
 
-  execute(
+  async executeStreaming(
     _args: string[],
     _cwd: string,
-  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
     const mockOutput = JSON.stringify({
       type: "result",
       result: this.mockResponse,
       session_id: "mock-session-id-12345",
     });
 
-    return Promise.resolve({
+    // ストリーミングをシミュレート
+    onData(new TextEncoder().encode(mockOutput));
+
+    return {
       code: 0,
-      stdout: new TextEncoder().encode(mockOutput),
       stderr: new TextEncoder().encode(""),
-    });
+    };
   }
 }
 

@@ -5,16 +5,21 @@ import { parseRepository } from "./git-utils.ts";
 
 // モック用のClaudeCommandExecutor
 class MockClaudeExecutor {
-  async execute(): Promise<
-    { code: number; stdout: Uint8Array; stderr: Uint8Array }
-  > {
+  async executeStreaming(
+    _args: string[],
+    _cwd: string,
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
     const response = JSON.stringify({
       type: "result",
       result: "Claude からのテスト応答",
     });
+
+    // ストリーミングをシミュレート
+    onData(new TextEncoder().encode(response));
+
     return {
       code: 0,
-      stdout: new TextEncoder().encode(response),
       stderr: new TextEncoder().encode(""),
     };
   }

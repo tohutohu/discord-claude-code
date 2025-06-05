@@ -1,6 +1,5 @@
 import { GitRepository } from "./git-utils.ts";
 import { SessionLog, WorkspaceManager } from "./workspace.ts";
-import { execInDevcontainer } from "./devcontainer.ts";
 
 interface ClaudeStreamMessage {
   type: string;
@@ -26,12 +25,7 @@ interface ClaudeStreamMessage {
 }
 
 export interface ClaudeCommandExecutor {
-  execute(
-    args: string[],
-    cwd: string,
-  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }>;
-
-  executeStreaming?(
+  executeStreaming(
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
@@ -39,21 +33,6 @@ export interface ClaudeCommandExecutor {
 }
 
 class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
-  async execute(
-    args: string[],
-    cwd: string,
-  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
-    const command = new Deno.Command("claude", {
-      args,
-      cwd,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stdout, stderr } = await command.output();
-    return { code, stdout, stderr };
-  }
-
   async executeStreaming(
     args: string[],
     cwd: string,
@@ -135,15 +114,6 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 
   constructor(repositoryPath: string) {
     this.repositoryPath = repositoryPath;
-  }
-
-  async execute(
-    args: string[],
-    _cwd: string,
-  ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
-    // devcontainer内でclaudeコマンドを実行
-    const command = ["claude", ...args];
-    return await execInDevcontainer(this.repositoryPath, command);
   }
 
   async executeStreaming(
@@ -271,7 +241,7 @@ export class Worker implements IWorker {
 
   async processMessage(
     message: string,
-    onProgress?: (content: string) => Promise<void>,
+    onProgress: (content: string) => Promise<void> = async () => {},
   ): Promise<string> {
     this.logVerbose("メッセージ処理開始", {
       messageLength: message.length,
@@ -294,10 +264,8 @@ export class Worker implements IWorker {
       }
 
       // 処理開始の通知
-      if (onProgress) {
-        this.logVerbose("進捗通知開始");
-        await onProgress("🤖 Claudeが考えています...");
-      }
+      this.logVerbose("進捗通知開始");
+      await onProgress("🤖 Claudeが考えています...");
 
       this.logVerbose("Claude実行開始");
       const result = await this.executeClaude(message, onProgress);
@@ -338,7 +306,7 @@ export class Worker implements IWorker {
 
   private async executeClaude(
     prompt: string,
-    onProgress?: (content: string) => Promise<void>,
+    onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
     const args = [
       "-p",
@@ -368,37 +336,10 @@ export class Worker implements IWorker {
       args: args,
       cwd: this.worktreePath,
       useDevcontainer: this.useDevcontainer,
-      hasStreaming: !!this.claudeExecutor.executeStreaming,
     });
 
-    // ストリーミング実行が可能な場合
-    if (this.claudeExecutor.executeStreaming && onProgress) {
-      this.logVerbose("ストリーミング実行開始");
-      return await this.executeClaudeStreaming(args, onProgress);
-    }
-
-    // 通常の実行
-    this.logVerbose("通常実行開始");
-    const { code, stdout, stderr } = await this.claudeExecutor.execute(
-      args,
-      this.worktreePath!,
-    );
-
-    this.logVerbose("Claudeコマンド実行完了", {
-      exitCode: code,
-      stdoutLength: stdout.length,
-      stderrLength: stderr.length,
-    });
-
-    if (code !== 0) {
-      const errorMessage = new TextDecoder().decode(stderr);
-      this.logVerbose("Claude実行エラー", { exitCode: code, errorMessage });
-      throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
-    }
-
-    const output = new TextDecoder().decode(stdout);
-    this.logVerbose("出力解析開始", { outputLength: output.length });
-    return this.parseStreamJsonOutput(output, onProgress);
+    this.logVerbose("ストリーミング実行開始");
+    return await this.executeClaudeStreaming(args, onProgress);
   }
 
   private async executeClaudeStreaming(
@@ -477,7 +418,7 @@ export class Worker implements IWorker {
       }
     };
 
-    const { code, stderr } = await this.claudeExecutor.executeStreaming!(
+    const { code, stderr } = await this.claudeExecutor.executeStreaming(
       args,
       this.worktreePath!,
       onData,
@@ -527,68 +468,6 @@ export class Worker implements IWorker {
       finalResultLength: finalResult.length,
     });
     return finalResult;
-  }
-
-  private parseStreamJsonOutput(
-    output: string,
-    onProgress?: (content: string) => Promise<void>,
-  ): string {
-    const lines = output.trim().split("\n");
-    let result = "";
-    let newSessionId: string | null = null;
-    let processedLines = 0;
-
-    // 生のjsonlを保存
-    if (this.repository?.fullName && output.trim()) {
-      this.saveRawJsonlOutput(output);
-    }
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      processedLines++;
-
-      try {
-        const parsed: ClaudeStreamMessage = JSON.parse(line);
-
-        // Claude Codeの実際の出力内容をDiscordに送信
-        if (onProgress) {
-          const outputMessage = this.extractOutputMessage(parsed);
-          if (outputMessage) {
-            onProgress(this.formatResponse(outputMessage)).catch(console.error);
-          }
-        }
-
-        // セッションIDを更新
-        if (parsed.session_id) {
-          newSessionId = parsed.session_id;
-        }
-
-        // アシスタントメッセージからテキストを抽出（結果の蓄積のみ）
-        if (parsed.type === "assistant" && parsed.message?.content) {
-          for (const content of parsed.message.content) {
-            if (content.type === "text" && content.text) {
-              result += content.text;
-            }
-          }
-        }
-
-        // 最終結果を取得
-        if (parsed.type === "result" && parsed.result) {
-          result = parsed.result;
-        }
-      } catch (parseError) {
-        console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
-        // JSON解析できない行はそのまま結果に含める
-        result += line + "\n";
-      }
-    }
-
-    // セッションIDを更新
-    if (newSessionId) {
-      this.sessionId = newSessionId;
-    }
-
-    return result.trim() || "Claude からの応答を取得できませんでした。";
   }
 
   private async saveRawJsonlOutput(output: string): Promise<void> {
