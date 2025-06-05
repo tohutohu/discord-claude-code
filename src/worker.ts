@@ -428,6 +428,17 @@ export class Worker implements IWorker {
           hasMessage: !!parsed.message,
         });
 
+        // JSONL各行の進捗をDiscordに送信
+        if (onProgress) {
+          const progressMessage = this.createProgressMessage(
+            parsed,
+            processedLines,
+          );
+          if (progressMessage) {
+            onProgress(progressMessage).catch(console.error);
+          }
+        }
+
         // セッションIDを更新
         if (parsed.session_id) {
           newSessionId = parsed.session_id;
@@ -558,6 +569,7 @@ export class Worker implements IWorker {
     let progressContent = "";
     let lastProgressUpdate = 0;
     const PROGRESS_UPDATE_INTERVAL = 1000; // 1秒ごとに更新
+    let processedLines = 0;
 
     // 生のjsonlを保存
     if (this.repository?.fullName && output.trim()) {
@@ -566,9 +578,21 @@ export class Worker implements IWorker {
 
     for (const line of lines) {
       if (!line.trim()) continue;
+      processedLines++;
 
       try {
         const parsed: ClaudeStreamMessage = JSON.parse(line);
+
+        // JSONL各行の進捗をDiscordに送信
+        if (onProgress) {
+          const progressMessage = this.createProgressMessage(
+            parsed,
+            processedLines,
+          );
+          if (progressMessage) {
+            onProgress(progressMessage).catch(console.error);
+          }
+        }
 
         // セッションIDを更新
         if (parsed.session_id) {
@@ -786,6 +810,52 @@ export class Worker implements IWorker {
    */
   isVerbose(): boolean {
     return this.verbose;
+  }
+
+  /**
+   * JSONL行から進捗メッセージを作成する
+   */
+  private createProgressMessage(
+    parsed: ClaudeStreamMessage,
+    lineNumber: number,
+  ): string | null {
+    switch (parsed.type) {
+      case "task_start":
+        return `🔍 [${lineNumber}] タスク開始: 分析中...`;
+
+      case "tool_use":
+        return `🛠️ [${lineNumber}] ツール使用中...`;
+
+      case "thinking":
+        return `💭 [${lineNumber}] 思考中...`;
+
+      case "assistant":
+        if (parsed.message?.content?.some((c) => c.type === "text")) {
+          return `✍️ [${lineNumber}] 回答生成中...`;
+        }
+        return null;
+
+      case "result":
+        return `✅ [${lineNumber}] 処理完了`;
+
+      case "error":
+        return `❌ [${lineNumber}] エラーが発生しました`;
+
+      case "session_start":
+        return `🎯 [${lineNumber}] セッション開始`;
+
+      case "session_end":
+        return `🏁 [${lineNumber}] セッション終了`;
+
+      default:
+        // その他のタイプは限定的に表示
+        if (
+          parsed.type && !["ping", "metadata", "debug"].includes(parsed.type)
+        ) {
+          return `⚡ [${lineNumber}] ${parsed.type}`;
+        }
+        return null;
+    }
   }
 
   /**
