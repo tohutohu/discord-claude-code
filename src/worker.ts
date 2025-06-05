@@ -1,6 +1,65 @@
 import { GitRepository } from "./git-utils.ts";
 import { SessionLog, WorkspaceManager } from "./workspace.ts";
 
+async function processStreams(
+  stdout: ReadableStream<Uint8Array>,
+  stderr: ReadableStream<Uint8Array>,
+  onData: (data: Uint8Array) => void,
+): Promise<Uint8Array> {
+  const stdoutReader = stdout.getReader();
+  const stderrReader = stderr.getReader();
+  let stderrOutput = new Uint8Array();
+
+  // stdoutの読み取りPromise
+  const stdoutPromise = (async () => {
+    try {
+      while (true) {
+        const { done, value } = await stdoutReader.read();
+        if (done) break;
+        if (value) {
+          onData(value);
+        }
+      }
+    } catch (error) {
+      console.error("stdout読み取りエラー:", error);
+    } finally {
+      stdoutReader.releaseLock();
+    }
+  })();
+
+  // stderrの読み取りPromise
+  const stderrPromise = (async () => {
+    try {
+      const chunks: Uint8Array[] = [];
+      while (true) {
+        const { done, value } = await stderrReader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+        }
+      }
+      // stderrの内容を結合
+      const totalLength = chunks.reduce(
+        (sum, chunk) => sum + chunk.length,
+        0,
+      );
+      stderrOutput = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        stderrOutput.set(chunk, offset);
+        offset += chunk.length;
+      }
+    } catch (error) {
+      console.error("stderr読み取りエラー:", error);
+    } finally {
+      stderrReader.releaseLock();
+    }
+  })();
+
+  await Promise.all([stdoutPromise, stderrPromise]);
+  return stderrOutput;
+}
+
 interface ClaudeStreamMessage {
   type: string;
   subtype?: string;
@@ -47,62 +106,10 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
 
     const process = command.spawn();
 
-    // stdoutをストリーミングで読み取る
-    const stdoutReader = process.stdout.getReader();
-    const stderrReader = process.stderr.getReader();
-    let stderrOutput = new Uint8Array();
-
-    // stdoutの読み取りPromise
-    const stdoutPromise = (async () => {
-      try {
-        while (true) {
-          const { done, value } = await stdoutReader.read();
-          if (done) break;
-          if (value) {
-            onData(value);
-          }
-        }
-      } catch (error) {
-        console.error("stdout読み取りエラー:", error);
-      } finally {
-        stdoutReader.releaseLock();
-      }
-    })();
-
-    // stderrの読み取りPromise
-    const stderrPromise = (async () => {
-      try {
-        const chunks: Uint8Array[] = [];
-        while (true) {
-          const { done, value } = await stderrReader.read();
-          if (done) break;
-          if (value) {
-            chunks.push(value);
-          }
-        }
-        // stderrの内容を結合
-        const totalLength = chunks.reduce(
-          (sum, chunk) => sum + chunk.length,
-          0,
-        );
-        stderrOutput = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const chunk of chunks) {
-          stderrOutput.set(chunk, offset);
-          offset += chunk.length;
-        }
-      } catch (error) {
-        console.error("stderr読み取りエラー:", error);
-      } finally {
-        stderrReader.releaseLock();
-      }
-    })();
-
     // プロセスの終了を待つ
-    const [{ code }] = await Promise.all([
+    const [{ code }, stderrOutput] = await Promise.all([
       process.status,
-      stdoutPromise,
-      stderrPromise,
+      processStreams(process.stdout, process.stderr, onData),
     ]);
 
     return { code, stderr: stderrOutput };
@@ -141,62 +148,10 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 
     const process = devcontainerCommand.spawn();
 
-    // stdoutをストリーミングで読み取る
-    const stdoutReader = process.stdout.getReader();
-    const stderrReader = process.stderr.getReader();
-    let stderrOutput = new Uint8Array();
-
-    // stdoutの読み取りPromise
-    const stdoutPromise = (async () => {
-      try {
-        while (true) {
-          const { done, value } = await stdoutReader.read();
-          if (done) break;
-          if (value) {
-            onData(value);
-          }
-        }
-      } catch (error) {
-        console.error("devcontainer stdout読み取りエラー:", error);
-      } finally {
-        stdoutReader.releaseLock();
-      }
-    })();
-
-    // stderrの読み取りPromise
-    const stderrPromise = (async () => {
-      try {
-        const chunks: Uint8Array[] = [];
-        while (true) {
-          const { done, value } = await stderrReader.read();
-          if (done) break;
-          if (value) {
-            chunks.push(value);
-          }
-        }
-        // stderrの内容を結合
-        const totalLength = chunks.reduce(
-          (sum, chunk) => sum + chunk.length,
-          0,
-        );
-        stderrOutput = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const chunk of chunks) {
-          stderrOutput.set(chunk, offset);
-          offset += chunk.length;
-        }
-      } catch (error) {
-        console.error("devcontainer stderr読み取りエラー:", error);
-      } finally {
-        stderrReader.releaseLock();
-      }
-    })();
-
     // プロセスの終了を待つ
-    const [{ code }] = await Promise.all([
+    const [{ code }, stderrOutput] = await Promise.all([
       process.status,
-      stdoutPromise,
-      stderrPromise,
+      processStreams(process.stdout, process.stderr, onData),
     ]);
 
     return { code, stderr: stderrOutput };
