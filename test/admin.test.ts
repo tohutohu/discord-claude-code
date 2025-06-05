@@ -589,11 +589,13 @@ Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
   try {
     await admin.restoreActiveThreads();
 
-    // Workerは作成され、リポジトリオブジェクトも作成される（parseRepositoryは成功するため）
+    // worktreeが存在しないため、スレッドはアーカイブされ、Workerは作成されない
     const worker = admin.getWorker(threadId);
-    assertEquals(worker !== null, true);
-    // parseRepositoryは有効なリポジトリオブジェクトを返すが、worktreeの作成に失敗する可能性がある
-    assertExists(worker?.getRepository());
+    assertEquals(worker, null);
+
+    // スレッドがアーカイブされたことを確認
+    const updatedThreadInfo = await workspace.loadThreadInfo(threadId);
+    assertEquals(updatedThreadInfo?.status, "archived");
 
     // エラーハンドリングが適切に動作していることを確認
     // 実際のエラーが発生するかは環境に依存するため、ここではWorkerの状態のみを確認
@@ -602,4 +604,77 @@ Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
     console.error = originalConsoleError;
     console.warn = originalConsoleWarn;
   }
+});
+
+Deno.test("Admin - worktreeが存在しないスレッドは復旧時にアーカイブされる", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // worktreeが存在しないスレッド情報を作成
+  const threadId = "no-worktree-thread";
+  const threadInfo = {
+    threadId,
+    repositoryFullName: "test/repo",
+    repositoryLocalPath: "/path/to/repo",
+    worktreePath: "/nonexistent/worktree/path",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+    status: "active" as const,
+    devcontainerConfig: null,
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // Adminを作成してアクティブスレッドを復旧
+  const admin = new Admin(workspace);
+  await admin.restoreActiveThreads();
+
+  // Workerは作成されない
+  assertEquals(admin.getWorker(threadId), null);
+
+  // スレッドがアーカイブされたことを確認
+  const updatedThreadInfo = await workspace.loadThreadInfo(threadId);
+  assertEquals(updatedThreadInfo?.status, "archived");
+});
+
+Deno.test("Admin - worktreeが存在するスレッドは正常に復旧される", async () => {
+  const workspace = await createTestWorkspaceManager();
+
+  // 実際に存在するworktreeを作成
+  const threadId = "valid-worktree-thread";
+  const worktreePath = workspace.getWorktreePath(threadId);
+  await Deno.mkdir(worktreePath, { recursive: true });
+
+  // スレッド情報を作成
+  const threadInfo = {
+    threadId,
+    repositoryFullName: "test/repo",
+    repositoryLocalPath: workspace.getBaseDir(), // 実際の存在するパスを使用
+    worktreePath,
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+    status: "active" as const,
+    devcontainerConfig: {
+      useDevcontainer: false,
+      skipPermissions: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // Adminを作成してアクティブスレッドを復旧
+  const admin = new Admin(workspace);
+  await admin.restoreActiveThreads();
+
+  // Workerが作成される
+  const worker = admin.getWorker(threadId);
+  assertEquals(worker !== null, true);
+
+  // スレッドがアクティブのままであることを確認
+  const updatedThreadInfo = await workspace.loadThreadInfo(threadId);
+  assertEquals(updatedThreadInfo?.status, "active");
+
+  // クリーンアップ - workspace全体を削除（テンポラリディレクトリなので）
 });

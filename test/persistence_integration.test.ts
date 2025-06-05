@@ -267,16 +267,13 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
       const goodWorker = admin2.getWorker(goodThreadId);
       assertExists(goodWorker);
 
-      // 問題のあるスレッドも Worker は作成されるが、リポジトリ情報の設定で問題が発生する可能性がある
+      // 問題のあるスレッドはworktreeが存在しないためアーカイブされ、Workerは作成されない
       const badWorker = admin2.getWorker(badThreadId);
-      assertExists(badWorker);
-      // parseRepositoryは成功するが、setRepositoryでworktreeの作成に失敗する可能性がある
-      // リポジトリオブジェクト自体は作成される
-
-      // devcontainer設定は復旧される
-      const badConfig = await admin2.getDevcontainerConfig(badThreadId);
-      assertEquals(badConfig?.useDevcontainer, true);
-      assertEquals(badConfig?.containerId, "invalid-container");
+      assertEquals(badWorker, null);
+      
+      // スレッドはアーカイブされている
+      const badThreadInfo = await workspace.loadThreadInfo(badThreadId);
+      assertEquals(badThreadInfo?.status, "archived");
 
       // エラーハンドリングが適切に動作していることを確認
       // 実際のエラーが発生するかは環境に依存するため、ここではWorkerの状態のみを確認

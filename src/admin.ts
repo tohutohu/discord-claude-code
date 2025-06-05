@@ -107,6 +107,68 @@ export class Admin implements IAdmin {
       hasDevcontainerConfig: !!threadInfo.devcontainerConfig,
     });
 
+    // worktreeとディレクトリの存在確認
+    if (threadInfo.worktreePath) {
+      try {
+        const stat = await Deno.stat(threadInfo.worktreePath);
+        if (!stat.isDirectory) {
+          this.logVerbose(
+            "worktreeパスが通常ファイル、スレッド終了として処理",
+            {
+              threadId,
+              worktreePath: threadInfo.worktreePath,
+            },
+          );
+          await this.archiveThread(threadInfo);
+          return;
+        }
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+          this.logVerbose("worktreeが存在しない、スレッド終了として処理", {
+            threadId,
+            worktreePath: threadInfo.worktreePath,
+          });
+          await this.archiveThread(threadInfo);
+          return;
+        }
+        throw error;
+      }
+
+      // git worktreeの有効性を確認
+      if (threadInfo.repositoryLocalPath) {
+        try {
+          const command = new Deno.Command("git", {
+            args: ["worktree", "list", "--porcelain"],
+            cwd: threadInfo.repositoryLocalPath,
+            stdout: "piped",
+            stderr: "piped",
+          });
+
+          const { success, stdout } = await command.output();
+          if (success) {
+            const output = new TextDecoder().decode(stdout);
+            const worktreeExists = output.includes(threadInfo.worktreePath);
+            if (!worktreeExists) {
+              this.logVerbose(
+                "worktreeがgitに登録されていない、スレッド終了として処理",
+                {
+                  threadId,
+                  worktreePath: threadInfo.worktreePath,
+                },
+              );
+              await this.archiveThread(threadInfo);
+              return;
+            }
+          }
+        } catch (error) {
+          this.logVerbose("git worktree list失敗、復旧を継続", {
+            threadId,
+            error: (error as Error).message,
+          });
+        }
+      }
+    }
+
     // Workerを作成（ただし既存のWorker作成ロジックをスキップして直接作成）
     const workerName = generateWorkerName();
     const worker = new Worker(
@@ -183,6 +245,30 @@ export class Admin implements IAdmin {
       threadId,
       workerName,
       hasRepository: !!worker.getRepository(),
+    });
+  }
+
+  /**
+   * スレッドをアーカイブ状態にする
+   */
+  private async archiveThread(threadInfo: ThreadInfo): Promise<void> {
+    threadInfo.status = "archived";
+    threadInfo.lastActiveAt = new Date().toISOString();
+    await this.workspaceManager.saveThreadInfo(threadInfo);
+
+    await this.logAuditEntry(
+      threadInfo.threadId,
+      "thread_archived_on_restore",
+      {
+        repositoryFullName: threadInfo.repositoryFullName,
+        worktreePath: threadInfo.worktreePath,
+        reason: "worktree_not_found",
+      },
+    );
+
+    this.logVerbose("スレッドをアーカイブ状態に変更", {
+      threadId: threadInfo.threadId,
+      repositoryFullName: threadInfo.repositoryFullName,
     });
   }
 
