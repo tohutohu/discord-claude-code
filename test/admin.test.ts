@@ -172,6 +172,7 @@ Deno.test("Admin - devcontainer.jsonが存在しない場合の設定確認", as
     result.message.includes("devcontainer.jsonが見つかりませんでした"),
     true,
   );
+  assertEquals(Array.isArray(result.components), true);
   assertEquals(result.message.includes("--dangerously-skip-permissions"), true);
 
   // クリーンアップ
@@ -205,6 +206,7 @@ Deno.test("Admin - devcontainer.jsonが存在する場合の設定確認", async
     result.message.includes("devcontainer.jsonが見つかりました"),
     true,
   );
+  assertEquals(Array.isArray(result.components), true);
 
   // クリーンアップ
   await Deno.remove(testRepoDir, { recursive: true });
@@ -254,6 +256,7 @@ Deno.test("Admin - anthropics featureを含むdevcontainer.jsonの設定確認",
     assertEquals(result.message.includes("Anthropics features: ✅"), true);
     assertEquals(result.warning, "");
   }
+  assertEquals(Array.isArray(result.components), true);
 
   // クリーンアップ
   await Deno.remove(testRepoDir, { recursive: true });

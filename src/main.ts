@@ -121,6 +121,106 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       } catch (error) {
         console.error("ボタン削除エラー:", error);
       }
+      await interaction.editReply(result);
+      return;
+    }
+
+    // devcontainerの権限選択フローの処理
+    if (result === "devcontainer_permissions_choice") {
+      try {
+        await interaction.message.edit({
+          content: interaction.message.content +
+            "\n\n✅ devcontainer使用を選択しました\n\n権限設定を選択してください：",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 1,
+                  label: "権限チェックあり",
+                  custom_id: `devcontainer_permissions_no_skip_${threadId}`,
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "権限チェックスキップ",
+                  custom_id: `devcontainer_permissions_skip_${threadId}`,
+                },
+              ],
+            },
+          ],
+        });
+      } catch (error) {
+        console.error("メッセージ更新エラー:", error);
+      }
+      await interaction.editReply(
+        "devcontainerでの実行を選択しました。権限設定を選択してください。",
+      );
+      return;
+    }
+
+    if (result === "local_permissions_choice") {
+      try {
+        await interaction.message.edit({
+          content: interaction.message.content +
+            "\n\n✅ ローカル環境使用を選択しました\n\n権限設定を選択してください：",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 1,
+                  label: "権限チェックあり",
+                  custom_id: `permissions_no_skip_${threadId}`,
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "権限チェックスキップ",
+                  custom_id: `permissions_skip_${threadId}`,
+                },
+              ],
+            },
+          ],
+        });
+      } catch (error) {
+        console.error("メッセージ更新エラー:", error);
+      }
+      await interaction.editReply(
+        "ローカル環境での実行を選択しました。権限設定を選択してください。",
+      );
+      return;
+    }
+
+    // すべてのボタン選択でボタンを削除し、選択結果をテキストに置き換え
+    try {
+      let selectedChoice = "";
+
+      if (interaction.customId.includes("devcontainer_permissions_no_skip")) {
+        selectedChoice =
+          "\n\n✅ devcontainer使用・権限チェックありを選択しました";
+      } else if (
+        interaction.customId.includes("devcontainer_permissions_skip")
+      ) {
+        selectedChoice =
+          "\n\n✅ devcontainer使用・権限チェックスキップを選択しました";
+      } else if (interaction.customId.includes("permissions_no_skip")) {
+        selectedChoice = "\n\n✅ ローカル環境・権限チェックありを選択しました";
+      } else if (interaction.customId.includes("permissions_skip")) {
+        selectedChoice =
+          "\n\n✅ ローカル環境・権限チェックスキップを選択しました";
+      }
+
+      if (selectedChoice) {
+        await interaction.message.edit({
+          content: interaction.message.content + selectedChoice,
+          components: [], // ボタンを削除
+        });
+      }
+    } catch (error) {
+      console.error("ボタン削除エラー:", error);
     }
 
     await interaction.editReply(result);
@@ -259,10 +359,14 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       }
       devcontainerMessage += devcontainerInfo.message;
 
+      // devcontainerの設定ボタンがある場合はそれを使用、ない場合は終了ボタンのみ
+      const components = devcontainerInfo.components ||
+        initialMessage.components;
+
       await thread.send({
         content:
           `${greeting}${devcontainerMessage}\n\n${initialMessage.content}`,
-        components: initialMessage.components,
+        components: components,
       });
     } catch (error) {
       console.error("スレッド作成エラー:", error);
@@ -286,13 +390,6 @@ client.on(Events.MessageCreate, async (message) => {
   const threadId = message.channel.id;
 
   try {
-    // devcontainer設定に関する応答かチェック
-    const content = message.content.trim().toLowerCase();
-    if (isDevcontainerConfigurationMessage(content)) {
-      await handleDevcontainerConfiguration(message, threadId, content);
-      return;
-    }
-
     // AdminにメッセージをルーティングしてWorkerからの返信を取得
     const reply = await admin.routeMessage(threadId, message.content);
 
@@ -310,81 +407,6 @@ client.on(Events.MessageCreate, async (message) => {
     }
   }
 });
-
-function isDevcontainerConfigurationMessage(content: string): boolean {
-  const devcontainerResponses = [
-    "devcontainer-yes-skip",
-    "devcontainer-yes-no-skip",
-    "devcontainer-no-skip",
-    "devcontainer-no-no-skip",
-    "yes",
-    "no",
-  ];
-
-  return devcontainerResponses.includes(content);
-}
-
-async function handleDevcontainerConfiguration(
-  message: { reply: (content: string) => Promise<unknown> },
-  threadId: string,
-  content: string,
-): Promise<void> {
-  const worker = admin.getWorker(threadId);
-  if (!worker) {
-    await message.reply("Workerが見つかりません。");
-    return;
-  }
-
-  const workerTyped = worker as import("./worker.ts").Worker;
-
-  if (content.startsWith("devcontainer-")) {
-    // devcontainer関連の設定
-    const useDevcontainer = content.includes("-yes-");
-    const skipPermissions = content.includes("-skip");
-
-    workerTyped.setUseDevcontainer(useDevcontainer);
-    workerTyped.setSkipPermissions(skipPermissions);
-
-    if (useDevcontainer) {
-      await message.reply("devcontainerを起動しています...");
-
-      const result = await admin.startDevcontainerForWorker(threadId);
-
-      if (result.success) {
-        const permissionMsg = skipPermissions
-          ? " (権限チェックスキップ有効)"
-          : " (権限チェック有効)";
-        await message.reply(
-          `${result.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
-        );
-      } else {
-        await message.reply(
-          `${result.message}\n\n通常環境でClaude実行を継続します。`,
-        );
-        workerTyped.setUseDevcontainer(false);
-      }
-    } else {
-      const permissionMsg = skipPermissions
-        ? " (権限チェックスキップ有効)"
-        : " (権限チェック有効)";
-      workerTyped.setSkipPermissions(skipPermissions);
-      await message.reply(
-        `通常のローカル環境でClaude実行を設定しました。${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
-      );
-    }
-  } else if (content === "yes" || content === "no") {
-    // 権限スキップの設定のみ
-    const skipPermissions = content === "yes";
-    workerTyped.setSkipPermissions(skipPermissions);
-
-    const permissionMsg = skipPermissions
-      ? "権限チェックスキップを有効にしました。"
-      : "権限チェックを有効にしました。";
-    await message.reply(
-      `${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
-    );
-  }
-}
 
 // Botを起動
 client.login(env.DISCORD_TOKEN);

@@ -107,6 +107,33 @@ export class Admin implements IAdmin {
       return "スレッドを終了しました。worktreeも削除されました。";
     }
 
+    // devcontainer関連のボタン処理
+    if (customId.startsWith(`devcontainer_yes_${threadId}`)) {
+      return await this.handleDevcontainerYesButton(threadId);
+    }
+
+    if (customId.startsWith(`devcontainer_no_${threadId}`)) {
+      return await this.handleDevcontainerNoButton(threadId);
+    }
+
+    // 権限設定関連のボタン処理
+    if (customId.startsWith(`permissions_skip_${threadId}`)) {
+      return await this.handlePermissionsButton(threadId, true);
+    }
+
+    if (customId.startsWith(`permissions_no_skip_${threadId}`)) {
+      return await this.handlePermissionsButton(threadId, false);
+    }
+
+    // devcontainer権限設定ボタン処理
+    if (customId.startsWith(`devcontainer_permissions_`)) {
+      const skipPermissions = customId.includes("_skip_");
+      return await this.handleDevcontainerPermissionsButton(
+        threadId,
+        skipPermissions,
+      );
+    }
+
     return "未知のボタンが押されました。";
   }
 
@@ -155,11 +182,12 @@ export class Admin implements IAdmin {
    * リポジトリにdevcontainer.jsonが存在するかチェックし、存在する場合は起動確認を行う
    */
   async checkAndSetupDevcontainer(
-    _threadId: string,
+    threadId: string,
     repositoryPath: string,
   ): Promise<{
     hasDevcontainer: boolean;
     message: string;
+    components?: DiscordActionRow[];
     useDevcontainer?: boolean;
     warning?: string;
   }> {
@@ -169,7 +197,26 @@ export class Admin implements IAdmin {
       return {
         hasDevcontainer: false,
         message:
-          "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）\n\n回答してください: yes/no",
+          "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+        components: [
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 1,
+                label: "権限チェックあり",
+                custom_id: `permissions_no_skip_${threadId}`,
+              },
+              {
+                type: 2,
+                style: 2,
+                label: "権限チェックスキップ",
+                custom_id: `permissions_skip_${threadId}`,
+              },
+            ],
+          },
+        ],
       };
     }
 
@@ -179,7 +226,26 @@ export class Admin implements IAdmin {
       return {
         hasDevcontainer: true,
         message:
-          "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）\n\n回答してください: yes/no",
+          "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+        components: [
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 1,
+                label: "権限チェックあり",
+                custom_id: `permissions_no_skip_${threadId}`,
+              },
+              {
+                type: 2,
+                style: 2,
+                label: "権限チェックスキップ",
+                custom_id: `permissions_skip_${threadId}`,
+              },
+            ],
+          },
+        ],
         warning:
           "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",
       };
@@ -197,7 +263,26 @@ export class Admin implements IAdmin {
       message:
         `devcontainer.jsonが見つかりました。devcontainer内でClaudeを実行しますか？\n\n**確認事項:**\n- devcontainer CLI: ✅ 利用可能\n- Anthropics features: ${
           devcontainerInfo.hasAnthropicsFeature ? "✅" : "❌"
-        }\n\n追加で、\`--dangerously-skip-permissions\`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）\n\n回答してください: devcontainer-yes-skip/devcontainer-yes-no-skip/devcontainer-no-skip/devcontainer-no-no-skip`,
+        }\n\n下のボタンで選択してください：`,
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 1,
+              label: "devcontainer使用",
+              custom_id: `devcontainer_yes_${threadId}`,
+            },
+            {
+              type: 2,
+              style: 2,
+              label: "ローカル環境",
+              custom_id: `devcontainer_no_${threadId}`,
+            },
+          ],
+        },
+      ],
       warning: warningMessage,
     };
   }
@@ -241,6 +326,88 @@ export class Admin implements IAdmin {
         success: false,
         message: `devcontainerの起動に失敗しました: ${result.error}`,
       };
+    }
+  }
+
+  /**
+   * devcontainer使用ボタンの処理
+   */
+  private async handleDevcontainerYesButton(threadId: string): Promise<string> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return "Workerが見つかりません。";
+    }
+
+    // 権限設定の選択ボタンを表示するため、返信メッセージで更新する必要がある
+    // この処理は main.ts のhandleButtonInteractionで別途実装する
+    return "devcontainer_permissions_choice";
+  }
+
+  /**
+   * ローカル環境使用ボタンの処理
+   */
+  private async handleDevcontainerNoButton(threadId: string): Promise<string> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return "Workerが見つかりません。";
+    }
+
+    const workerTyped = worker as Worker;
+    workerTyped.setUseDevcontainer(false);
+
+    // 権限設定の選択ボタンを表示するため、返信メッセージで更新する必要がある
+    return "local_permissions_choice";
+  }
+
+  /**
+   * 権限設定ボタンの処理（devcontainer未使用時）
+   */
+  private async handlePermissionsButton(
+    threadId: string,
+    skipPermissions: boolean,
+  ): Promise<string> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return "Workerが見つかりません。";
+    }
+
+    const workerTyped = worker as Worker;
+    workerTyped.setSkipPermissions(skipPermissions);
+
+    const permissionMsg = skipPermissions
+      ? "権限チェックスキップを有効にしました。"
+      : "権限チェックを有効にしました。";
+
+    return `通常のローカル環境でClaude実行を設定しました。${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`;
+  }
+
+  /**
+   * devcontainer権限設定ボタンの処理
+   */
+  private async handleDevcontainerPermissionsButton(
+    threadId: string,
+    skipPermissions: boolean,
+  ): Promise<string> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return "Workerが見つかりません。";
+    }
+
+    const workerTyped = worker as Worker;
+    workerTyped.setUseDevcontainer(true);
+    workerTyped.setSkipPermissions(skipPermissions);
+
+    // devcontainerを起動
+    const result = await this.startDevcontainerForWorker(threadId);
+
+    if (result.success) {
+      const permissionMsg = skipPermissions
+        ? " (権限チェックスキップ有効)"
+        : " (権限チェック有効)";
+      return `${result.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`;
+    } else {
+      workerTyped.setUseDevcontainer(false);
+      return `${result.message}\n\n通常環境でClaude実行を継続します。`;
     }
   }
 
