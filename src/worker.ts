@@ -133,46 +133,70 @@ export class Worker implements IWorker {
   private useDevcontainer: boolean = false;
   private devcontainerStarted: boolean = false;
   private skipPermissions: boolean = false;
+  private verbose: boolean = false;
 
   constructor(
     name: string,
     workspaceManager: WorkspaceManager,
     claudeExecutor?: ClaudeCommandExecutor,
+    verbose?: boolean,
   ) {
     this.name = name;
     this.workspaceManager = workspaceManager;
     this.claudeExecutor = claudeExecutor || new DefaultClaudeCommandExecutor();
+    this.verbose = verbose || false;
   }
 
   async processMessage(
     message: string,
     onProgress?: (content: string) => Promise<void>,
   ): Promise<string> {
+    this.logVerbose("メッセージ処理開始", {
+      messageLength: message.length,
+      hasRepository: !!this.repository,
+      hasWorktreePath: !!this.worktreePath,
+      threadId: this.threadId,
+      sessionId: this.sessionId,
+    });
+
     if (!this.repository || !this.worktreePath) {
+      this.logVerbose("リポジトリまたはworktreeパスが未設定");
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
 
     try {
       // セッションログの記録（コマンド）
       if (this.threadId) {
+        this.logVerbose("セッションログにコマンドを記録");
         await this.logSessionActivity("command", message);
       }
 
       // 処理開始の通知
       if (onProgress) {
+        this.logVerbose("進捗通知開始");
         await onProgress("🤖 Claudeが考えています...");
       }
 
+      this.logVerbose("Claude実行開始");
       const result = await this.executeClaude(message, onProgress);
+      this.logVerbose("Claude実行完了", { resultLength: result.length });
+      
       const formattedResponse = this.formatResponse(result);
+      this.logVerbose("レスポンス整形完了", { formattedLength: formattedResponse.length });
 
       // セッションログの記録（レスポンス）
       if (this.threadId) {
+        this.logVerbose("セッションログにレスポンスを記録");
         await this.logSessionActivity("response", formattedResponse);
       }
 
+      this.logVerbose("メッセージ処理完了");
       return formattedResponse;
     } catch (error) {
+      this.logVerbose("メッセージ処理エラー", {
+        errorMessage: (error as Error).message,
+        errorStack: (error as Error).stack,
+      });
       console.error(`Worker ${this.name} - Claude実行エラー:`, error);
       const errorMessage = `エラーが発生しました: ${(error as Error).message}`;
 
@@ -197,36 +221,59 @@ export class Worker implements IWorker {
       prompt,
       "--output-format",
       "stream-json",
-      "--verbose",
     ];
+
+    // verboseモードが有効な場合のみ--verboseオプションを追加
+    if (this.verbose) {
+      args.push("--verbose");
+    }
 
     // セッション継続の場合
     if (this.sessionId) {
       args.push("--resume", this.sessionId);
+      this.logVerbose("セッション継続", { sessionId: this.sessionId });
     }
 
     // --dangerously-skip-permissions オプション
     if (this.skipPermissions) {
       args.push("--dangerously-skip-permissions");
+      this.logVerbose("権限チェックスキップを使用");
     }
+
+    this.logVerbose("Claudeコマンド実行", {
+      args: args,
+      cwd: this.worktreePath,
+      useDevcontainer: this.useDevcontainer,
+      hasStreaming: !!this.claudeExecutor.executeStreaming,
+    });
 
     // ストリーミング実行が可能な場合
     if (this.claudeExecutor.executeStreaming && onProgress) {
+      this.logVerbose("ストリーミング実行開始");
       return await this.executeClaudeStreaming(args, onProgress);
     }
 
     // 通常の実行
+    this.logVerbose("通常実行開始");
     const { code, stdout, stderr } = await this.claudeExecutor.execute(
       args,
       this.worktreePath!,
     );
 
+    this.logVerbose("Claudeコマンド実行完了", {
+      exitCode: code,
+      stdoutLength: stdout.length,
+      stderrLength: stderr.length,
+    });
+
     if (code !== 0) {
       const errorMessage = new TextDecoder().decode(stderr);
+      this.logVerbose("Claude実行エラー", { exitCode: code, errorMessage });
       throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
     }
 
     const output = new TextDecoder().decode(stdout);
+    this.logVerbose("出力解析開始", { outputLength: output.length });
     return this.parseStreamJsonOutput(output, onProgress);
   }
 
@@ -234,6 +281,7 @@ export class Worker implements IWorker {
     args: string[],
     onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
+    this.logVerbose("ストリーミング実行詳細開始");
     const decoder = new TextDecoder();
     let buffer = "";
     let result = "";
@@ -242,16 +290,24 @@ export class Worker implements IWorker {
     let lastProgressUpdate = 0;
     const PROGRESS_UPDATE_INTERVAL = 1000; // 1秒ごとに更新
     let allOutput = "";
+    let processedLines = 0;
 
     const processLine = (line: string) => {
       if (!line.trim()) return;
+      processedLines++;
 
       try {
         const parsed: ClaudeStreamMessage = JSON.parse(line);
+        this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
+          lineNumber: processedLines,
+          hasSessionId: !!parsed.session_id,
+          hasMessage: !!parsed.message,
+        });
 
         // セッションIDを更新
         if (parsed.session_id) {
           newSessionId = parsed.session_id;
+          this.logVerbose("新しいセッションID取得", { sessionId: newSessionId });
         }
 
         // アシスタントメッセージからテキストを抽出
@@ -272,6 +328,10 @@ export class Worker implements IWorker {
                 if (lastNewline > 0) {
                   const toSend = progressContent.substring(0, lastNewline);
                   if (toSend.trim()) {
+                    this.logVerbose("進捗更新送信", { 
+                      contentLength: toSend.length,
+                      timeSinceLastUpdate: now - lastProgressUpdate 
+                    });
                     onProgress(this.formatResponse(toSend)).catch(
                       console.error,
                     );
@@ -286,8 +346,10 @@ export class Worker implements IWorker {
         // 最終結果を取得
         if (parsed.type === "result" && parsed.result) {
           result = parsed.result;
+          this.logVerbose("最終結果取得", { resultLength: result.length });
         }
       } catch (parseError) {
+        this.logVerbose(`JSON解析エラー: ${parseError}`, { line: line.substring(0, 100) });
         console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
       }
     };
@@ -312,27 +374,41 @@ export class Worker implements IWorker {
       onData,
     );
 
+    this.logVerbose("ストリーミング実行完了", {
+      exitCode: code,
+      stderrLength: stderr.length,
+      totalOutputLength: allOutput.length,
+      processedLines,
+      hasNewSessionId: !!newSessionId,
+    });
+
     // 最後のバッファを処理
     if (buffer) {
+      this.logVerbose("最終バッファ処理", { bufferLength: buffer.length });
       processLine(buffer);
     }
 
     if (code !== 0) {
       const errorMessage = decoder.decode(stderr);
+      this.logVerbose("ストリーミング実行エラー", { exitCode: code, errorMessage });
       throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
     }
 
     // セッションIDを更新
     if (newSessionId) {
       this.sessionId = newSessionId;
+      this.logVerbose("セッションID更新", { oldSessionId: this.sessionId, newSessionId });
     }
 
     // 生のjsonlを保存
     if (this.repository?.fullName && allOutput.trim()) {
+      this.logVerbose("生JSONLを保存", { outputLength: allOutput.length });
       await this.saveRawJsonlOutput(allOutput);
     }
 
-    return result.trim() || "Claude からの応答を取得できませんでした。";
+    const finalResult = result.trim() || "Claude からの応答を取得できませんでした。";
+    this.logVerbose("ストリーミング処理完了", { finalResultLength: finalResult.length });
+    return finalResult;
   }
 
   private parseStreamJsonOutput(
@@ -464,14 +540,23 @@ export class Worker implements IWorker {
     repository: GitRepository,
     localPath: string,
   ): Promise<void> {
+    this.logVerbose("リポジトリ設定開始", {
+      repositoryFullName: repository.fullName,
+      localPath,
+      hasThreadId: !!this.threadId,
+      useDevcontainer: this.useDevcontainer,
+    });
+
     this.repository = repository;
 
     if (this.threadId) {
       try {
+        this.logVerbose("worktree作成開始", { threadId: this.threadId });
         this.worktreePath = await this.workspaceManager.createWorktree(
           this.threadId,
           localPath,
         );
+        this.logVerbose("worktree作成完了", { worktreePath: this.worktreePath });
 
         const threadInfo = await this.workspaceManager.loadThreadInfo(
           this.threadId,
@@ -481,21 +566,32 @@ export class Worker implements IWorker {
           threadInfo.repositoryLocalPath = localPath;
           threadInfo.worktreePath = this.worktreePath;
           await this.workspaceManager.saveThreadInfo(threadInfo);
+          this.logVerbose("スレッド情報更新完了");
         }
       } catch (error) {
+        this.logVerbose("worktree作成失敗、localPathを使用", { 
+          error: (error as Error).message,
+          fallbackPath: localPath 
+        });
         console.error(`worktreeの作成に失敗しました: ${error}`);
         this.worktreePath = localPath;
       }
     } else {
+      this.logVerbose("threadIdなし、localPathを直接使用");
       this.worktreePath = localPath;
     }
 
     // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
     if (this.useDevcontainer && this.worktreePath) {
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え");
       this.claudeExecutor = new DevcontainerClaudeExecutor(this.worktreePath);
     }
 
     this.sessionId = null;
+    this.logVerbose("リポジトリ設定完了", {
+      finalWorktreePath: this.worktreePath,
+      executorType: this.useDevcontainer ? "DevcontainerClaudeExecutor" : "DefaultClaudeCommandExecutor",
+    });
   }
 
   setThreadId(threadId: string): void {
@@ -535,6 +631,35 @@ export class Worker implements IWorker {
    */
   isSkipPermissions(): boolean {
     return this.skipPermissions;
+  }
+
+  /**
+   * verboseモードを設定する
+   */
+  setVerbose(verbose: boolean): void {
+    this.verbose = verbose;
+  }
+
+  /**
+   * verboseモードが有効かを取得
+   */
+  isVerbose(): boolean {
+    return this.verbose;
+  }
+
+  /**
+   * verboseログを出力する
+   */
+  private logVerbose(message: string, metadata?: Record<string, unknown>): void {
+    if (this.verbose) {
+      const timestamp = new Date().toISOString();
+      const logMessage = `[${timestamp}] [Worker:${this.name}] ${message}`;
+      console.log(logMessage);
+      
+      if (metadata && Object.keys(metadata).length > 0) {
+        console.log(`[${timestamp}] [Worker:${this.name}] メタデータ:`, metadata);
+      }
+    }
   }
 
   /**

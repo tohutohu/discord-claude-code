@@ -62,6 +62,10 @@ export class WorkspaceManager {
     return this.config.repositoriesDir;
   }
 
+  getBaseDir(): string {
+    return this.config.baseDir;
+  }
+
   getRepositoryPath(org: string, repo: string): string {
     return join(this.config.repositoriesDir, org, repo);
   }

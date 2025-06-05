@@ -40,7 +40,11 @@ console.log("\n✅ システム要件チェック完了\n");
 const env = await getEnv();
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
-const admin = new Admin(workspaceManager);
+const admin = new Admin(workspaceManager, env.VERBOSE);
+
+if (env.VERBOSE) {
+  console.log("🔍 VERBOSEモードが有効です - 詳細ログが出力されます");
+}
 
 // Discord Clientの初期化
 const client = new Client({

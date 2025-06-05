@@ -36,24 +36,67 @@ export interface IAdmin {
 export class Admin implements IAdmin {
   private workers: Map<string, IWorker>;
   private workspaceManager: WorkspaceManager;
+  private verbose: boolean;
 
-  constructor(workspaceManager: WorkspaceManager) {
+  constructor(workspaceManager: WorkspaceManager, verbose: boolean = false) {
     this.workers = new Map();
     this.workspaceManager = workspaceManager;
+    this.verbose = verbose;
+    
+    if (this.verbose) {
+      this.logVerbose("Admin初期化完了", {
+        verboseMode: this.verbose,
+        workspaceBaseDir: workspaceManager.getBaseDir(),
+      });
+    }
+  }
+
+  /**
+   * verboseログを出力する
+   */
+  private logVerbose(message: string, metadata?: Record<string, unknown>): void {
+    if (this.verbose) {
+      const timestamp = new Date().toISOString();
+      const logMessage = `[${timestamp}] [Admin] ${message}`;
+      console.log(logMessage);
+      
+      if (metadata && Object.keys(metadata).length > 0) {
+        console.log(`[${timestamp}] [Admin] メタデータ:`, metadata);
+      }
+    }
   }
 
   async createWorker(threadId: string): Promise<IWorker> {
+    this.logVerbose("Worker作成要求", {
+      threadId,
+      currentWorkerCount: this.workers.size,
+      hasExistingWorker: this.workers.has(threadId),
+    });
+
     // 既にWorkerが存在する場合はそれを返す
     const existingWorker = this.workers.get(threadId);
     if (existingWorker) {
+      this.logVerbose("既存Worker返却", {
+        threadId,
+        workerName: existingWorker.getName(),
+        hasRepository: !!existingWorker.getRepository(),
+      });
       return existingWorker;
     }
 
     // 新しいWorkerを作成
     const workerName = generateWorkerName();
-    const worker = new Worker(workerName, this.workspaceManager);
+    this.logVerbose("新規Worker作成開始", { threadId, workerName, verboseMode: this.verbose });
+    
+    const worker = new Worker(workerName, this.workspaceManager, undefined, this.verbose);
     worker.setThreadId(threadId);
     this.workers.set(threadId, worker);
+
+    this.logVerbose("Worker作成完了、管理Mapに追加", {
+      threadId,
+      workerName,
+      totalWorkerCount: this.workers.size,
+    });
 
     // スレッド情報を永続化
     const threadInfo: ThreadInfo = {
@@ -67,10 +110,18 @@ export class Admin implements IAdmin {
     };
 
     await this.workspaceManager.saveThreadInfo(threadInfo);
+    this.logVerbose("スレッド情報永続化完了", { threadId });
 
     // 監査ログに記録
     await this.logAuditEntry(threadId, "worker_created", {
       workerName,
+    });
+    this.logVerbose("監査ログ記録完了", { threadId, action: "worker_created" });
+
+    this.logVerbose("Worker作成処理完了", {
+      threadId,
+      workerName,
+      finalWorkerCount: this.workers.size,
     });
 
     return worker;
@@ -85,13 +136,29 @@ export class Admin implements IAdmin {
     message: string,
     onProgress?: (content: string) => Promise<void>,
   ): Promise<string> {
+    this.logVerbose("メッセージルーティング開始", {
+      threadId,
+      messageLength: message.length,
+      hasProgressCallback: !!onProgress,
+      activeWorkerCount: this.workers.size,
+    });
+
     const worker = this.workers.get(threadId);
     if (!worker) {
+      this.logVerbose("Worker見つからず", { threadId, availableThreads: Array.from(this.workers.keys()) });
       throw new Error(`Worker not found for thread: ${threadId}`);
     }
 
+    this.logVerbose("Worker発見、処理開始", {
+      threadId,
+      workerName: worker.getName(),
+      hasRepository: !!worker.getRepository(),
+      repositoryFullName: worker.getRepository()?.fullName,
+    });
+
     // スレッドの最終アクティブ時刻を更新
     await this.workspaceManager.updateThreadLastActive(threadId);
+    this.logVerbose("スレッド最終アクティブ時刻を更新", { threadId });
 
     // 監査ログに記録
     await this.logAuditEntry(threadId, "message_received", {
@@ -99,7 +166,15 @@ export class Admin implements IAdmin {
       hasRepository: worker.getRepository() !== null,
     });
 
-    return worker.processMessage(message, onProgress);
+    this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
+    const result = await worker.processMessage(message, onProgress);
+    
+    this.logVerbose("メッセージ処理完了", {
+      threadId,
+      responseLength: result.length,
+    });
+
+    return result;
   }
 
   async handleButtonInteraction(
@@ -162,14 +237,31 @@ export class Admin implements IAdmin {
   }
 
   async terminateThread(threadId: string): Promise<void> {
+    this.logVerbose("スレッド終了処理開始", {
+      threadId,
+      hasWorker: this.workers.has(threadId),
+      currentWorkerCount: this.workers.size,
+    });
+
     const worker = this.workers.get(threadId);
 
     if (worker) {
+      this.logVerbose("Worker発見、終了処理実行", {
+        threadId,
+        workerName: worker.getName(),
+        hasRepository: !!worker.getRepository(),
+        repositoryFullName: worker.getRepository()?.fullName,
+      });
+
+      this.logVerbose("worktree削除開始", { threadId });
       await this.workspaceManager.removeWorktree(threadId);
+      
+      this.logVerbose("Worker管理Mapから削除", { threadId });
       this.workers.delete(threadId);
 
       const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
       if (threadInfo) {
+        this.logVerbose("スレッド情報をアーカイブ状態に更新", { threadId });
         threadInfo.status = "archived";
         threadInfo.lastActiveAt = new Date().toISOString();
         await this.workspaceManager.saveThreadInfo(threadInfo);
@@ -179,6 +271,13 @@ export class Admin implements IAdmin {
         workerName: worker.getName(),
         repository: worker.getRepository()?.fullName,
       });
+
+      this.logVerbose("スレッド終了処理完了", {
+        threadId,
+        remainingWorkerCount: this.workers.size,
+      });
+    } else {
+      this.logVerbose("Worker見つからず、終了処理スキップ", { threadId });
     }
   }
 
@@ -195,9 +294,20 @@ export class Admin implements IAdmin {
     useDevcontainer?: boolean;
     warning?: string;
   }> {
+    this.logVerbose("devcontainer設定チェック開始", {
+      threadId,
+      repositoryPath,
+    });
+
     const devcontainerInfo = await checkDevcontainerConfig(repositoryPath);
+    this.logVerbose("devcontainer.json存在確認完了", {
+      threadId,
+      configExists: devcontainerInfo.configExists,
+      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature,
+    });
 
     if (!devcontainerInfo.configExists) {
+      this.logVerbose("devcontainer.json未発見、ローカル環境で実行", { threadId });
       return {
         hasDevcontainer: false,
         message:
@@ -226,7 +336,13 @@ export class Admin implements IAdmin {
 
     // devcontainer CLIの確認
     const hasDevcontainerCli = await checkDevcontainerCli();
+    this.logVerbose("devcontainer CLI確認完了", {
+      threadId,
+      hasDevcontainerCli,
+    });
+
     if (!hasDevcontainerCli) {
+      this.logVerbose("devcontainer CLI未インストール、ローカル環境で実行", { threadId });
       return {
         hasDevcontainer: true,
         message:
@@ -261,6 +377,12 @@ export class Admin implements IAdmin {
       warningMessage =
         "⚠️ 警告: anthropics/devcontainer-featuresが設定に含まれていません。Claude CLIが正常に動作しない可能性があります。";
     }
+
+    this.logVerbose("devcontainer設定チェック完了、選択肢を提示", {
+      threadId,
+      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature,
+      hasWarning: !!warningMessage,
+    });
 
     return {
       hasDevcontainer: true,
@@ -301,22 +423,47 @@ export class Admin implements IAdmin {
     success: boolean;
     message: string;
   }> {
+    this.logVerbose("devcontainer起動処理開始", {
+      threadId,
+      hasProgressCallback: !!onProgress,
+      hasWorker: this.workers.has(threadId),
+    });
+
     const worker = this.workers.get(threadId);
     if (!worker) {
+      this.logVerbose("Worker見つからず、devcontainer起動失敗", { threadId });
       return {
         success: false,
         message: "Workerが見つかりません。",
       };
     }
 
+    this.logVerbose("Worker発見、devcontainer設定開始", {
+      threadId,
+      workerName: worker.getName(),
+    });
+
     const workerTyped = worker as Worker;
     workerTyped.setUseDevcontainer(true);
 
+    this.logVerbose("Workerにdevcontainer起動を委譲", { threadId });
     const result = await workerTyped.startDevcontainer(onProgress);
+
+    this.logVerbose("devcontainer起動結果", {
+      threadId,
+      success: result.success,
+      hasContainerId: !!result.containerId,
+      hasError: !!result.error,
+    });
 
     if (result.success) {
       await this.logAuditEntry(threadId, "devcontainer_started", {
         containerId: result.containerId || "unknown",
+      });
+
+      this.logVerbose("devcontainer起動成功、監査ログ記録完了", {
+        threadId,
+        containerId: result.containerId,
       });
 
       return {
@@ -326,6 +473,11 @@ export class Admin implements IAdmin {
       };
     } else {
       await this.logAuditEntry(threadId, "devcontainer_start_failed", {
+        error: result.error,
+      });
+
+      this.logVerbose("devcontainer起動失敗、監査ログ記録完了", {
+        threadId,
         error: result.error,
       });
 
