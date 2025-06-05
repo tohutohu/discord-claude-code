@@ -13,19 +13,26 @@ Adminモジュールは以下の特徴を持つ
 
 - プロセスで１つだけ起動される
 - Discordから起動のスラッシュコマンドを受け取るとスレッドを作成し、それを担当するWorkerを起動する
-  - Workerがスレッドに対してメッセージを返信できるようにコールバックを提供する
+  - Workerが進捗状況を通知できるように進捗コールバック（onProgress）を提供する
 - Discordからスレッドに対してメッセージを受け取ると、担当のWorkerに対してメッセージを渡す
+- Discordのボタンインタラクション（devcontainer選択、権限設定等）を処理する
+- スレッドの終了とworktreeのクリーンアップ機能を提供する
 
 ### Worker
 
 WorkerモジュールはAdminモジュールによって起動・管理される。
 1つのWorkerが1つのスレッドを担当する。
 
+- Claudeコマンドの実行と応答のストリーミング処理
+- devcontainer環境での実行をサポート（DevcontainerClaudeExecutor）
+- セッションログの永続化（JSON形式とraw JSONL形式）
+- Git worktreeを使用した独立した作業環境の提供
+
 ### WorkspaceManager
 
 WorkspaceManagerモジュールは作業ディレクトリの管理とデータ永続化を担当する。
 
-- 構造化された作業ディレクトリ（repositories/、threads/、sessions/、audit/）を管理
+- 構造化された作業ディレクトリ（repositories/、worktrees/、threads/、sessions/、audit/）を管理
 - スレッド情報、Claudeセッションログ、監査ログのJSON永続化
 - 再起動後の継続性とaudit log的な検証機能を提供
 
@@ -36,11 +43,15 @@ WORK_BASE_DIR/
 ├── repositories/          # クローンされたGitHubリポジトリ
 │   └── {org}/
 │       └── {repo}/
+├── worktrees/            # Git worktree（各Workerの作業環境）
+│   └── {thread_id}/
 ├── threads/              # スレッド情報の永続化
 │   └── {thread_id}.json
 ├── sessions/             # Claudeセッションログ
-│   └── {thread_id}/
-│       └── {session_id}.json
+│   ├── {thread_id}/
+│   │   └── {session_id}.json
+│   └── {repositoryFullName}/
+│       └── {timestamp}_{sessionId}.jsonl  # raw JSONL形式
 └── audit/               # 監査ログ（JSONL形式）
     └── {date}/
         └── activity.jsonl
@@ -90,17 +101,28 @@ WORK_BASE_DIR/
 
 - Admin: Workerの作成・管理、メッセージルーティング
 - WorkspaceManagerと統合してスレッド情報と監査ログを記録
+- devcontainer設定の検出とユーザーへの選択UI提供
+- 権限設定（--dangerously-skip-permissions）の選択機能
 
 ### src/worker.ts
 
 - Worker: Claudeコマンド実行、セッションログ記録
 - WorkspaceManagerと統合してセッションログを永続化
+- ClaudeCommandExecutorインターフェースによる実行環境の抽象化
+- ストリーミング対応による進捗のリアルタイム通知
 
 ### src/git-utils.ts
 
 - GitRepository: リポジトリ情報の型定義
 - parseRepository: リポジトリ名のパース
 - ensureRepository: リポジトリのクローン・更新（WorkspaceManager対応）
+
+### src/devcontainer.ts
+
+- DevcontainerConfig: devcontainer設定の型定義
+- checkDevcontainerConfig: devcontainer.jsonの検出と検証
+- startDevcontainer: Dev Containerの起動（進捗ストリーミング対応）
+- DevcontainerClaudeExecutor: devcontainer内でのClaude実行
 
 ## テストコマンド
 
@@ -117,11 +139,29 @@ deno test --allow-read --allow-write --allow-env --allow-run  # テストのみ
 
 ## データ永続化機能
 
-- **スレッド情報**: 作成時刻、最終アクティブ時刻、リポジトリ情報、ステータス
+- **スレッド情報**: 作成時刻、最終アクティブ時刻、リポジトリ情報、ステータス、worktreePath
 - **セッションログ**:
-  Claudeとのやり取り（コマンド、レスポンス、エラー）を詳細記録
+  - Claudeとのやり取り（コマンド、レスポンス、エラー）を詳細記録
+  - JSON形式とraw JSONL形式の両方で保存
 - **監査ログ**: Worker作成、メッセージ受信などのアクティビティをJSONL形式で記録
 - **再起動対応**: アプリケーション再起動後もスレッド情報を復旧可能
+
+## Dev Container対応
+
+リポジトリに`.devcontainer/devcontainer.json`または`.devcontainer.json`が存在する場合、Dev Container環境内でClaudeを実行できます。
+
+### 機能の特徴
+
+- **自動検出**: リポジトリのdevcontainer設定を自動的に検出
+- **インタラクティブな選択**: ボタンUIでdevcontainer使用/ローカル環境を選択可能
+- **進捗表示**: devcontainerの構築進捗をリアルタイムで表示
+- **環境の分離**: コンテナ内での隔離された実行環境を提供
+- **プラットフォーム対応**: DOCKER_DEFAULT_PLATFORMを自動設定（M1/M2 Mac対応）
+
+### 必要な設定
+
+- devcontainer CLIのインストール: `npm install -g @devcontainers/cli`
+- devcontainer.jsonにAnthropic features（`ghcr.io/anthropics/devcontainer-features/claude-code`）の追加を推奨
 
 ## 開発方針（最重要）
 
