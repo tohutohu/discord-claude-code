@@ -194,7 +194,7 @@ export async function startDevcontainer(
 
     // プロセスの終了とストリーミング読み取りの完了を待つ
     const [{ code }] = await Promise.all([
-      process.output(),
+      process.status,
       stdoutPromise,
       stderrPromise,
     ]);
