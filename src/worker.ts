@@ -75,6 +75,9 @@ interface ClaudeStreamMessage {
       id?: string;
       name?: string;
       input?: Record<string, unknown>;
+      tool_use_id?: string;
+      content?: string;
+      is_error?: boolean;
     }>;
     stop_reason: string;
     usage?: {
@@ -716,6 +719,11 @@ export class Worker implements IWorker {
       return this.extractAssistantMessage(parsed.message.content);
     }
 
+    // userメッセージの場合（tool_result等）
+    if (parsed.type === "user" && parsed.message?.content) {
+      return this.extractUserMessage(parsed.message.content);
+    }
+
     // resultメッセージの場合
     if (parsed.type === "result" && parsed.result) {
       return parsed.result;
@@ -739,6 +747,9 @@ export class Worker implements IWorker {
       id?: string;
       name?: string;
       input?: Record<string, unknown>;
+      tool_use_id?: string;
+      content?: string;
+      is_error?: boolean;
     }>,
   ): string | null {
     let textContent = "";
@@ -746,16 +757,11 @@ export class Worker implements IWorker {
     for (const item of content) {
       if (item.type === "text" && item.text) {
         textContent += item.text;
-      } else if (item.type === "tool_use" && item.name === "TodoWrite") {
-        // TodoWriteツールの場合はチェックマーク付きリストで表示
-        const todoWriteInput = item.input as {
-          todos?: Array<{
-            status: string;
-            content: string;
-          }>;
-        };
-        if (todoWriteInput?.todos && Array.isArray(todoWriteInput.todos)) {
-          return this.formatTodoList(todoWriteInput.todos);
+      } else if (item.type === "tool_use") {
+        // ツール使用を進捗として投稿
+        const toolMessage = this.formatToolUse(item);
+        if (toolMessage) {
+          return toolMessage;
         }
       }
     }
@@ -767,6 +773,38 @@ export class Worker implements IWorker {
     }
 
     return textContent || null;
+  }
+
+  /**
+   * userメッセージのcontentを処理する（tool_result等）
+   */
+  private extractUserMessage(
+    content: Array<{
+      type: string;
+      text?: string;
+      tool_use_id?: string;
+      content?: string;
+      is_error?: boolean;
+    }>,
+  ): string | null {
+    for (const item of content) {
+      if (item.type === "tool_result") {
+        // ツール結果を進捗として投稿
+        const resultIcon = item.is_error ? "❌" : "✅";
+        const resultContent = item.content || "";
+
+        // 長さに応じて処理を分岐
+        const formattedContent = this.formatToolResult(
+          resultContent,
+          item.is_error || false,
+        );
+
+        return `${resultIcon} **ツール実行結果:**\n${formattedContent}`;
+      } else if (item.type === "text" && item.text) {
+        return item.text;
+      }
+    }
+    return null;
   }
 
   /**
@@ -785,6 +823,275 @@ export class Worker implements IWorker {
       }
     }
     return errorContent || null;
+  }
+
+  /**
+   * ツール実行結果を長さと内容に応じてフォーマットする
+   */
+  private formatToolResult(content: string, isError: boolean): string {
+    if (!content.trim()) {
+      return "```\n(空の結果)\n```";
+    }
+
+    const maxLength = 1500; // Discord制限を考慮した最大長
+
+    // 短い場合は全文表示
+    if (content.length <= 500) {
+      return `\`\`\`\n${content}\n\`\`\``;
+    }
+
+    // エラーの場合は特別処理
+    if (isError) {
+      return this.formatErrorResult(content, maxLength);
+    }
+
+    // 中程度の長さの場合
+    if (content.length <= 2000) {
+      return this.formatMediumResult(content, maxLength);
+    }
+
+    // 非常に長い場合はスマート要約
+    return this.formatLongResult(content, maxLength);
+  }
+
+  /**
+   * エラー結果をフォーマットする
+   */
+  private formatErrorResult(content: string, maxLength: number): string {
+    const lines = content.split("\n");
+    const errorLines: string[] = [];
+    const importantLines: string[] = [];
+
+    // エラーや重要な情報を含む行を抽出
+    for (const line of lines) {
+      const lowerLine = line.toLowerCase();
+      if (
+        lowerLine.includes("error") || lowerLine.includes("failed") ||
+        lowerLine.includes("exception") || lowerLine.startsWith("fatal:")
+      ) {
+        errorLines.push(line);
+      } else if (
+        line.trim() && !lowerLine.includes("debug") &&
+        !lowerLine.includes("info")
+      ) {
+        importantLines.push(line);
+      }
+    }
+
+    // エラー行を優先して表示
+    const displayLines = [...errorLines, ...importantLines.slice(0, 5)];
+    const result = displayLines.join("\n");
+
+    if (result.length <= maxLength) {
+      return `\`\`\`\n${result}\n\`\`\``;
+    }
+
+    return `\`\`\`\n${
+      result.substring(0, maxLength - 100)
+    }...\n\n[${lines.length}行中の重要部分を表示]\n\`\`\``;
+  }
+
+  /**
+   * 中程度の長さの結果をフォーマットする
+   */
+  private formatMediumResult(content: string, maxLength: number): string {
+    const lines = content.split("\n");
+    const headLines = lines.slice(0, 10).join("\n");
+    const tailLines = lines.slice(-5).join("\n");
+
+    const result = lines.length > 15
+      ? `${headLines}\n\n... [${lines.length - 15}行省略] ...\n\n${tailLines}`
+      : content;
+
+    if (result.length <= maxLength) {
+      return `\`\`\`\n${result}\n\`\`\``;
+    }
+
+    return `\`\`\`\n${result.substring(0, maxLength - 100)}...\n\`\`\``;
+  }
+
+  /**
+   * 長い結果をスマート要約する
+   */
+  private formatLongResult(content: string, maxLength: number): string {
+    const lines = content.split("\n");
+    const summary = this.extractSummaryInfo(content);
+
+    if (summary) {
+      const summaryDisplay = `📊 **要約:** ${summary}\n\`\`\`\n${
+        lines.slice(0, 3).join("\n")
+      }\n... [${lines.length}行の詳細結果] ...\n${
+        lines.slice(-2).join("\n")
+      }\n\`\`\``;
+
+      // maxLengthを超える場合は更に短縮
+      if (summaryDisplay.length > maxLength) {
+        return `📊 **要約:** ${summary}\n\`\`\`\n${
+          lines.slice(0, 2).join("\n")
+        }\n... [${lines.length}行の結果] ...\n\`\`\``;
+      }
+      return summaryDisplay;
+    }
+
+    // 要約できない場合は先頭部分のみ
+    const preview = lines.slice(0, 8).join("\n");
+    const result =
+      `\`\`\`\n${preview}\n\n... [全${lines.length}行中の先頭部分のみ表示] ...\n\`\`\``;
+
+    // maxLengthを超える場合は更に短縮
+    if (result.length > maxLength) {
+      const shortPreview = lines.slice(0, 4).join("\n");
+      return `\`\`\`\n${shortPreview}\n... [${lines.length}行の結果] ...\n\`\`\``;
+    }
+
+    return result;
+  }
+
+  /**
+   * 内容から要約情報を抽出する
+   */
+  private extractSummaryInfo(content: string): string | null {
+    // gitコミット結果
+    const gitCommitMatch = content.match(/\[([a-f0-9]+)\] (.+)/);
+    if (gitCommitMatch) {
+      const filesChanged = content.match(/(\d+) files? changed/);
+      const insertions = content.match(/(\d+) insertions?\(\+\)/);
+      const deletions = content.match(/(\d+) deletions?\(-\)/);
+
+      let summary = `コミット ${gitCommitMatch[1].substring(0, 7)}: ${
+        gitCommitMatch[2]
+      }`;
+      if (filesChanged) {
+        summary += ` (${filesChanged[1]}ファイル変更`;
+        if (insertions) summary += `, +${insertions[1]}`;
+        if (deletions) summary += `, -${deletions[1]}`;
+        summary += ")";
+      }
+      return summary;
+    }
+
+    // テスト結果
+    const testMatch = content.match(/(\d+) passed.*?(\d+) failed/);
+    if (testMatch) {
+      return `テスト結果: ${testMatch[1]}件成功, ${testMatch[2]}件失敗`;
+    }
+
+    // ファイル操作結果
+    const fileCountMatch = content.match(/(\d+) files?/);
+    if (fileCountMatch && content.includes("files")) {
+      return `${fileCountMatch[1]}ファイルの操作完了`;
+    }
+
+    return null;
+  }
+
+  /**
+   * ツール使用を進捗メッセージとしてフォーマットする
+   */
+  private formatToolUse(item: {
+    type: string;
+    id?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+  }): string | null {
+    if (!item.name) return null;
+
+    // TodoWriteツールの場合は特別処理
+    if (item.name === "TodoWrite") {
+      const todoWriteInput = item.input as {
+        todos?: Array<{
+          status: string;
+          content: string;
+        }>;
+      };
+      if (todoWriteInput?.todos && Array.isArray(todoWriteInput.todos)) {
+        return this.formatTodoList(todoWriteInput.todos);
+      }
+      return null;
+    }
+
+    // その他のツール（Bash、Read、Write等）の場合
+    const toolIcon = this.getToolIcon(item.name);
+    const description = this.getToolDescription(item.name, item.input);
+
+    return `${toolIcon} **${item.name}**: ${description}`;
+  }
+
+  /**
+   * ツール名に対応するアイコンを取得
+   */
+  private getToolIcon(toolName: string): string {
+    const iconMap: Record<string, string> = {
+      "Bash": "⚡",
+      "Read": "📖",
+      "Write": "✏️",
+      "Edit": "🔧",
+      "MultiEdit": "🔧",
+      "Glob": "🔍",
+      "Grep": "🔍",
+      "LS": "📁",
+      "Task": "🤖",
+      "WebFetch": "🌐",
+      "WebSearch": "🔎",
+      "NotebookRead": "📓",
+      "NotebookEdit": "📝",
+      "TodoRead": "📋",
+      "TodoWrite": "📋",
+    };
+    return iconMap[toolName] || "🔧";
+  }
+
+  /**
+   * ツールの説明を生成
+   */
+  private getToolDescription(
+    toolName: string,
+    input?: Record<string, unknown>,
+  ): string {
+    switch (toolName) {
+      case "Bash": {
+        const command = input?.command as string;
+        const description = input?.description as string;
+        if (description) {
+          return description;
+        }
+        if (command) {
+          // コマンドが長い場合は短縮
+          return command.length > 50
+            ? `${command.substring(0, 50)}...`
+            : command;
+        }
+        return "コマンド実行";
+      }
+      case "Read":
+        return `ファイル読み込み: ${input?.file_path || ""}`;
+      case "Write":
+        return `ファイル書き込み: ${input?.file_path || ""}`;
+      case "Edit":
+        return `ファイル編集: ${input?.file_path || ""}`;
+      case "MultiEdit":
+        return `ファイル一括編集: ${input?.file_path || ""}`;
+      case "Glob":
+        return `ファイル検索: ${input?.pattern || ""}`;
+      case "Grep":
+        return `コンテンツ検索: ${input?.pattern || ""}`;
+      case "LS":
+        return `ディレクトリ一覧: ${input?.path || ""}`;
+      case "Task":
+        return `エージェントタスク: ${input?.description || ""}`;
+      case "WebFetch":
+        return `Web取得: ${input?.url || ""}`;
+      case "WebSearch":
+        return `Web検索: ${input?.query || ""}`;
+      case "NotebookRead":
+        return `ノートブック読み込み: ${input?.notebook_path || ""}`;
+      case "NotebookEdit":
+        return `ノートブック編集: ${input?.notebook_path || ""}`;
+      case "TodoRead":
+        return "TODOリスト確認";
+      default:
+        return `${toolName}実行`;
+    }
   }
 
   /**
