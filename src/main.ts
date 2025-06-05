@@ -110,6 +110,19 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       threadId,
       interaction.customId,
     );
+
+    // スレッド終了ボタンが押された場合は元のメッセージからボタンを削除
+    if (interaction.customId === `terminate_${threadId}`) {
+      try {
+        await interaction.message.edit({
+          content: interaction.message.content,
+          components: [], // ボタンを削除
+        });
+      } catch (error) {
+        console.error("ボタン削除エラー:", error);
+      }
+    }
+
     await interaction.editReply(result);
   } catch (error) {
     console.error("ボタンインタラクションエラー:", error);

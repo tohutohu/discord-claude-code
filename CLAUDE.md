@@ -112,7 +112,7 @@ deno task test    # フォーマット、lint、型チェック、テスト実�
 deno task fmt     # フォーマット
 deno task lint    # lint
 deno task check   # 型チェック
-deno test --allow-read --allow-write --allow-env  # テストのみ
+deno test --allow-read --allow-write --allow-env --allow-run  # テストのみ
 ```
 
 ## データ永続化機能
