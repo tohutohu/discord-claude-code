@@ -29,3 +29,4 @@ WorkerモジュールはAdminモジュールによって起動・管理される
 - 最小単位ごとに `deno fmt`, `deno check`, `deno lint`, `deno test`
   を実行して成功することを確認してから先に進む
 - any型やlintの無視をしない
+- 指示された作業が終わるごとにコミットする
