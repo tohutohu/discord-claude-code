@@ -26,6 +26,8 @@ export interface ThreadInfo {
     containerId?: string;
     isStarted: boolean;
   } | null;
+  rateLimitTimestamp?: number;
+  autoResumeAfterRateLimit?: boolean;
 }
 
 export interface SessionLog {

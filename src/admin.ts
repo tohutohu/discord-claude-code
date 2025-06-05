@@ -1,4 +1,4 @@
-import { IWorker, Worker } from "./worker.ts";
+import { ClaudeCodeRateLimitError, IWorker, Worker } from "./worker.ts";
 import { generateWorkerName } from "./worker-name-generator.ts";
 import { AuditEntry, ThreadInfo, WorkspaceManager } from "./workspace.ts";
 import {
@@ -27,17 +27,29 @@ export interface DiscordMessage {
 export interface IAdmin {
   createWorker(threadId: string): Promise<IWorker>;
   getWorker(threadId: string): IWorker | null;
-  routeMessage(threadId: string, message: string): Promise<string>;
+  routeMessage(
+    threadId: string,
+    message: string,
+  ): Promise<string | DiscordMessage>;
   handleButtonInteraction(threadId: string, customId: string): Promise<string>;
   createInitialMessage(threadId: string): DiscordMessage;
+  createRateLimitMessage(threadId: string, timestamp: number): DiscordMessage;
   terminateThread(threadId: string): Promise<void>;
   restoreActiveThreads(): Promise<void>;
+  setAutoResumeCallback(
+    callback: (threadId: string, message: string) => Promise<void>,
+  ): void;
 }
 
 export class Admin implements IAdmin {
   private workers: Map<string, IWorker>;
   private workspaceManager: WorkspaceManager;
   private verbose: boolean;
+  private autoResumeTimers: Map<string, number> = new Map();
+  private onAutoResumeMessage?: (
+    threadId: string,
+    message: string,
+  ) => Promise<void>;
 
   constructor(workspaceManager: WorkspaceManager, verbose: boolean = false) {
     this.workers = new Map();
@@ -290,6 +302,75 @@ export class Admin implements IAdmin {
     }
   }
 
+  /**
+   * レートリミット情報をスレッド情報に保存する
+   */
+  private async saveRateLimitInfo(
+    threadId: string,
+    timestamp: number,
+  ): Promise<void> {
+    try {
+      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+      if (threadInfo) {
+        threadInfo.rateLimitTimestamp = timestamp;
+        threadInfo.lastActiveAt = new Date().toISOString();
+        await this.workspaceManager.saveThreadInfo(threadInfo);
+
+        await this.logAuditEntry(threadId, "rate_limit_detected", {
+          timestamp,
+          resumeTime: new Date(timestamp * 1000 + 5 * 60 * 1000).toISOString(),
+        });
+      }
+    } catch (error) {
+      console.error("レートリミット情報の保存に失敗しました:", error);
+    }
+  }
+
+  /**
+   * レートリミットメッセージとボタンを作成する
+   */
+  createRateLimitMessage(threadId: string, timestamp: number): DiscordMessage {
+    const resumeTime = new Date(timestamp * 1000 + 5 * 60 * 1000);
+    const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    return {
+      content:
+        `Claude Codeのレートリミットに達しました。利用制限により一時的に使用できない状態です。
+
+自動で継続しますか？
+
+**[はい - 自動継続する]** | **[いいえ - 手動で再開する]**
+
+制限解除後（${resumeTimeStr}頃）に自動的にセッションを再開します。同意いただける場合は「はい」を選択してください。`,
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 3, // 緑
+              label: "はい - 自動継続する",
+              custom_id: `rate_limit_auto_yes_${threadId}`,
+            },
+            {
+              type: 2,
+              style: 2, // グレー
+              label: "いいえ - 手動で再開する",
+              custom_id: `rate_limit_auto_no_${threadId}`,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
   async createWorker(threadId: string): Promise<IWorker> {
     this.logVerbose("Worker作成要求", {
       threadId,
@@ -369,7 +450,7 @@ export class Admin implements IAdmin {
     threadId: string,
     message: string,
     onProgress?: (content: string) => Promise<void>,
-  ): Promise<string> {
+  ): Promise<string | DiscordMessage> {
     this.logVerbose("メッセージルーティング開始", {
       threadId,
       messageLength: message.length,
@@ -417,14 +498,33 @@ export class Admin implements IAdmin {
     });
 
     this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
-    const result = await worker.processMessage(message, onProgress);
 
-    this.logVerbose("メッセージ処理完了", {
-      threadId,
-      responseLength: result.length,
-    });
+    try {
+      const result = await worker.processMessage(message, onProgress);
 
-    return result;
+      this.logVerbose("メッセージ処理完了", {
+        threadId,
+        responseLength: result.length,
+      });
+
+      return result;
+    } catch (error) {
+      if (error instanceof ClaudeCodeRateLimitError) {
+        this.logVerbose("Claude Codeレートリミット検出", {
+          threadId,
+          timestamp: error.timestamp,
+        });
+
+        // レートリミット情報をスレッド情報に保存
+        await this.saveRateLimitInfo(threadId, error.timestamp);
+
+        // 自動継続確認メッセージを返す
+        return this.createRateLimitMessage(threadId, error.timestamp);
+      }
+
+      // その他のエラーは再投げ
+      throw error;
+    }
   }
 
   async handleButtonInteraction(
@@ -463,7 +563,182 @@ export class Admin implements IAdmin {
       );
     }
 
+    // レートリミット自動継続ボタン処理
+    if (customId.startsWith(`rate_limit_auto_yes_${threadId}`)) {
+      return await this.handleRateLimitAutoButton(threadId, true);
+    }
+
+    if (customId.startsWith(`rate_limit_auto_no_${threadId}`)) {
+      return await this.handleRateLimitAutoButton(threadId, false);
+    }
+
     return "未知のボタンが押されました。";
+  }
+
+  /**
+   * レートリミット自動継続ボタンのハンドラー
+   */
+  private async handleRateLimitAutoButton(
+    threadId: string,
+    autoResume: boolean,
+  ): Promise<string> {
+    try {
+      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+      if (!threadInfo || !threadInfo.rateLimitTimestamp) {
+        return "レートリミット情報が見つかりません。";
+      }
+
+      if (autoResume) {
+        // 自動継続を設定
+        threadInfo.autoResumeAfterRateLimit = true;
+        await this.workspaceManager.saveThreadInfo(threadInfo);
+
+        await this.logAuditEntry(threadId, "rate_limit_auto_resume_enabled", {
+          timestamp: threadInfo.rateLimitTimestamp,
+        });
+
+        const resumeTime = new Date(
+          threadInfo.rateLimitTimestamp * 1000 + 5 * 60 * 1000,
+        );
+        const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
+          timeZone: "Asia/Tokyo",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+
+        // タイマーを設定
+        this.scheduleAutoResume(threadId, threadInfo.rateLimitTimestamp);
+
+        return `自動継続が設定されました。${resumeTimeStr}頃に「続けて」というプロンプトで自動的にセッションを再開します。`;
+      } else {
+        // 手動再開を選択
+        threadInfo.autoResumeAfterRateLimit = false;
+        await this.workspaceManager.saveThreadInfo(threadInfo);
+
+        await this.logAuditEntry(
+          threadId,
+          "rate_limit_manual_resume_selected",
+          {
+            timestamp: threadInfo.rateLimitTimestamp,
+          },
+        );
+
+        return "手動での再開が選択されました。制限解除後に手動でメッセージを送信してください。";
+      }
+    } catch (error) {
+      console.error("レートリミットボタン処理でエラーが発生しました:", error);
+      return "処理中にエラーが発生しました。";
+    }
+  }
+
+  /**
+   * 自動再開コールバックを設定する
+   */
+  setAutoResumeCallback(
+    callback: (threadId: string, message: string) => Promise<void>,
+  ): void {
+    this.onAutoResumeMessage = callback;
+  }
+
+  /**
+   * レートリミット後の自動再開をスケジュールする
+   */
+  private scheduleAutoResume(
+    threadId: string,
+    rateLimitTimestamp: number,
+  ): void {
+    // 既存のタイマーがあればクリア
+    const existingTimer = this.autoResumeTimers.get(threadId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    // 5分後に再開するタイマーを設定
+    const resumeTime = rateLimitTimestamp * 1000 + 5 * 60 * 1000;
+    const currentTime = Date.now();
+    const delay = Math.max(0, resumeTime - currentTime);
+
+    this.logVerbose("自動再開タイマー設定", {
+      threadId,
+      rateLimitTimestamp,
+      resumeTime: new Date(resumeTime).toISOString(),
+      delayMs: delay,
+    });
+
+    const timerId = setTimeout(async () => {
+      try {
+        this.logVerbose("自動再開実行開始", { threadId });
+        await this.executeAutoResume(threadId);
+      } catch (error) {
+        console.error(
+          `自動再開の実行に失敗しました (threadId: ${threadId}):`,
+          error,
+        );
+      } finally {
+        this.autoResumeTimers.delete(threadId);
+      }
+    }, delay);
+
+    this.autoResumeTimers.set(threadId, timerId);
+  }
+
+  /**
+   * 自動再開を実行する
+   */
+  private async executeAutoResume(threadId: string): Promise<void> {
+    try {
+      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+      if (!threadInfo || !threadInfo.autoResumeAfterRateLimit) {
+        this.logVerbose(
+          "自動再開がキャンセルされているか、スレッド情報が見つかりません",
+          { threadId },
+        );
+        return;
+      }
+
+      await this.logAuditEntry(threadId, "auto_resume_executed", {
+        rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+        resumeTime: new Date().toISOString(),
+      });
+
+      if (this.onAutoResumeMessage) {
+        this.logVerbose("自動再開メッセージ送信", { threadId });
+        await this.onAutoResumeMessage(threadId, "続けて");
+      } else {
+        this.logVerbose("自動再開コールバックが設定されていません", {
+          threadId,
+        });
+      }
+
+      // レートリミット情報をリセット
+      threadInfo.rateLimitTimestamp = undefined;
+      threadInfo.autoResumeAfterRateLimit = undefined;
+      await this.workspaceManager.saveThreadInfo(threadInfo);
+    } catch (error) {
+      this.logVerbose("自動再開の実行でエラー", {
+        threadId,
+        error: (error as Error).message,
+      });
+      console.error(
+        `自動再開の実行でエラーが発生しました (threadId: ${threadId}):`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * スレッド終了時に自動再開タイマーをクリアする
+   */
+  private clearAutoResumeTimer(threadId: string): void {
+    const timerId = this.autoResumeTimers.get(threadId);
+    if (timerId) {
+      clearTimeout(timerId);
+      this.autoResumeTimers.delete(threadId);
+      this.logVerbose("自動再開タイマーをクリア", { threadId });
+    }
   }
 
   createInitialMessage(threadId: string): DiscordMessage {
@@ -508,6 +783,9 @@ export class Admin implements IAdmin {
 
       this.logVerbose("Worker管理Mapから削除", { threadId });
       this.workers.delete(threadId);
+
+      this.logVerbose("自動再開タイマークリア", { threadId });
+      this.clearAutoResumeTimer(threadId);
 
       const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
       if (threadInfo) {

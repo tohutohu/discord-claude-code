@@ -1,6 +1,16 @@
 import { GitRepository } from "./git-utils.ts";
 import { SessionLog, WorkspaceManager } from "./workspace.ts";
 
+export class ClaudeCodeRateLimitError extends Error {
+  public readonly timestamp: number;
+
+  constructor(timestamp: number) {
+    super(`Claude AI usage limit reached|${timestamp}`);
+    this.name = "ClaudeCodeRateLimitError";
+    this.timestamp = timestamp;
+  }
+}
+
 async function processStreams(
   stdout: ReadableStream<Uint8Array>,
   stderr: ReadableStream<Uint8Array>,
@@ -420,6 +430,14 @@ export class Worker implements IWorker {
         if (parsed.type === "result" && parsed.result) {
           result = parsed.result;
           this.logVerbose("最終結果取得", { resultLength: result.length });
+
+          // Claude Codeレートリミットの検出
+          if (this.isClaudeCodeRateLimit(parsed.result)) {
+            const timestamp = this.extractRateLimitTimestamp(parsed.result);
+            if (timestamp) {
+              throw new ClaudeCodeRateLimitError(timestamp);
+            }
+          }
         }
       } catch (parseError) {
         this.logVerbose(`JSON解析エラー: ${parseError}`, {
@@ -1188,6 +1206,24 @@ export class Worker implements IWorker {
         );
       }
     }
+  }
+
+  /**
+   * Claude Codeのレートリミットメッセージかを判定する
+   */
+  private isClaudeCodeRateLimit(result: string): boolean {
+    return result.includes("Claude AI usage limit reached|");
+  }
+
+  /**
+   * レートリミットメッセージからタイムスタンプを抽出する
+   */
+  private extractRateLimitTimestamp(result: string): number | null {
+    const match = result.match(/Claude AI usage limit reached\|(\d+)/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return null;
   }
 
   /**
