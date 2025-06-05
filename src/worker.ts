@@ -52,14 +52,14 @@ export interface IWorker {
   processMessage(message: string): Promise<string>;
   getName(): string;
   getRepository(): GitRepository | null;
-  setRepository(repository: GitRepository, localPath: string): void;
+  setRepository(repository: GitRepository, localPath: string): Promise<void>;
   setThreadId(threadId: string): void;
 }
 
 export class Worker implements IWorker {
   private readonly name: string;
   private repository: GitRepository | null = null;
-  private localPath: string | null = null;
+  private worktreePath: string | null = null;
   private sessionId: string | null = null;
   private threadId: string | null = null;
   private readonly claudeExecutor: ClaudeCommandExecutor;
@@ -76,7 +76,7 @@ export class Worker implements IWorker {
   }
 
   async processMessage(message: string): Promise<string> {
-    if (!this.repository || !this.localPath) {
+    if (!this.repository || !this.worktreePath) {
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
 
@@ -127,7 +127,7 @@ export class Worker implements IWorker {
 
     const { code, stdout, stderr } = await this.claudeExecutor.execute(
       args,
-      this.localPath!,
+      this.worktreePath!,
     );
 
     if (code !== 0) {
@@ -238,10 +238,36 @@ export class Worker implements IWorker {
     return this.repository;
   }
 
-  setRepository(repository: GitRepository, localPath: string): void {
+  async setRepository(
+    repository: GitRepository,
+    localPath: string,
+  ): Promise<void> {
     this.repository = repository;
-    this.localPath = localPath;
-    // 新しいリポジトリが設定された場合、セッションIDをリセット
+
+    if (this.threadId) {
+      try {
+        this.worktreePath = await this.workspaceManager.createWorktree(
+          this.threadId,
+          localPath,
+        );
+
+        const threadInfo = await this.workspaceManager.loadThreadInfo(
+          this.threadId,
+        );
+        if (threadInfo) {
+          threadInfo.repositoryFullName = repository.fullName;
+          threadInfo.repositoryLocalPath = localPath;
+          threadInfo.worktreePath = this.worktreePath;
+          await this.workspaceManager.saveThreadInfo(threadInfo);
+        }
+      } catch (error) {
+        console.error(`worktreeの作成に失敗しました: ${error}`);
+        this.worktreePath = localPath;
+      }
+    } else {
+      this.worktreePath = localPath;
+    }
+
     this.sessionId = null;
   }
 

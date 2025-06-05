@@ -7,12 +7,14 @@ export interface WorkspaceConfig {
   threadsDir: string;
   sessionsDir: string;
   auditDir: string;
+  worktreesDir: string;
 }
 
 export interface ThreadInfo {
   threadId: string;
   repositoryFullName: string | null;
   repositoryLocalPath: string | null;
+  worktreePath: string | null;
   createdAt: string;
   lastActiveAt: string;
   status: "active" | "inactive" | "archived";
@@ -44,6 +46,7 @@ export class WorkspaceManager {
       threadsDir: join(baseDir, "threads"),
       sessionsDir: join(baseDir, "sessions"),
       auditDir: join(baseDir, "audit"),
+      worktreesDir: join(baseDir, "worktrees"),
     };
   }
 
@@ -52,6 +55,7 @@ export class WorkspaceManager {
     await ensureDir(this.config.threadsDir);
     await ensureDir(this.config.sessionsDir);
     await ensureDir(this.config.auditDir);
+    await ensureDir(this.config.worktreesDir);
   }
 
   getRepositoriesDir(): string {
@@ -60,6 +64,10 @@ export class WorkspaceManager {
 
   getRepositoryPath(org: string, repo: string): string {
     return join(this.config.repositoriesDir, org, repo);
+  }
+
+  getWorktreePath(threadId: string): string {
+    return join(this.config.worktreesDir, threadId);
   }
 
   private getThreadFilePath(threadId: string): string {
@@ -237,6 +245,92 @@ export class WorkspaceManager {
         return [];
       }
       throw error;
+    }
+  }
+
+  async createWorktree(
+    threadId: string,
+    repositoryPath: string,
+    branch = "main",
+  ): Promise<string> {
+    const worktreePath = this.getWorktreePath(threadId);
+
+    const command = new Deno.Command("git", {
+      args: ["worktree", "add", worktreePath, branch],
+      cwd: repositoryPath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const { code, stderr } = await command.output();
+
+    if (code !== 0) {
+      const errorMessage = new TextDecoder().decode(stderr);
+      throw new Error(`git worktreeの作成に失敗しました: ${errorMessage}`);
+    }
+
+    return worktreePath;
+  }
+
+  async removeWorktree(threadId: string): Promise<void> {
+    const worktreePath = this.getWorktreePath(threadId);
+
+    try {
+      const stat = await Deno.stat(worktreePath);
+      if (!stat.isDirectory) {
+        return;
+      }
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return;
+      }
+      throw error;
+    }
+
+    const command = new Deno.Command("git", {
+      args: ["worktree", "remove", worktreePath, "--force"],
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const { code, stderr } = await command.output();
+
+    if (code !== 0) {
+      const errorMessage = new TextDecoder().decode(stderr);
+      console.warn(
+        `git worktreeの削除に失敗しました (${threadId}): ${errorMessage}`,
+      );
+
+      try {
+        await Deno.remove(worktreePath, { recursive: true });
+      } catch (removeError) {
+        console.warn(
+          `ディレクトリの強制削除に失敗しました (${threadId}): ${removeError}`,
+        );
+      }
+    }
+  }
+
+  async cleanupWorktree(threadId: string): Promise<void> {
+    const worktreePath = this.getWorktreePath(threadId);
+
+    try {
+      const command = new Deno.Command("git", {
+        args: ["worktree", "prune"],
+        stdout: "piped",
+        stderr: "piped",
+      });
+      await command.output();
+    } catch (error) {
+      console.warn(`git worktree pruneに失敗しました: ${error}`);
+    }
+
+    try {
+      await Deno.remove(worktreePath, { recursive: true });
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        console.warn(`worktreeディレクトリの削除に失敗しました: ${error}`);
+      }
     }
   }
 }

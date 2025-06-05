@@ -100,3 +100,59 @@ Deno.test("Admin - 存在しないスレッドへのメッセージはエラー�
     );
   }
 });
+
+Deno.test("Admin - 初期メッセージに終了ボタンが含まれる", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-333";
+
+  const initialMessage = admin.createInitialMessage(threadId);
+
+  assertExists(initialMessage.content);
+  assertExists(initialMessage.components);
+  assertEquals(initialMessage.components.length, 1);
+  assertEquals(initialMessage.components[0].type, 1);
+  assertEquals(initialMessage.components[0].components.length, 1);
+  assertEquals(initialMessage.components[0].components[0].type, 2);
+  assertEquals(
+    initialMessage.components[0].components[0].custom_id,
+    `terminate_${threadId}`,
+  );
+  assertEquals(
+    initialMessage.components[0].components[0].label,
+    "スレッドを終了",
+  );
+});
+
+Deno.test("Admin - 終了ボタンでスレッドを終了できる", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-444";
+
+  await admin.createWorker(threadId);
+  assertExists(admin.getWorker(threadId));
+
+  const result = await admin.handleButtonInteraction(
+    threadId,
+    `terminate_${threadId}`,
+  );
+
+  assertEquals(result, "スレッドを終了しました。worktreeも削除されました。");
+  assertEquals(admin.getWorker(threadId), null);
+
+  const threadInfo = await workspace.loadThreadInfo(threadId);
+  assertEquals(threadInfo?.status, "archived");
+});
+
+Deno.test("Admin - 未知のボタンIDの場合は適切なメッセージを返す", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-555";
+
+  const result = await admin.handleButtonInteraction(
+    threadId,
+    "unknown_button",
+  );
+
+  assertEquals(result, "未知のボタンが押されました。");
+});

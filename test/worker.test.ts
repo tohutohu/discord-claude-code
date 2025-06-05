@@ -83,7 +83,7 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", async () 
   // リポジトリ情報を設定
   const repository = parseRepository("owner/repo");
   const localPath = "/tmp/owner/repo";
-  worker.setRepository(repository, localPath);
+  await worker.setRepository(repository, localPath);
 
   // リポジトリ情報が正しく設定されているか確認
   const storedRepo = worker.getRepository();
@@ -103,7 +103,7 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
   // リポジトリ情報を設定
   const repository = parseRepository("test-org/test-repo");
   const localPath = "/tmp/test-org/test-repo";
-  worker.setRepository(repository, localPath);
+  await worker.setRepository(repository, localPath);
 
   const message = "テストメッセージです";
   const reply = await worker.processMessage(message);

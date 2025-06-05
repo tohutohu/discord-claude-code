@@ -1,4 +1,6 @@
 import {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
   Client,
   Events,
   GatewayIntentBits,
@@ -59,8 +61,41 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 });
 
-// スラッシュコマンドの処理
+// インタラクションの処理
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isChatInputCommand()) {
+    await handleSlashCommand(interaction);
+  } else if (interaction.isButton()) {
+    await handleButtonInteraction(interaction);
+  }
+});
+
+async function handleButtonInteraction(interaction: ButtonInteraction) {
+  try {
+    const threadId = interaction.channel?.id;
+    if (!threadId) {
+      await interaction.reply("スレッドIDが取得できませんでした。");
+      return;
+    }
+
+    await interaction.deferReply();
+
+    const result = await admin.handleButtonInteraction(
+      threadId,
+      interaction.customId,
+    );
+    await interaction.editReply(result);
+  } catch (error) {
+    console.error("ボタンインタラクションエラー:", error);
+    try {
+      await interaction.editReply("エラーが発生しました。");
+    } catch {
+      await interaction.reply("エラーが発生しました。");
+    }
+  }
+}
+
+async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
@@ -112,22 +147,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       // Workerを作成してリポジトリ情報を設定
       const worker = await admin.createWorker(thread.id);
-      worker.setRepository(repository, repositoryPath);
-
-      // スレッド情報を更新（リポジトリ情報を追加）
-      const threadInfo = await workspaceManager.loadThreadInfo(thread.id);
-      if (threadInfo) {
-        threadInfo.repositoryFullName = repository.fullName;
-        threadInfo.repositoryLocalPath = repositoryPath;
-        await workspaceManager.saveThreadInfo(threadInfo);
-      }
+      await worker.setRepository(repository, repositoryPath);
 
       await interaction.editReply(
         `${repository.fullName}用のチャットスレッドを作成しました: ${thread.toString()}`,
       );
-      await thread.send(
-        `こんにちは！私は${worker.getName()}です。${repository.fullName}について何か質問はありますか？`,
-      );
+
+      // 初期メッセージを終了ボタン付きで送信
+      const initialMessage = admin.createInitialMessage(thread.id);
+      await thread.send({
+        content:
+          `こんにちは！私は${worker.getName()}です。${repository.fullName}について何か質問はありますか？\n\n${initialMessage.content}`,
+        components: initialMessage.components,
+      });
     } catch (error) {
       console.error("スレッド作成エラー:", error);
       try {
@@ -137,7 +169,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
   }
-});
+}
 
 // メッセージの処理
 client.on(Events.MessageCreate, async (message) => {
