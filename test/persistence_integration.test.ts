@@ -110,7 +110,9 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
         skipPermissions: threadId === "thread-2",
         hasDevcontainerFile: threadId !== "thread-3",
         hasAnthropicsFeature: threadId === "thread-1",
-        containerId: threadId === "thread-1" ? `container-${threadId}` : undefined,
+        containerId: threadId === "thread-1"
+          ? `container-${threadId}`
+          : undefined,
         isStarted: threadId === "thread-1",
       };
       await admin1.saveDevcontainerConfig(threadId, config);

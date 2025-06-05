@@ -143,7 +143,10 @@ export class Admin implements IAdmin {
         const repository = parseRepository(threadInfo.repositoryFullName);
 
         if (repository) {
-          await worker.setRepository(repository, threadInfo.repositoryLocalPath);
+          await worker.setRepository(
+            repository,
+            threadInfo.repositoryLocalPath,
+          );
           this.logVerbose("リポジトリ情報復旧完了", {
             threadId,
             repositoryFullName: threadInfo.repositoryFullName,
@@ -829,14 +832,16 @@ export class Admin implements IAdmin {
   /**
    * スレッドのdevcontainer設定を取得する
    */
-  async getDevcontainerConfig(threadId: string): Promise<{
-    useDevcontainer: boolean;
-    skipPermissions: boolean;
-    hasDevcontainerFile: boolean;
-    hasAnthropicsFeature: boolean;
-    containerId?: string;
-    isStarted: boolean;
-  } | null> {
+  async getDevcontainerConfig(threadId: string): Promise<
+    {
+      useDevcontainer: boolean;
+      skipPermissions: boolean;
+      hasDevcontainerFile: boolean;
+      hasAnthropicsFeature: boolean;
+      containerId?: string;
+      isStarted: boolean;
+    } | null
+  > {
     const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
     return threadInfo?.devcontainerConfig || null;
   }
