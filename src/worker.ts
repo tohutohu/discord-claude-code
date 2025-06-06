@@ -234,6 +234,8 @@ export interface IWorker {
   getRepository(): GitRepository | null;
   setRepository(repository: GitRepository, localPath: string): Promise<void>;
   setThreadId(threadId: string): void;
+  isUsingDevcontainer(): boolean;
+  isSkipPermissions(): boolean;
 }
 
 export class Worker implements IWorker {
