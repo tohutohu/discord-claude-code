@@ -9,21 +9,16 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 /**
- * テスト用のコンテキストを提供するインターフェース
- */
-export interface TestContext {
-  workspaceManager: WorkspaceManager;
-  admin: Admin;
-  testDir: string;
-  cleanup: () => Promise<void>;
-}
-
-/**
  * テスト用のWorkspaceManagerとAdminを作成し、クリーンアップ関数と共に返す
  */
 export async function createTestContext(
   verbose = false,
-): Promise<TestContext> {
+): Promise<{
+  workspaceManager: WorkspaceManager;
+  admin: Admin;
+  testDir: string;
+  cleanup: () => Promise<void>;
+}> {
   const testDir = await Deno.makeTempDir({ prefix: "test_context_" });
   const workspaceManager = new WorkspaceManager(testDir);
   await workspaceManager.initialize();
@@ -67,7 +62,7 @@ export async function createTestWorker(
   const worker = new Worker(
     name,
     workspaceManager,
-    executor || new MockClaudeCommandExecutor(),
+    executor || createMockClaudeCommandExecutor(),
     verbose,
   );
   return worker;
@@ -83,152 +78,194 @@ export function assertWorkerValid(worker: IWorker | null): void {
 }
 
 /**
- * テスト用のモックClaudeCommandExecutor
+ * モックClaudeCommandExecutorを作成
  */
-export class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
-  protected responses: Map<string, string> = new Map();
-  protected defaultResponse: string;
-  public lastArgs?: string[];
-  public lastCwd?: string;
-  public executionCount = 0;
+export function createMockClaudeCommandExecutor(
+  defaultResponse = "モックレスポンス",
+): ClaudeCommandExecutor & {
+  setResponse: (message: string, response: string) => void;
+  lastArgs?: string[];
+  lastCwd?: string;
+  executionCount: number;
+} {
+  const responses = new Map<string, string>();
+  let lastArgs: string[] | undefined;
+  let lastCwd: string | undefined;
+  let executionCount = 0;
 
-  constructor(defaultResponse = "モックレスポンス") {
-    this.defaultResponse = defaultResponse;
-  }
+  const executor: ClaudeCommandExecutor = {
+    async executeStreaming(
+      args: string[],
+      cwd: string,
+      onData: (data: Uint8Array) => void,
+    ): Promise<{ code: number; stderr: Uint8Array }> {
+      lastArgs = args;
+      lastCwd = cwd;
+      executionCount++;
 
-  setResponse(message: string, response: string): void {
-    this.responses.set(message, response);
-  }
-
-  async executeStreaming(
-    args: string[],
-    cwd: string,
-    onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
-    this.lastArgs = args;
-    this.lastCwd = cwd;
-    this.executionCount++;
-
-    // メッセージを取得（-pフラグの後の引数）
-    let message = "";
-    const pIndex = args.indexOf("-p");
-    if (pIndex !== -1 && pIndex + 1 < args.length) {
-      message = args[pIndex + 1];
-    }
-    const response = this.responses.get(message) || this.defaultResponse;
-
-    // JSONレスポンスを作成（改行で終わる必要がある）
-    const jsonResponse = JSON.stringify({
-      type: "result",
-      result: response,
-      session_id: "mock-session-id",
-    }) + "\n";
-
-    // データをストリーミング
-    onData(new TextEncoder().encode(jsonResponse));
-
-    return {
-      code: 0,
-      stderr: new Uint8Array(),
-    };
-  }
-}
-
-/**
- * ストリーミング対応のモックClaudeCommandExecutor
- */
-export class MockStreamingClaudeCommandExecutor
-  extends MockClaudeCommandExecutor {
-  public streamingEnabled = true;
-  public streamingDelay = 10; // ミリ秒
-
-  override async executeStreaming(
-    args: string[],
-    cwd: string,
-    onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
-    this.lastArgs = args;
-    this.lastCwd = cwd;
-    this.executionCount++;
-
-    // メッセージを取得（-pフラグの後の引数）
-    let message = "";
-    const pIndex = args.indexOf("-p");
-    if (pIndex !== -1 && pIndex + 1 < args.length) {
-      message = args[pIndex + 1];
-    }
-    const response = this.responses.get(message) || this.defaultResponse;
-
-    if (this.streamingEnabled) {
-      // レスポンスが既にJSONL形式の場合はそのまま使用
-      if (response.includes('{"type"')) {
-        // JSONLフォーマットのレスポンスを行ごとに分割してストリーミング
-        const lines = response.split("\n");
-        for (const line of lines) {
-          if (line.trim()) {
-            onData(new TextEncoder().encode(line + "\n"));
-            await new Promise((resolve) =>
-              setTimeout(resolve, this.streamingDelay)
-            );
-          }
-        }
-      } else {
-        // 通常のテキストレスポンスの場合は、JSON形式に変換
-        const jsonLines = [
-          JSON.stringify({ type: "session", session_id: "mock-session-id" }),
-          JSON.stringify({
-            type: "assistant",
-            message: { content: [{ type: "text", text: response }] },
-          }),
-          JSON.stringify({ type: "result", result: response }),
-        ];
-
-        for (const jsonLine of jsonLines) {
-          onData(new TextEncoder().encode(jsonLine + "\n"));
-          await new Promise((resolve) =>
-            setTimeout(resolve, this.streamingDelay)
-          );
-        }
+      // メッセージを取得（-pフラグの後の引数）
+      let message = "";
+      const pIndex = args.indexOf("-p");
+      if (pIndex !== -1 && pIndex + 1 < args.length) {
+        message = args[pIndex + 1];
       }
-    } else {
-      // ストリーミングなしで一度に送信（JSON形式）
+      const response = responses.get(message) || defaultResponse;
+
+      // JSONレスポンスを作成（改行で終わる必要がある）
       const jsonResponse = JSON.stringify({
         type: "result",
         result: response,
         session_id: "mock-session-id",
       }) + "\n";
-      onData(new TextEncoder().encode(jsonResponse));
-    }
 
-    return {
-      code: 0,
-      stderr: new Uint8Array(),
-    };
-  }
+      // データをストリーミング
+      onData(new TextEncoder().encode(jsonResponse));
+
+      return {
+        code: 0,
+        stderr: new Uint8Array(),
+      };
+    },
+  };
+
+  return Object.assign(executor, {
+    setResponse: (message: string, response: string) => {
+      responses.set(message, response);
+    },
+    get lastArgs() {
+      return lastArgs;
+    },
+    get lastCwd() {
+      return lastCwd;
+    },
+    get executionCount() {
+      return executionCount;
+    },
+  });
 }
 
 /**
- * エラーを返すモックClaudeCommandExecutor
+ * ストリーミング対応のモックClaudeCommandExecutorを作成
  */
-export class ErrorMockClaudeCommandExecutor implements ClaudeCommandExecutor {
-  private errorMessage: string;
-  private exitCode: number;
+export function createMockStreamingClaudeCommandExecutor(
+  defaultResponse = "モックレスポンス",
+  options: { streamingEnabled?: boolean; streamingDelay?: number } = {},
+): ClaudeCommandExecutor & {
+  setResponse: (message: string, response: string) => void;
+  lastArgs?: string[];
+  lastCwd?: string;
+  executionCount: number;
+  streamingEnabled: boolean;
+  streamingDelay: number;
+} {
+  const responses = new Map<string, string>();
+  let lastArgs: string[] | undefined;
+  let lastCwd: string | undefined;
+  let executionCount = 0;
+  const streamingEnabled = options.streamingEnabled ?? true;
+  const streamingDelay = options.streamingDelay ?? 10;
 
-  constructor(errorMessage = "Command failed", exitCode = 1) {
-    this.errorMessage = errorMessage;
-    this.exitCode = exitCode;
-  }
+  const executor: ClaudeCommandExecutor = {
+    async executeStreaming(
+      args: string[],
+      cwd: string,
+      onData: (data: Uint8Array) => void,
+    ): Promise<{ code: number; stderr: Uint8Array }> {
+      lastArgs = args;
+      lastCwd = cwd;
+      executionCount++;
 
-  async executeStreaming(
-    _args: string[],
-    _cwd: string,
-    _onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
-    return {
-      code: this.exitCode,
-      stderr: new TextEncoder().encode(this.errorMessage),
-    };
-  }
+      // メッセージを取得（-pフラグの後の引数）
+      let message = "";
+      const pIndex = args.indexOf("-p");
+      if (pIndex !== -1 && pIndex + 1 < args.length) {
+        message = args[pIndex + 1];
+      }
+      const response = responses.get(message) || defaultResponse;
+
+      if (streamingEnabled) {
+        // レスポンスが既にJSONL形式の場合はそのまま使用
+        if (response.includes('{"type"')) {
+          // JSONLフォーマットのレスポンスを行ごとに分割してストリーミング
+          const lines = response.split("\n");
+          for (const line of lines) {
+            if (line.trim()) {
+              onData(new TextEncoder().encode(line + "\n"));
+              await new Promise((resolve) =>
+                setTimeout(resolve, streamingDelay)
+              );
+            }
+          }
+        } else {
+          // 通常のテキストレスポンスの場合は、JSON形式に変換
+          const jsonLines = [
+            JSON.stringify({ type: "session", session_id: "mock-session-id" }),
+            JSON.stringify({
+              type: "assistant",
+              message: { content: [{ type: "text", text: response }] },
+            }),
+            JSON.stringify({ type: "result", result: response }),
+          ];
+
+          for (const jsonLine of jsonLines) {
+            onData(new TextEncoder().encode(jsonLine + "\n"));
+            await new Promise((resolve) => setTimeout(resolve, streamingDelay));
+          }
+        }
+      } else {
+        // ストリーミングなしで一度に送信（JSON形式）
+        const jsonResponse = JSON.stringify({
+          type: "result",
+          result: response,
+          session_id: "mock-session-id",
+        }) + "\n";
+        onData(new TextEncoder().encode(jsonResponse));
+      }
+
+      return {
+        code: 0,
+        stderr: new Uint8Array(),
+      };
+    },
+  };
+
+  return Object.assign(executor, {
+    setResponse: (message: string, response: string) => {
+      responses.set(message, response);
+    },
+    get lastArgs() {
+      return lastArgs;
+    },
+    get lastCwd() {
+      return lastCwd;
+    },
+    get executionCount() {
+      return executionCount;
+    },
+    streamingEnabled,
+    streamingDelay,
+  });
+}
+
+/**
+ * エラーを返すモックClaudeCommandExecutorを作成
+ */
+export function createErrorMockClaudeCommandExecutor(
+  errorMessage = "Command failed",
+  exitCode = 1,
+): ClaudeCommandExecutor {
+  return {
+    async executeStreaming(
+      _args: string[],
+      _cwd: string,
+      _onData: (data: Uint8Array) => void,
+    ): Promise<{ code: number; stderr: Uint8Array }> {
+      return {
+        code: exitCode,
+        stderr: new TextEncoder().encode(errorMessage),
+      };
+    },
+  };
 }
 
 /**

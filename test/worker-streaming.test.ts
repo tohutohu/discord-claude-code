@@ -1,9 +1,9 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { Worker } from "../src/worker.ts";
 import {
+  createMockStreamingClaudeCommandExecutor,
   createTestRepository,
   createTestWorkspaceManager,
-  MockStreamingClaudeCommandExecutor,
 } from "./test-utils.ts";
 
 Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる", async () => {
@@ -19,8 +19,7 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
       '{"type":"result","result":"完了しました。"}\n',
     ];
 
-    const mockExecutor = new MockStreamingClaudeCommandExecutor();
-    mockExecutor.streamingEnabled = true;
+    const mockExecutor = createMockStreamingClaudeCommandExecutor();
 
     // ストリーミングデータを設定
     const allData = streamData.join("");
@@ -65,8 +64,7 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
       '{"type":"error","error":"エラーが発生しました"}\n',
     ];
 
-    const mockExecutor = new MockStreamingClaudeCommandExecutor();
-    mockExecutor.streamingEnabled = true;
+    const mockExecutor = createMockStreamingClaudeCommandExecutor();
 
     // エラーを返すように設定
     const allData = streamData.join("");
@@ -108,8 +106,7 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
       '{"type":"result","result":"完了"}\n',
     ];
 
-    const mockExecutor = new MockStreamingClaudeCommandExecutor();
-    mockExecutor.streamingEnabled = true;
+    const mockExecutor = createMockStreamingClaudeCommandExecutor();
 
     const allData = streamData.join("");
     mockExecutor.setResponse("no callback test", allData);
