@@ -214,14 +214,26 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
     // スレッド終了ボタンが押された場合は元のメッセージからボタンを削除
     if (interaction.customId === `terminate_${threadId}`) {
+      // 先にボタンを削除（スレッドがアーカイブされる前に）
       try {
         await interaction.message.edit({
           content: interaction.message.content,
           components: [], // ボタンを削除
         });
       } catch (error) {
-        console.error("ボタン削除エラー:", error);
+        // スレッドがアーカイブされている場合のエラーは無視（期待される動作）
+        if (
+          error instanceof Error && "code" in error &&
+          (error as Error & { code: number }).code === 50083
+        ) {
+          // Thread is archived エラーは正常な動作として扱う
+          console.log("スレッドは既にアーカイブされています（正常動作）");
+        } else {
+          console.error("ボタン削除エラー:", error);
+        }
       }
+
+      // その後で結果を返す（これによりスレッドがアーカイブされる）
       await interaction.editReply(result);
       return;
     }
