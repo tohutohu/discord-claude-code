@@ -1,0 +1,350 @@
+import { WorkspaceManager } from "../src/workspace.ts";
+import { Admin } from "../src/admin.ts";
+import { IWorker, Worker } from "../src/worker.ts";
+import { ClaudeCommandExecutor } from "../src/worker.ts";
+import { GitRepository } from "../src/git-utils.ts";
+import {
+  assertEquals,
+  assertExists,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+
+/**
+ * テスト用のコンテキストを提供するインターフェース
+ */
+export interface TestContext {
+  workspaceManager: WorkspaceManager;
+  admin: Admin;
+  testDir: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * テスト用のWorkspaceManagerとAdminを作成し、クリーンアップ関数と共に返す
+ */
+export async function createTestContext(
+  verbose = false,
+): Promise<TestContext> {
+  const testDir = await Deno.makeTempDir({ prefix: "test_context_" });
+  const workspaceManager = new WorkspaceManager(testDir);
+  await workspaceManager.initialize();
+  const admin = new Admin(workspaceManager, verbose);
+
+  const cleanup = async () => {
+    try {
+      await Deno.remove(testDir, { recursive: true });
+    } catch (error) {
+      console.warn(`テストディレクトリのクリーンアップに失敗: ${error}`);
+    }
+  };
+
+  return {
+    workspaceManager,
+    admin,
+    testDir,
+    cleanup,
+  };
+}
+
+/**
+ * テスト用のWorkspaceManagerを作成
+ */
+export async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
+  const testDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+  return workspace;
+}
+
+/**
+ * テスト用のWorkerを作成
+ */
+export async function createTestWorker(
+  name: string,
+  workspaceManager: WorkspaceManager,
+  executor?: ClaudeCommandExecutor,
+  verbose = false,
+): Promise<Worker> {
+  const worker = new Worker(
+    name,
+    workspaceManager,
+    executor || new MockClaudeCommandExecutor(),
+    verbose,
+  );
+  return worker;
+}
+
+/**
+ * Workerの基本的な検証を行う
+ */
+export function assertWorkerValid(worker: IWorker | null): void {
+  assertExists(worker);
+  assertEquals(typeof worker.getName(), "string");
+  assertEquals(worker.getName().includes("-"), true);
+}
+
+/**
+ * テスト用のモックClaudeCommandExecutor
+ */
+export class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
+  protected responses: Map<string, string> = new Map();
+  protected defaultResponse: string;
+  public lastArgs?: string[];
+  public lastCwd?: string;
+  public executionCount = 0;
+
+  constructor(defaultResponse = "モックレスポンス") {
+    this.defaultResponse = defaultResponse;
+  }
+
+  setResponse(message: string, response: string): void {
+    this.responses.set(message, response);
+  }
+
+  async executeStreaming(
+    args: string[],
+    cwd: string,
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
+    this.lastArgs = args;
+    this.lastCwd = cwd;
+    this.executionCount++;
+
+    // メッセージを取得（-pフラグの後の引数）
+    let message = "";
+    const pIndex = args.indexOf("-p");
+    if (pIndex !== -1 && pIndex + 1 < args.length) {
+      message = args[pIndex + 1];
+    }
+    const response = this.responses.get(message) || this.defaultResponse;
+
+    // JSONレスポンスを作成（改行で終わる必要がある）
+    const jsonResponse = JSON.stringify({
+      type: "result",
+      result: response,
+      session_id: "mock-session-id",
+    }) + "\n";
+
+    // データをストリーミング
+    onData(new TextEncoder().encode(jsonResponse));
+
+    return {
+      code: 0,
+      stderr: new Uint8Array(),
+    };
+  }
+}
+
+/**
+ * ストリーミング対応のモックClaudeCommandExecutor
+ */
+export class MockStreamingClaudeCommandExecutor
+  extends MockClaudeCommandExecutor {
+  public streamingEnabled = true;
+  public streamingDelay = 10; // ミリ秒
+
+  override async executeStreaming(
+    args: string[],
+    cwd: string,
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
+    this.lastArgs = args;
+    this.lastCwd = cwd;
+    this.executionCount++;
+
+    // メッセージを取得（-pフラグの後の引数）
+    let message = "";
+    const pIndex = args.indexOf("-p");
+    if (pIndex !== -1 && pIndex + 1 < args.length) {
+      message = args[pIndex + 1];
+    }
+    const response = this.responses.get(message) || this.defaultResponse;
+
+    if (this.streamingEnabled) {
+      // レスポンスが既にJSONL形式の場合はそのまま使用
+      if (response.includes('{"type"')) {
+        // JSONLフォーマットのレスポンスを行ごとに分割してストリーミング
+        const lines = response.split("\n");
+        for (const line of lines) {
+          if (line.trim()) {
+            onData(new TextEncoder().encode(line + "\n"));
+            await new Promise((resolve) =>
+              setTimeout(resolve, this.streamingDelay)
+            );
+          }
+        }
+      } else {
+        // 通常のテキストレスポンスの場合は、JSON形式に変換
+        const jsonLines = [
+          JSON.stringify({ type: "session", session_id: "mock-session-id" }),
+          JSON.stringify({
+            type: "assistant",
+            message: { content: [{ type: "text", text: response }] },
+          }),
+          JSON.stringify({ type: "result", result: response }),
+        ];
+
+        for (const jsonLine of jsonLines) {
+          onData(new TextEncoder().encode(jsonLine + "\n"));
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.streamingDelay)
+          );
+        }
+      }
+    } else {
+      // ストリーミングなしで一度に送信（JSON形式）
+      const jsonResponse = JSON.stringify({
+        type: "result",
+        result: response,
+        session_id: "mock-session-id",
+      }) + "\n";
+      onData(new TextEncoder().encode(jsonResponse));
+    }
+
+    return {
+      code: 0,
+      stderr: new Uint8Array(),
+    };
+  }
+}
+
+/**
+ * エラーを返すモックClaudeCommandExecutor
+ */
+export class ErrorMockClaudeCommandExecutor implements ClaudeCommandExecutor {
+  private errorMessage: string;
+  private exitCode: number;
+
+  constructor(errorMessage = "Command failed", exitCode = 1) {
+    this.errorMessage = errorMessage;
+    this.exitCode = exitCode;
+  }
+
+  async executeStreaming(
+    _args: string[],
+    _cwd: string,
+    _onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
+    return {
+      code: this.exitCode,
+      stderr: new TextEncoder().encode(this.errorMessage),
+    };
+  }
+}
+
+/**
+ * テスト用のdevcontainer設定を作成
+ */
+export function createTestDevcontainerConfig(
+  options: {
+    useDevcontainer?: boolean;
+    skipPermissions?: boolean;
+    hasDevcontainerFile?: boolean;
+    hasAnthropicsFeature?: boolean;
+    containerId?: string;
+    isStarted?: boolean;
+  } = {},
+) {
+  return {
+    useDevcontainer: options.useDevcontainer ?? false,
+    skipPermissions: options.skipPermissions ?? false,
+    hasDevcontainerFile: options.hasDevcontainerFile ?? false,
+    hasAnthropicsFeature: options.hasAnthropicsFeature ?? false,
+    containerId: options.containerId,
+    isStarted: options.isStarted ?? false,
+  };
+}
+
+/**
+ * テスト用のリポジトリ情報を作成
+ */
+export function createTestRepository(
+  org = "test-org",
+  repo = "test-repo",
+): GitRepository {
+  return {
+    org,
+    repo,
+    fullName: `${org}/${repo}`,
+    localPath: `${org}/${repo}`,
+  };
+}
+
+/**
+ * コンソール出力をキャプチャするヘルパー関数
+ */
+export function captureConsoleOutput(): {
+  logs: string[];
+  errors: string[];
+  restore: () => void;
+} {
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+
+  console.log = (...args: unknown[]) => {
+    logs.push(args.join(" "));
+  };
+
+  console.error = (...args: unknown[]) => {
+    errors.push(args.join(" "));
+  };
+
+  const restore = () => {
+    console.log = originalLog;
+    console.error = originalError;
+  };
+
+  return { logs, errors, restore };
+}
+
+/**
+ * 共通のエラーメッセージ
+ */
+export const ERROR_MESSAGES = {
+  REPOSITORY_NOT_SET:
+    "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
+  WORKER_NOT_FOUND: (threadId: string) =>
+    `Worker not found for thread: ${threadId}`,
+  THREAD_TERMINATED: "スレッドを終了しました。worktreeも削除されました。",
+} as const;
+
+/**
+ * 一時ファイルを作成してクリーンアップ関数と共に返す
+ */
+export async function createTempFile(
+  content: string,
+  suffix = ".txt",
+): Promise<{ path: string; cleanup: () => Promise<void> }> {
+  const tempDir = await Deno.makeTempDir();
+  const path = `${tempDir}/temp${suffix}`;
+  await Deno.writeTextFile(path, content);
+
+  const cleanup = async () => {
+    try {
+      await Deno.remove(tempDir, { recursive: true });
+    } catch {
+      // エラーは無視
+    }
+  };
+
+  return { path, cleanup };
+}
+
+/**
+ * 非同期処理の完了を待つヘルパー関数
+ */
+export async function waitFor(
+  condition: () => boolean | Promise<boolean>,
+  timeout = 1000,
+  interval = 10,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    if (await condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+  throw new Error("Timeout waiting for condition");
+}
