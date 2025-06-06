@@ -99,10 +99,11 @@ client.once(Events.ClientReady, async (readyClient) => {
     try {
       const channel = await readyClient.channels.fetch(threadId);
       if (channel && channel.isTextBased() && "send" in channel) {
-        // スレッドから最新のメッセージを取得（リアクション用）
+        // スレッドから最新のメッセージを取得（リアクション用とユーザーID取得用）
         const messages = await channel.messages.fetch({ limit: 10 });
         const userMessages = messages.filter((msg) => !msg.author.bot);
         const lastUserMessage = userMessages.first();
+        const userId = lastUserMessage?.author.id;
 
         // 進捗コールバック
         const onProgress = async (content: string) => {
@@ -134,11 +135,14 @@ client.once(Events.ClientReady, async (readyClient) => {
           onReaction,
         );
 
+        // 最終的な返信を送信（ユーザーメンション付きで通知あり）
         if (typeof reply === "string") {
-          await (channel as TextChannel).send(reply);
+          const content = userId ? `<@${userId}> ${reply}` : reply;
+          await (channel as TextChannel).send(content);
         } else {
+          const content = userId ? `<@${userId}> ${reply.content}` : reply.content;
           await (channel as TextChannel).send({
-            content: reply.content,
+            content: content,
             components: reply.components,
           });
         }
