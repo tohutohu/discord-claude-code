@@ -2,28 +2,7 @@ import { assertEquals } from "std/assert/mod.ts";
 import { Worker } from "./worker.ts";
 import { WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
-
-// モック用のClaudeCommandExecutor
-class MockClaudeExecutor {
-  async executeStreaming(
-    _args: string[],
-    _cwd: string,
-    onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
-    const response = JSON.stringify({
-      type: "result",
-      result: "Claude からのテスト応答",
-    });
-
-    // ストリーミングをシミュレート
-    onData(new TextEncoder().encode(response));
-
-    return {
-      code: 0,
-      stderr: new TextEncoder().encode(""),
-    };
-  }
-}
+import { createMockClaudeCommandExecutor } from "../test/test-utils.ts";
 
 Deno.test("Worker devcontainer機能のテスト", async (t) => {
   const tempDir = await Deno.makeTempDir();
@@ -37,7 +16,7 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
     worker = new Worker(
       "test-worker",
       workspaceManager,
-      new MockClaudeExecutor(),
+      createMockClaudeCommandExecutor("Claude からのテスト応答"),
     );
     worker.setThreadId("test-thread-123");
 

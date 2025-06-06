@@ -3,18 +3,18 @@ import { Worker } from "../src/worker.ts";
 import { parseRepository } from "../src/git-utils.ts";
 import {
   captureConsoleOutput,
+  createMockClaudeCommandExecutor,
+  createMockStreamingClaudeCommandExecutor,
   createTestRepository,
   createTestWorker,
   createTestWorkspaceManager,
   ERROR_MESSAGES,
-  MockClaudeCommandExecutor,
-  MockStreamingClaudeCommandExecutor,
 } from "./test-utils.ts";
 
 Deno.test("Worker - メッセージを受け取って返信する（リポジトリ未設定）", async () => {
   const workspace = await createTestWorkspaceManager();
   const workerName = "happy-panda";
-  const executor = new MockClaudeCommandExecutor();
+  const executor = createMockClaudeCommandExecutor();
 
   try {
     const worker = await createTestWorker(workerName, workspace, executor);
@@ -41,7 +41,7 @@ Deno.test("Worker - 名前を取得できる", async () => {
 
 Deno.test("Worker - 空のメッセージも処理できる", async () => {
   const workspace = await createTestWorkspaceManager();
-  const executor = new MockClaudeCommandExecutor();
+  const executor = createMockClaudeCommandExecutor();
 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
@@ -74,7 +74,7 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", async () 
 Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () => {
   const workspace = await createTestWorkspaceManager();
   const mockResponse = "これはリポジトリ設定後のモック応答です。";
-  const executor = new MockClaudeCommandExecutor(mockResponse);
+  const executor = createMockClaudeCommandExecutor(mockResponse);
 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
@@ -117,7 +117,7 @@ Deno.test("Worker - verboseモードが正しく設定される", async () => {
 
 Deno.test("Worker - verboseモードでログが出力される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const executor = new MockClaudeCommandExecutor();
+  const executor = createMockClaudeCommandExecutor();
 
   let logOutput = "";
   const originalLog = console.log;
@@ -165,8 +165,7 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
   const repository = parseRepository("test/repo");
   const repoPath = "/test/repo";
 
-  const mockExecutor = new MockStreamingClaudeCommandExecutor();
-  mockExecutor.streamingEnabled = true;
+  const mockExecutor = createMockStreamingClaudeCommandExecutor();
   // モックレスポンスは最終的に"モックレスポンス"を返す
   mockExecutor.setResponse("test", "モックレスポンス");
 

@@ -770,7 +770,8 @@ Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", asyn
   // Worker内のdevcontainer設定が復旧されていることを確認
   if (worker) {
     // Workerの型をキャストしてメソッドにアクセス
-    const workerImpl = worker as any;
+    const { Worker } = await import("../src/worker.ts");
+    const workerImpl = worker as InstanceType<typeof Worker>;
     assertEquals(workerImpl.isUsingDevcontainer(), true);
     assertEquals(workerImpl.isSkipPermissions(), true);
   }
@@ -817,7 +818,8 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
 
   // Worker内のdevcontainer設定がデフォルト値であることを確認
   if (worker) {
-    const workerImpl = worker as any;
+    const { Worker } = await import("../src/worker.ts");
+    const workerImpl = worker as InstanceType<typeof Worker>;
     assertEquals(workerImpl.isUsingDevcontainer(), false);
     assertEquals(workerImpl.isSkipPermissions(), false);
   }
