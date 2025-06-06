@@ -460,9 +460,26 @@ export class Worker implements IWorker {
         });
         console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
 
-        // JSONとしてパースできなかった場合は全文を投稿
+        // JSONとしてパースできなかった場合の処理
+        // JSONらしい内容（{や"type"を含む）の場合は、不完全なJSON断片の可能性があるため投稿しない
         if (onProgress && line.trim()) {
-          onProgress(this.formatResponse(line)).catch(console.error);
+          const trimmedLine = line.trim();
+          // JSON断片の兆候をチェック
+          const isLikelyJsonFragment = trimmedLine.startsWith("{") ||
+            trimmedLine.includes('"type":') ||
+            trimmedLine.includes('"message":') ||
+            trimmedLine.includes('"content":') ||
+            trimmedLine.includes('"text":') ||
+            trimmedLine.includes('"result":');
+
+          if (!isLikelyJsonFragment) {
+            // JSON断片でない場合のみ投稿（通常のエラーメッセージなど）
+            onProgress(this.formatResponse(line)).catch(console.error);
+          } else {
+            this.logVerbose("JSON断片と判断して投稿をスキップ", {
+              linePreview: trimmedLine.substring(0, 100),
+            });
+          }
         }
       }
     };

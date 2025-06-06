@@ -3,6 +3,7 @@ import {
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
+import { Worker } from "../src/worker.ts";
 import {
   assertWorkerValid,
   createTestContext,
@@ -769,8 +770,8 @@ Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", asyn
 
   // Worker内のdevcontainer設定が復旧されていることを確認
   if (worker) {
-    // Workerの型をキャストしてメソッドにアクセス
-    const workerImpl = worker as any;
+    // WorkerはIWorkerインターフェースを実装しているため、実際のWorkerクラスにキャスト
+    const workerImpl = worker as Worker;
     assertEquals(workerImpl.isUsingDevcontainer(), true);
     assertEquals(workerImpl.isSkipPermissions(), true);
   }
@@ -817,7 +818,7 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
 
   // Worker内のdevcontainer設定がデフォルト値であることを確認
   if (worker) {
-    const workerImpl = worker as any;
+    const workerImpl = worker as Worker;
     assertEquals(workerImpl.isUsingDevcontainer(), false);
     assertEquals(workerImpl.isSkipPermissions(), false);
   }
