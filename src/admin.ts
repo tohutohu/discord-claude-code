@@ -30,6 +30,8 @@ export interface IAdmin {
   routeMessage(
     threadId: string,
     message: string,
+    onProgress?: (content: string) => Promise<void>,
+    onReaction?: (emoji: string) => Promise<void>,
   ): Promise<string | DiscordMessage>;
   handleButtonInteraction(threadId: string, customId: string): Promise<string>;
   createInitialMessage(threadId: string): DiscordMessage;
@@ -453,13 +455,28 @@ export class Admin implements IAdmin {
     threadId: string,
     message: string,
     onProgress?: (content: string) => Promise<void>,
+    onReaction?: (emoji: string) => Promise<void>,
   ): Promise<string | DiscordMessage> {
     this.logVerbose("メッセージルーティング開始", {
       threadId,
       messageLength: message.length,
       hasProgressCallback: !!onProgress,
+      hasReactionCallback: !!onReaction,
       activeWorkerCount: this.workers.size,
     });
+
+    // メッセージ受信確認のリアクションを追加
+    if (onReaction) {
+      try {
+        await onReaction("👀");
+        this.logVerbose("メッセージ受信リアクション追加完了", { threadId });
+      } catch (error) {
+        this.logVerbose("メッセージ受信リアクション追加エラー", {
+          threadId,
+          error: (error as Error).message,
+        });
+      }
+    }
 
     // VERBOSEモードでDiscordユーザーメッセージの詳細ログ
     if (this.verbose) {
@@ -503,7 +520,11 @@ export class Admin implements IAdmin {
     this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
 
     try {
-      const result = await worker.processMessage(message, onProgress);
+      const result = await worker.processMessage(
+        message,
+        onProgress,
+        onReaction,
+      );
 
       this.logVerbose("メッセージ処理完了", {
         threadId,

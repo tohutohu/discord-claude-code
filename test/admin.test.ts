@@ -76,7 +76,12 @@ Deno.test("Admin - スレッドにメッセージをルーティングできる"
   const message = "テストメッセージ";
 
   await admin.createWorker(threadId);
-  const reply = await admin.routeMessage(threadId, message);
+  const reply = await admin.routeMessage(
+    threadId,
+    message,
+    undefined,
+    undefined,
+  );
 
   assertExists(reply);
   // 新しい実装では、リポジトリ未設定時の固定メッセージが返される
@@ -91,7 +96,7 @@ Deno.test("Admin - 存在しないスレッドへのメッセージはエラー�
   const admin = new Admin(workspace);
 
   try {
-    await admin.routeMessage("non-existent", "test");
+    await admin.routeMessage("non-existent", "test", undefined, undefined);
     assertEquals(true, false, "エラーが発生するはず");
   } catch (error) {
     assertEquals(

@@ -8,6 +8,7 @@ import {
   REST,
   Routes,
   SlashCommandBuilder,
+  TextChannel,
 } from "discord.js";
 import { Admin } from "./admin.ts";
 import { Worker } from "./worker.ts";
@@ -72,6 +73,60 @@ const commands = [
 // Bot起動時の処理
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`ログイン完了: ${readyClient.user.tag}`);
+
+  // 自動再開コールバックを設定
+  admin.setAutoResumeCallback(async (threadId: string, message: string) => {
+    try {
+      const channel = await readyClient.channels.fetch(threadId);
+      if (channel && channel.isTextBased() && "send" in channel) {
+        // スレッドから最新のメッセージを取得（リアクション用）
+        const messages = await channel.messages.fetch({ limit: 10 });
+        const userMessages = messages.filter((msg) => !msg.author.bot);
+        const lastUserMessage = userMessages.first();
+
+        // 進捗コールバック
+        const onProgress = async (content: string) => {
+          try {
+            await channel.send({
+              content: content,
+              flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+            });
+          } catch (sendError) {
+            console.error("自動再開メッセージ送信エラー:", sendError);
+          }
+        };
+
+        // リアクションコールバック
+        const onReaction = async (emoji: string) => {
+          if (lastUserMessage) {
+            try {
+              await lastUserMessage.react(emoji);
+            } catch (error) {
+              console.error("自動再開リアクション追加エラー:", error);
+            }
+          }
+        };
+
+        const reply = await admin.routeMessage(
+          threadId,
+          message,
+          onProgress,
+          onReaction,
+        );
+
+        if (typeof reply === "string") {
+          await (channel as TextChannel).send(reply);
+        } else {
+          await (channel as TextChannel).send({
+            content: reply.content,
+            components: reply.components,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("自動再開メッセージ送信エラー:", error);
+    }
+  });
 
   // アクティブなスレッドを復旧
   console.log("アクティブなスレッドを復旧しています...");
@@ -486,15 +541,34 @@ client.on(Events.MessageCreate, async (message) => {
       }
     };
 
+    // リアクション追加用のコールバック
+    const onReaction = async (emoji: string) => {
+      try {
+        await message.react(emoji);
+      } catch (error) {
+        console.error("リアクション追加エラー:", error);
+      }
+    };
+
     // AdminにメッセージをルーティングしてWorkerからの返信を取得
     const reply = await admin.routeMessage(
       threadId,
       message.content,
       onProgress,
+      onReaction,
     );
 
-    // 最終的な返信を送信（メンション付きで通知あり）
-    await message.channel.send(`<@${message.author.id}> ${reply}`);
+    // 最終的な返信を送信
+    if (typeof reply === "string") {
+      // 通常のテキストレスポンス（メンション付きで通知あり）
+      await message.channel.send(`<@${message.author.id}> ${reply}`);
+    } else {
+      // DiscordMessage形式（ボタン付きメッセージなど）
+      await message.channel.send({
+        content: `<@${message.author.id}> ${reply.content}`,
+        components: reply.components,
+      });
+    }
   } catch (error) {
     if ((error as Error).message.includes("Worker not found")) {
       // このスレッド用のWorkerがまだ作成されていない場合

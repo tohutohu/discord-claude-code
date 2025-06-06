@@ -29,7 +29,12 @@ Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", asyn
   ];
 
   for (const message of messages) {
-    const reply = await admin.routeMessage(threadId, message);
+    const reply = await admin.routeMessage(
+      threadId,
+      message,
+      undefined,
+      undefined,
+    );
     assertEquals(
       reply,
       "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
@@ -52,7 +57,7 @@ Deno.test("統合テスト - 複数のスレッドを同時に処理できる", 
   // 各スレッドにメッセージを送信
   const message = "マルチスレッドテスト";
   const promises = threadIds.map((threadId) =>
-    admin.routeMessage(threadId, message)
+    admin.routeMessage(threadId, message, undefined, undefined)
   );
 
   const replies = await Promise.all(promises);
