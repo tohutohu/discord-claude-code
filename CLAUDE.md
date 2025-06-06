@@ -258,3 +258,9 @@ Discord User → main.ts (MessageCreate) → admin.routeMessage() → worker.pro
 - 全メッセージをWorkspaceManager経由で永続化
 - sessions/{thread_id}/{session_id}.json に保存
 - 再起動後の継続性を保証
+
+**重要な注意点**
+
+- resultメッセージは進捗として送信されない
+- extractOutputMessageでresultタイプはnullを返す
+- これにより重複送信を防止（以前は3回送信されていた）
