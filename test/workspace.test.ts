@@ -111,7 +111,7 @@ Deno.test("WorkspaceManager - 無効なリポジトリパスでworktree作成時
     const invalidRepoPath = "/nonexistent/path";
 
     await assertRejects(
-      () => workspace.createWorktree(threadId, invalidRepoPath),
+      () => workspace.ensureWorktree(threadId, invalidRepoPath),
       Error,
     );
   } finally {

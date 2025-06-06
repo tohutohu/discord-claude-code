@@ -31,6 +31,10 @@ async function processStreams(
         }
       }
     } catch (error) {
+      if (error instanceof ClaudeCodeRateLimitError) {
+        throw error; // レートリミットエラーはそのまま投げる
+      }
+
       console.error("stdout読み取りエラー:", error);
     } finally {
       stdoutReader.releaseLock();
@@ -174,6 +178,13 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     _cwd: string,
     onData: (data: Uint8Array) => void,
   ): Promise<{ code: number; stderr: Uint8Array }> {
+    const argsWithDefaults = [
+      "exec",
+      "--workspace-folder",
+      this.repositoryPath,
+      "claude",
+      ...args,
+    ];
     // VERBOSEモードでdevcontainerコマンド詳細ログ
     if (this.verbose) {
       console.log(
@@ -182,18 +193,12 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
         }] [DevcontainerClaudeExecutor] devcontainerコマンド実行:`,
       );
       console.log(`  リポジトリパス: ${this.repositoryPath}`);
-      console.log(`  引数: ${JSON.stringify(args)}`);
+      console.log(`  引数: ${JSON.stringify(argsWithDefaults)}`);
     }
 
     // devcontainer内でclaudeコマンドをストリーミング実行
     const devcontainerCommand = new Deno.Command("devcontainer", {
-      args: [
-        "exec",
-        "--workspace-folder",
-        this.repositoryPath,
-        "claude",
-        ...args,
-      ],
+      args: argsWithDefaults,
       stdout: "piped",
       stderr: "piped",
       cwd: this.repositoryPath,
@@ -337,6 +342,9 @@ export class Worker implements IWorker {
       this.logVerbose("メッセージ処理完了");
       return formattedResponse;
     } catch (error) {
+      if (error instanceof ClaudeCodeRateLimitError) {
+        throw error; // レートリミットエラーはそのまま投げる
+      }
       this.logVerbose("メッセージ処理エラー", {
         errorMessage: (error as Error).message,
         errorStack: (error as Error).stack,
@@ -418,6 +426,20 @@ export class Worker implements IWorker {
           hasMessage: !!parsed.message,
         });
 
+        // 最終結果を取得
+        if (parsed.type === "result" && parsed.result) {
+          result = parsed.result;
+          this.logVerbose("最終結果取得", { resultLength: result.length });
+
+          // Claude Codeレートリミットの検出
+          if (this.isClaudeCodeRateLimit(parsed.result)) {
+            const timestamp = this.extractRateLimitTimestamp(parsed.result);
+            if (timestamp) {
+              throw new ClaudeCodeRateLimitError(timestamp);
+            }
+          }
+        }
+
         // Claude Codeの実際の出力内容をDiscordに送信
         if (onProgress) {
           const outputMessage = this.extractOutputMessage(parsed);
@@ -442,21 +464,10 @@ export class Worker implements IWorker {
             }
           }
         }
-
-        // 最終結果を取得
-        if (parsed.type === "result" && parsed.result) {
-          result = parsed.result;
-          this.logVerbose("最終結果取得", { resultLength: result.length });
-
-          // Claude Codeレートリミットの検出
-          if (this.isClaudeCodeRateLimit(parsed.result)) {
-            const timestamp = this.extractRateLimitTimestamp(parsed.result);
-            if (timestamp) {
-              throw new ClaudeCodeRateLimitError(timestamp);
-            }
-          }
-        }
       } catch (parseError) {
+        if (parseError instanceof ClaudeCodeRateLimitError) {
+          throw parseError;
+        }
         this.logVerbose(`JSON解析エラー: ${parseError}`, {
           line: line.substring(0, 100),
         });
@@ -643,7 +654,7 @@ export class Worker implements IWorker {
     if (this.threadId) {
       try {
         this.logVerbose("worktree作成開始", { threadId: this.threadId });
-        this.worktreePath = await this.workspaceManager.createWorktree(
+        this.worktreePath = await this.workspaceManager.ensureWorktree(
           this.threadId,
           localPath,
         );

@@ -6,9 +6,16 @@ import { Admin } from "../src/admin.ts";
 import {
   assertWorkerValid,
   createTestContext,
-  createTestWorkspaceManager,
   ERROR_MESSAGES,
 } from "./test-utils.ts";
+import { WorkspaceManager } from "../src/workspace.ts";
+
+async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
+  const testDir = await Deno.makeTempDir({ prefix: "admin_test_" });
+  const workspace = new WorkspaceManager(testDir);
+  await workspace.initialize();
+  return workspace;
+}
 
 Deno.test("Admin - スレッドIDとWorkerを作成できる", async () => {
   const { admin, cleanup } = await createTestContext();

@@ -262,12 +262,22 @@ export class WorkspaceManager {
     }
   }
 
-  async createWorktree(
+  async ensureWorktree(
     threadId: string,
     repositoryPath: string,
   ): Promise<string> {
-    const { createWorktree } = await import("./git-utils.ts");
-    return await createWorktree(repositoryPath, threadId, this);
+    const { createWorktree, isWorktreeExists } = await import("./git-utils.ts");
+
+    // WorkspaceManagerのgetWorktreePathを使用してパスを取得
+    const worktreePath = this.getWorktreePath(threadId);
+    // worktreeが既に存在する場合は何もしない
+    const exists = await isWorktreeExists(repositoryPath, worktreePath);
+    if (exists) {
+      return worktreePath;
+    }
+
+    await createWorktree(repositoryPath, threadId, worktreePath);
+    return worktreePath;
   }
 
   async removeWorktree(threadId: string): Promise<void> {

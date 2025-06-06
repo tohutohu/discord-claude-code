@@ -127,26 +127,43 @@ async function updateRepositoryWithGh(
   }
 }
 
+export async function isWorktreeExists(
+  repositoryPath: string,
+  worktreePath: string,
+): Promise<boolean> {
+  try {
+    // git worktree list コマンドでワークツリーの一覧を取得
+    const worktreeProcess = new Deno.Command("git", {
+      args: ["worktree", "list"],
+      cwd: repositoryPath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    const worktreeResult = await worktreeProcess.output();
+    if (!worktreeResult.success) {
+      const error = new TextDecoder().decode(worktreeResult.stderr);
+      throw new Error(`git worktree listに失敗しました: ${error}`);
+    }
+    const worktreeOutput = new TextDecoder().decode(worktreeResult.stdout);
+    // ワークツリーのパスが存在するかチェック
+    const worktreeLines = worktreeOutput.split("\n").map((line) => line.trim());
+    return worktreeLines.some((line) => line.startsWith(worktreePath));
+  } catch (error) {
+    // .gitディレクトリが存在しない場合はエラーになるので、falseを返す
+    return false;
+  }
+}
+
 export async function createWorktree(
   repositoryPath: string,
   workerName: string,
-  workspaceManager: WorkspaceManager,
-): Promise<string> {
+  worktreePath: string,
+): Promise<void> {
   // 現在の時刻を使ってユニークなブランチ名を生成
   const timestamp = Date.now();
   const branchName = `worker-${workerName}-${timestamp}`;
 
-  // WorkspaceManagerのgetWorktreePathを使用してパスを取得
-  const worktreePath = workspaceManager.getWorktreePath(workerName);
-
   try {
-    // 既存のworktreeを削除
-    try {
-      await Deno.remove(worktreePath, { recursive: true });
-    } catch (_error) {
-      // worktreeが存在しない場合は無視
-    }
-
     // デフォルトブランチを取得
     const defaultBranch = await getDefaultBranch(repositoryPath);
 
@@ -171,7 +188,7 @@ export async function createWorktree(
       throw new Error(`git worktreeの作成に失敗しました: ${error}`);
     }
 
-    return worktreePath;
+    return;
   } catch (error) {
     throw new Error(`worktreeの作成に失敗しました: ${error}`);
   }
