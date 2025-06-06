@@ -1286,6 +1286,17 @@ export class Worker implements IWorker {
 
     if (result.success) {
       this.devcontainerStarted = true;
+
+      // DevcontainerClaudeExecutorに切り替え
+      if (this.useDevcontainer && this.worktreePath) {
+        this.logVerbose(
+          "DevcontainerClaudeExecutorに切り替え（startDevcontainer成功後）",
+        );
+        this.claudeExecutor = new DevcontainerClaudeExecutor(
+          this.worktreePath,
+          this.verbose,
+        );
+      }
     }
 
     return result;
