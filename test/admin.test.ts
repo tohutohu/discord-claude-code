@@ -149,6 +149,29 @@ Deno.test("Admin - 終了ボタンでスレッドを終了できる", async () =
   assertEquals(threadInfo?.status, "archived");
 });
 
+Deno.test("Admin - スレッドクローズコールバックが呼ばれる", async () => {
+  const workspace = await createTestWorkspaceManager();
+  const admin = new Admin(workspace);
+  const threadId = "thread-callback-test";
+
+  let callbackCalled = false;
+  let callbackThreadId = "";
+
+  admin.setThreadCloseCallback(async (tid: string) => {
+    callbackCalled = true;
+    callbackThreadId = tid;
+  });
+
+  await admin.createWorker(threadId);
+  assertExists(admin.getWorker(threadId));
+
+  await admin.terminateThread(threadId);
+
+  assertEquals(callbackCalled, true);
+  assertEquals(callbackThreadId, threadId);
+  assertEquals(admin.getWorker(threadId), null);
+});
+
 Deno.test("Admin - 未知のボタンIDの場合は適切なメッセージを返す", async () => {
   const workspace = await createTestWorkspaceManager();
   const admin = new Admin(workspace);
