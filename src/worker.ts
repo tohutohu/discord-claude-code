@@ -1254,11 +1254,13 @@ export class Worker implements IWorker {
 
   /**
    * レートリミットメッセージからタイムスタンプを抽出する
+   * @returns タイムスタンプ（秒単位）
    */
   private extractRateLimitTimestamp(result: string): number | null {
     const match = result.match(/Claude AI usage limit reached\|(\d+)/);
     if (match) {
-      return parseInt(match[1], 10);
+      // Claude CLIはミリ秒単位のタイムスタンプを返すので、秒に変換
+      return Math.floor(parseInt(match[1], 10) / 1000);
     }
     return null;
   }

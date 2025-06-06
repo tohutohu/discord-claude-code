@@ -55,19 +55,19 @@ Deno.test("Worker でのレートリミット検出", () => {
     extractRateLimitTimestamp: (result: string) => number | null;
   };
 
-  // レートリミットメッセージの検出テスト
+  // レートリミットメッセージの検出テスト（ミリ秒タイムスタンプ）
   assertEquals(
-    workerAny.isClaudeCodeRateLimit("Claude AI usage limit reached|1749168000"),
+    workerAny.isClaudeCodeRateLimit("Claude AI usage limit reached|1749168000000"),
     true,
   );
   assertEquals(workerAny.isClaudeCodeRateLimit("Normal response"), false);
 
-  // タイムスタンプ抽出テスト
+  // タイムスタンプ抽出テスト（ミリ秒→秒変換）
   assertEquals(
     workerAny.extractRateLimitTimestamp(
-      "Claude AI usage limit reached|1749168000",
+      "Claude AI usage limit reached|1749168000000",
     ),
-    1749168000,
+    1749168000, // ミリ秒から秒に変換された値
   );
   assertEquals(workerAny.extractRateLimitTimestamp("Normal response"), null);
 });

@@ -339,8 +339,11 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミットメッセージとボタンを作成する
+   * @param threadId スレッドID
+   * @param timestamp レートリミットのタイムスタンプ（秒単位）
    */
   createRateLimitMessage(threadId: string, timestamp: number): DiscordMessage {
+    console.log(`[Admin] レートリミットメッセージ作成 - タイムスタンプ: ${timestamp}秒 (${new Date(timestamp * 1000).toISOString()})`);
     const resumeTime = new Date(timestamp * 1000 + 5 * 60 * 1000);
     const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
       timeZone: "Asia/Tokyo",
