@@ -700,6 +700,11 @@ export class Admin implements IAdmin {
     const currentTime = Date.now();
     const delay = Math.max(0, resumeTime - currentTime);
 
+    console.log(`[Admin] 自動再開タイマー設定 (threadId: ${threadId})`);
+    console.log(`  - レートリミット時刻: ${new Date(rateLimitTimestamp * 1000).toISOString()}`);
+    console.log(`  - 再開予定時刻: ${new Date(resumeTime).toISOString()}`);
+    console.log(`  - 待機時間: ${delay}ms (${Math.floor(delay / 1000)}秒)`);
+
     this.logVerbose("自動再開タイマー設定", {
       threadId,
       rateLimitTimestamp,
@@ -708,6 +713,7 @@ export class Admin implements IAdmin {
     });
 
     const timerId = setTimeout(async () => {
+      console.log(`[Admin] 自動再開タイマー発火 (threadId: ${threadId})`);
       try {
         this.logVerbose("自動再開実行開始", { threadId });
         await this.executeAutoResume(threadId);
@@ -722,15 +728,20 @@ export class Admin implements IAdmin {
     }, delay);
 
     this.autoResumeTimers.set(threadId, timerId);
+    console.log(`[Admin] タイマーID ${timerId} を設定しました`);
   }
 
   /**
    * 自動再開を実行する
    */
   private async executeAutoResume(threadId: string): Promise<void> {
+    console.log(`[Admin] 自動再開実行開始 (threadId: ${threadId})`);
     try {
       const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
       if (!threadInfo || !threadInfo.autoResumeAfterRateLimit) {
+        console.log(
+          `[Admin] 自動再開がキャンセルされているか、スレッド情報が見つかりません (threadId: ${threadId})`,
+        );
         this.logVerbose(
           "自動再開がキャンセルされているか、スレッド情報が見つかりません",
           { threadId },
@@ -744,9 +755,14 @@ export class Admin implements IAdmin {
       });
 
       if (this.onAutoResumeMessage) {
+        console.log(`[Admin] 自動再開コールバックを実行します (threadId: ${threadId})`);
         this.logVerbose("自動再開メッセージ送信", { threadId });
         await this.onAutoResumeMessage(threadId, "続けて");
+        console.log(`[Admin] 自動再開コールバック実行完了 (threadId: ${threadId})`);
       } else {
+        console.log(
+          `[Admin] 自動再開コールバックが設定されていません (threadId: ${threadId})`,
+        );
         this.logVerbose("自動再開コールバックが設定されていません", {
           threadId,
         });
@@ -756,7 +772,12 @@ export class Admin implements IAdmin {
       threadInfo.rateLimitTimestamp = undefined;
       threadInfo.autoResumeAfterRateLimit = undefined;
       await this.workspaceManager.saveThreadInfo(threadInfo);
+      console.log(`[Admin] レートリミット情報をリセット (threadId: ${threadId})`);
     } catch (error) {
+      console.error(
+        `[Admin] 自動再開の実行でエラーが発生しました (threadId: ${threadId}):`,
+        error,
+      );
       this.logVerbose("自動再開の実行でエラー", {
         threadId,
         error: (error as Error).message,

@@ -278,6 +278,11 @@ export class Worker implements IWorker {
       hasReactionCallback: !!onReaction,
     });
 
+    // 自動再開メッセージのログ
+    if (message === "続けて") {
+      console.log(`[Worker:${this.name}] 自動再開メッセージを受信`);
+    }
+
     // VERBOSEモードでユーザーメッセージの詳細ログ
     if (this.verbose) {
       console.log(
@@ -292,6 +297,7 @@ export class Worker implements IWorker {
     }
 
     if (!this.repository || !this.worktreePath) {
+      console.log(`[Worker:${this.name}] リポジトリ未設定エラー`);
       this.logVerbose("リポジトリまたはworktreeパスが未設定");
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
@@ -319,8 +325,10 @@ export class Worker implements IWorker {
         }
       }
 
+      console.log(`[Worker:${this.name}] Claude実行開始`);
       this.logVerbose("Claude実行開始");
       const result = await this.executeClaude(message, onProgress);
+      console.log(`[Worker:${this.name}] Claude実行完了`);
       this.logVerbose("Claude実行完了", { resultLength: result.length });
 
       const formattedResponse = this.formatResponse(result);

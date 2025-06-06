@@ -96,16 +96,21 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // 自動再開コールバックを設定
   admin.setAutoResumeCallback(async (threadId: string, message: string) => {
+    console.log(`[Main] 自動再開コールバック呼び出し (threadId: ${threadId}, message: "${message}")`);
     try {
       const channel = await readyClient.channels.fetch(threadId);
+      console.log(`[Main] チャンネル取得: ${channel ? "成功" : "失敗"}`);
+      
       if (channel && channel.isTextBased() && "send" in channel) {
         // スレッドから最新のメッセージを取得（リアクション用）
         const messages = await channel.messages.fetch({ limit: 10 });
         const userMessages = messages.filter((msg) => !msg.author.bot);
         const lastUserMessage = userMessages.first();
+        console.log(`[Main] 最新のユーザーメッセージ: ${lastUserMessage ? "取得成功" : "取得失敗"}`);
 
         // 進捗コールバック
         const onProgress = async (content: string) => {
+          console.log(`[Main] 進捗メッセージ送信: "${content.substring(0, 50)}..."`);
           try {
             await channel.send({
               content: content,
@@ -118,6 +123,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
         // リアクションコールバック
         const onReaction = async (emoji: string) => {
+          console.log(`[Main] リアクション追加: ${emoji}`);
           if (lastUserMessage) {
             try {
               await lastUserMessage.react(emoji);
@@ -127,24 +133,31 @@ client.once(Events.ClientReady, async (readyClient) => {
           }
         };
 
+        console.log(`[Main] admin.routeMessage呼び出し開始`);
         const reply = await admin.routeMessage(
           threadId,
           message,
           onProgress,
           onReaction,
         );
+        console.log(`[Main] admin.routeMessage呼び出し完了: ${typeof reply === "string" ? "文字列応答" : "Discord Message形式"}`);
 
         if (typeof reply === "string") {
+          console.log(`[Main] 最終応答送信: "${reply.substring(0, 50)}..."`);
           await (channel as TextChannel).send(reply);
         } else {
+          console.log(`[Main] 最終応答送信（ボタン付き）: "${reply.content.substring(0, 50)}..."`);
           await (channel as TextChannel).send({
             content: reply.content,
             components: reply.components,
           });
         }
+        console.log(`[Main] 自動再開処理完了`);
+      } else {
+        console.log(`[Main] チャンネルが無効またはテキストチャンネルではありません`);
       }
     } catch (error) {
-      console.error("自動再開メッセージ送信エラー:", error);
+      console.error("[Main] 自動再開メッセージ送信エラー:", error);
     }
   });
 
