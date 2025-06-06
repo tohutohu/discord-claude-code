@@ -19,6 +19,7 @@ import {
   checkSystemRequirements,
   formatSystemCheckResults,
 } from "./system-check.ts";
+import { performGitUpdate } from "./git-update.ts";
 
 // システム要件チェック
 console.log("システム要件をチェックしています...");
@@ -80,6 +81,10 @@ const commands = [
         .setRequired(true)
         .setAutocomplete(true)
     )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("update")
+    .setDescription("Discord Botのコードを最新版に更新します")
     .toJSON(),
 ];
 
@@ -414,7 +419,27 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
 
   const { commandName } = interaction;
 
-  if (commandName === "start") {
+  if (commandName === "update") {
+    try {
+      await interaction.deferReply();
+
+      // Git操作を実行
+      const updateResult = await performGitUpdate();
+
+      if (updateResult.success) {
+        await interaction.editReply(
+          `✅ 更新が完了しました！\n\n${updateResult.message}\n\n⚠️ Botを再起動してください。HMRが有効な場合は自動的に反映されます。`,
+        );
+      } else {
+        await interaction.editReply(
+          `❌ 更新に失敗しました。\n\n${updateResult.message}`,
+        );
+      }
+    } catch (error) {
+      console.error("更新コマンドエラー:", error);
+      await interaction.editReply("エラーが発生しました。");
+    }
+  } else if (commandName === "start") {
     try {
       if (!interaction.channel || !("threads" in interaction.channel)) {
         await interaction.reply("このチャンネルではスレッドを作成できません。");
