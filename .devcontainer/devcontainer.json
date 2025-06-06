@@ -24,5 +24,6 @@
     "source=${localEnv:HOME}/.gitconfig,target=/home/codespace/.gitconfig,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.ssh,target=/home/codespace/.ssh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude,target=/home/codespace/.claude,type=bind,consistency=consistent"
-  ]
+  ],
+  "postCreateCommand": "sh setup-hooks.sh"
 }

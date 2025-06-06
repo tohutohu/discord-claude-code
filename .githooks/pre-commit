@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# pre-commit hook for Deno project
+# Runs format, lint, type check, and tests before allowing commit
+
+echo "🔍 Running pre-commit checks..."
+
+# Run format check
+echo "📝 Checking format..."
+if ! deno fmt --check; then
+    echo "❌ Format check failed! Run 'deno fmt' to fix formatting issues."
+    exit 1
+fi
+
+# Run linter
+echo "🧹 Running linter..."
+if ! deno lint; then
+    echo "❌ Lint check failed! Fix the linting errors before committing."
+    exit 1
+fi
+
+# Run type check
+echo "🔎 Running type check..."
+if ! deno check src/main.ts; then
+    echo "❌ Type check failed! Fix the type errors before committing."
+    exit 1
+fi
+
+# Run tests
+echo "🧪 Running tests..."
+if ! deno test --allow-read --allow-write --allow-env --allow-run; then
+    echo "❌ Tests failed! Fix the failing tests before committing."
+    exit 1
+fi
+
+echo "✅ All pre-commit checks passed!"
+
+# Record successful check timestamp for commit-msg hook
+mkdir -p .git
+date +%s > .git/.last-precommit-check
