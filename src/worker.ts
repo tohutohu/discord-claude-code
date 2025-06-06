@@ -818,13 +818,25 @@ export class Worker implements IWorker {
       type: string;
       text?: string;
       tool_use_id?: string;
-      content?: string;
+      content?: string | Array<{ type: string; text?: string }>;
       is_error?: boolean;
     }>,
   ): string | null {
     for (const item of content) {
       if (item.type === "tool_result") {
-        const resultContent = item.content || "";
+        let resultContent = "";
+
+        // contentが配列の場合（タスクエージェントなど）
+        if (Array.isArray(item.content)) {
+          for (const contentItem of item.content) {
+            if (contentItem.type === "text" && contentItem.text) {
+              resultContent += contentItem.text;
+            }
+          }
+        } else {
+          // contentが文字列の場合（通常のツール結果）
+          resultContent = item.content || "";
+        }
 
         // TodoWrite成功の定型文はスキップ
         if (!item.is_error && this.isTodoWriteSuccessMessage(resultContent)) {
