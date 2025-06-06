@@ -55,6 +55,19 @@ const client = new Client({
   ],
 });
 
+// スレッドクローズコールバックを設定
+admin.setThreadCloseCallback(async (threadId: string) => {
+  try {
+    const thread = await client.channels.fetch(threadId);
+    if (thread && thread.isThread()) {
+      await thread.setArchived(true);
+      console.log(`スレッド ${threadId} をアーカイブしました`);
+    }
+  } catch (error) {
+    console.error(`スレッド ${threadId} のアーカイブに失敗:`, error);
+  }
+});
+
 // スラッシュコマンドの定義
 const commands = [
   new SlashCommandBuilder()

@@ -39,6 +39,9 @@ export interface IAdmin {
   setAutoResumeCallback(
     callback: (threadId: string, message: string) => Promise<void>,
   ): void;
+  setThreadCloseCallback(
+    callback: (threadId: string) => Promise<void>,
+  ): void;
 }
 
 export class Admin implements IAdmin {
@@ -49,6 +52,9 @@ export class Admin implements IAdmin {
   private onAutoResumeMessage?: (
     threadId: string,
     message: string,
+  ) => Promise<void>;
+  private onThreadClose?: (
+    threadId: string,
   ) => Promise<void>;
 
   constructor(workspaceManager: WorkspaceManager, verbose: boolean = false) {
@@ -647,6 +653,15 @@ export class Admin implements IAdmin {
   }
 
   /**
+   * スレッドクローズコールバックを設定する
+   */
+  setThreadCloseCallback(
+    callback: (threadId: string) => Promise<void>,
+  ): void {
+    this.onThreadClose = callback;
+  }
+
+  /**
    * レートリミット後の自動再開をスケジュールする
    */
   private scheduleAutoResume(
@@ -915,6 +930,20 @@ export class Admin implements IAdmin {
       });
     } else {
       this.logVerbose("Worker見つからず、終了処理スキップ", { threadId });
+    }
+
+    // Discordスレッドをクローズ
+    if (this.onThreadClose) {
+      this.logVerbose("Discordスレッドクローズコールバック実行", { threadId });
+      try {
+        await this.onThreadClose(threadId);
+        this.logVerbose("Discordスレッドクローズ成功", { threadId });
+      } catch (error) {
+        console.error(
+          `Discordスレッドのクローズに失敗しました (${threadId}):`,
+          error,
+        );
+      }
     }
   }
 
