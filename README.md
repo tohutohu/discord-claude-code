@@ -56,6 +56,45 @@ deno task lint
 deno task dev
 ```
 
+## Git Hooks
+
+このプロジェクトではコミット前に自動的にコード品質チェックを実行するGit
+Hooksが設定されています。
+
+### セットアップ
+
+```bash
+# Git Hooksをインストール
+deno task setup-hooks
+# または
+./setup-hooks.sh
+```
+
+### 実行されるチェック
+
+1. **pre-commit**: コミット前に以下を実行
+   - `deno fmt --check`: フォーマットチェック
+   - `deno lint`: リントチェック
+   - `deno check`: 型チェック
+   - `deno test`: テスト実行
+
+2. **commit-msg**: `--no-verify`の使用を防止
+
+3. **pre-push**: プッシュ前に同じチェックを再実行
+
+### 手動での実行
+
+```bash
+# pre-commitチェックを手動で実行
+deno task pre-commit
+```
+
+### 注意事項
+
+- `--no-verify`オプションは使用できません
+- devcontainer環境でも自動的にHooksが有効化されます
+- 全てのチェックが成功した場合のみコミット/プッシュが可能です
+
 ## 機能
 
 ### devcontainer対応

@@ -1,0 +1,34 @@
+#!/bin/sh
+
+# commit-msg hook to prevent bypassing pre-commit checks
+# This hook checks if the commit was made with --no-verify
+
+# Check if GIT_SKIP_HOOKS is set (indicates --no-verify was used)
+if [ "$GIT_SKIP_HOOKS" = "1" ]; then
+    echo "❌ Commits with --no-verify are not allowed!"
+    echo "Please run the pre-commit checks before committing."
+    exit 1
+fi
+
+# Additional check: Look for signs that pre-commit wasn't run
+# by checking if the last format/lint/test run was recent
+LAST_CHECK_FILE=".git/.last-precommit-check"
+
+if [ -f "$LAST_CHECK_FILE" ]; then
+    LAST_CHECK_TIME=$(cat "$LAST_CHECK_FILE")
+    CURRENT_TIME=$(date +%s)
+    TIME_DIFF=$((CURRENT_TIME - LAST_CHECK_TIME))
+    
+    # If more than 60 seconds have passed since last check, reject
+    if [ $TIME_DIFF -gt 60 ]; then
+        echo "⚠️  Pre-commit checks appear to be outdated."
+        echo "Please ensure all checks pass before committing."
+        exit 1
+    fi
+else
+    echo "⚠️  No record of pre-commit checks found."
+    echo "Please run git commit without --no-verify flag."
+    exit 1
+fi
+
+exit 0
