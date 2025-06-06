@@ -6,6 +6,7 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  Partials,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -56,7 +57,9 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions,
   ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 // スレッドクローズコールバックを設定
@@ -563,6 +566,58 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
     }
   }
 }
+
+// リアクションの処理
+client.on(Events.MessageReactionAdd, async (reaction, user) => {
+  // Bot自身のリアクションは無視
+  if (user.bot) return;
+
+  // スレッド内のメッセージのみ処理
+  if (!reaction.message.channel.isThread()) return;
+
+  // partial messageの場合は完全に取得
+  if (reaction.message.partial) {
+    try {
+      await reaction.message.fetch();
+    } catch (error) {
+      console.error("メッセージの取得に失敗:", error);
+      return;
+    }
+  }
+
+  // Bot自身のメッセージかチェック
+  if (!reaction.message.author?.bot) return;
+
+  // endリアクションかチェック（絵文字の名前で判定）
+  if (reaction.emoji.name !== "🔚" && reaction.emoji.name !== "end") return;
+
+  // メッセージ内容にresultが含まれているかチェック
+  if (!reaction.message.content?.includes("**最終結果:**")) return;
+
+  const threadId = reaction.message.channel.id;
+
+  try {
+    // 終了ボタン付きメッセージを投稿
+    await reaction.message.channel.send({
+      content: "このスレッドを終了してアーカイブしますか？",
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 4,
+              label: "スレッドを終了",
+              custom_id: `terminate_${threadId}`,
+            },
+          ],
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("終了ボタンメッセージの送信に失敗:", error);
+  }
+});
 
 // メッセージの処理
 client.on(Events.MessageCreate, async (message) => {
