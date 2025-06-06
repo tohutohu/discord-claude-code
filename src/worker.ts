@@ -742,9 +742,9 @@ export class Worker implements IWorker {
       return this.extractUserMessage(parsed.message.content);
     }
 
-    // resultメッセージの場合
-    if (parsed.type === "result" && parsed.result) {
-      return parsed.result;
+    // resultメッセージは最終結果として別途処理されるため、ここでは返さない
+    if (parsed.type === "result") {
+      return null;
     }
 
     // エラーメッセージの場合

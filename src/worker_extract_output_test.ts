@@ -144,7 +144,7 @@ Deno.test("extractOutputMessage - 通常のテキストメッセージを正し�
   }
 });
 
-Deno.test("extractOutputMessage - resultメッセージを正しく処理する", async () => {
+Deno.test("extractOutputMessage - resultメッセージは進捗表示しない", async () => {
   const tempDir = await Deno.makeTempDir();
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
@@ -170,7 +170,8 @@ Deno.test("extractOutputMessage - resultメッセージを正しく処理する"
 
     const result = extractOutputMessage(parsedMessage);
 
-    assertEquals(result, "最終的な結果です。");
+    // resultメッセージは進捗表示せずnullを返す（最終結果として別途処理される）
+    assertEquals(result, null);
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }

@@ -158,3 +158,109 @@ const worker = new Worker(name, workspaceManager, claudeExecutor);
 - 各テストで独立したテスト用ディレクトリを使用
 - 適切な権限フラグ（--allow-read --allow-write --allow-env）を指定
 - テスト後のクリーンアップを確実に実行
+
+## Claudeメッセージ処理フロー
+
+### メッセージの種別と処理の流れ
+
+Discord BotがClaudeからのメッセージを処理してDiscordに送信するまでの詳細な流れ：
+
+#### 1. メッセージ受信フロー
+
+```
+Discord User → main.ts (MessageCreate) → admin.routeMessage() → worker.processMessage()
+```
+
+#### 2. Claude実行とストリーミング処理
+
+**Worker.executeClaudeStreaming()** (`src/worker.ts:438-527`)
+
+- Claude CLIをJSON出力モードで実行
+- ストリーミングで1行ずつJSON処理
+- メッセージタイプごとに処理を分岐
+
+#### 3. メッセージタイプ別の処理
+
+**type: "session"**
+
+- セッションIDを記録
+- 初回のみ「🤖 Claudeが考えています...」を送信
+
+**type: "assistant"**
+
+- `extractOutputMessage()`でコンテンツを抽出
+- content配列の各要素を処理：
+  - **text**: そのままテキストとして出力
+  - **tool_use**: `formatToolUse()`でアイコン付きフォーマット
+  - **tool_result**: `formatToolResult()`でスマート要約
+
+**type: "result"**
+
+- 最終結果を処理
+- `formatResponse()`で2000文字制限対応
+
+**type: "error"**
+
+- エラーメッセージをそのまま返却
+- レート制限エラーは特別処理
+
+#### 4. フォーマット関数の詳細
+
+**formatToolUse()** (`src/worker.ts:644-678`)
+
+- ツール名に応じたアイコンを付与：
+  - ⚡ Bash
+  - 📖 Read
+  - ✏️ Edit/Write
+  - 🔍 Glob/Grep
+  - 🌐 WebFetch/WebSearch
+  - 📋 TodoRead
+  - ✅ TodoWrite（特別フォーマット）
+
+**formatToolResult()** (`src/worker.ts:693-758`)
+
+- 結果の長さに応じた処理：
+  - 500文字未満: 全文表示
+  - 500-2000文字: 先頭・末尾表示
+  - 2000文字以上: スマート要約
+- エラー結果は error/fatal 行を優先表示
+
+**formatResponse()** (`src/worker.ts:760-779`)
+
+- Discord文字数制限（2000文字）対応
+- ANSI エスケープコード除去
+- 1900文字で切り詰め + 省略メッセージ
+
+#### 5. Discord送信処理
+
+**main.ts** (`src/main.ts:83-103`)
+
+- 進行中メッセージ: 通知抑制フラグ付き送信
+- 最終応答: ユーザーメンション付き送信
+- レート制限時: ボタン付きメッセージ送信
+
+#### 6. 特殊な処理
+
+**TodoWrite の特別処理**
+
+- チェックリスト形式に変換
+- ✅ 完了、⬜ 未完了、🔄 進行中
+- 成功メッセージは非表示
+
+**レート制限対応**
+
+- DiscordMessage型で返却
+- 自動再開ボタンを提供
+- タイマー永続化機能と連携
+
+**セッションログ記録**
+
+- 全メッセージをWorkspaceManager経由で永続化
+- sessions/{thread_id}/{session_id}.json に保存
+- 再起動後の継続性を保証
+
+**重要な注意点**
+
+- resultメッセージは進捗として送信されない
+- extractOutputMessageでresultタイプはnullを返す
+- これにより重複送信を防止（以前は3回送信されていた）

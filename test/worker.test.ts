@@ -317,10 +317,10 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
   await worker.processMessage("テストメッセージ", onProgress);
 
   // 期待される出力メッセージが送信されたことを確認
+  // result型のメッセージは進捗として送信されないため、それ以外のメッセージを確認
   const expectedMessages = [
     "ファイルを編集しています\n新しい関数を追加しました",
     "テストを実行中...\n✅ すべてのテストが通過しました",
-    "処理が完了しました\n変更内容を確認してください",
   ];
 
   // すべての期待されるメッセージが含まれているかチェック
@@ -331,6 +331,15 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
       `期待される出力メッセージが見つかりません: ${expectedMessage}`,
     );
   }
+
+  // resultメッセージが進捗として送信されていないことを確認
+  assertEquals(
+    outputMessages.some((msg) =>
+      msg.includes("処理が完了しました\n変更内容を確認してください")
+    ),
+    false,
+    "resultメッセージが進捗として送信されています",
+  );
 });
 
 Deno.test("Worker - エラーメッセージも正しく出力される", async () => {
@@ -375,10 +384,10 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
   await worker.processMessage("テストメッセージ", onProgress);
 
   // 期待される出力メッセージが含まれることを確認
+  // result型のメッセージは進捗として送信されないため、それ以外のメッセージを確認
   const expectedMessages = [
     "ファイルを読み込み中...",
     "ファイルが見つかりません\nパスを確認してください",
-    "エラーが発生しました",
   ];
 
   // すべての期待されるメッセージが含まれているかチェック
@@ -389,4 +398,11 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
       `期待される出力メッセージが見つかりません: ${expectedMessage}`,
     );
   }
+
+  // resultメッセージが進捗として送信されていないことを確認
+  assertEquals(
+    outputMessages.some((msg) => msg.includes("エラーが発生しました")),
+    false,
+    "resultメッセージが進捗として送信されています",
+  );
 });
