@@ -1,6 +1,7 @@
 import {
   AutocompleteInteraction,
   ButtonInteraction,
+  ChannelType,
   ChatInputCommandInteraction,
   Client,
   Events,
@@ -9,6 +10,7 @@ import {
   Routes,
   SlashCommandBuilder,
   TextChannel,
+  ThreadChannel,
 } from "discord.js";
 import { Admin } from "./admin.ts";
 import { Worker } from "./worker.ts";
@@ -143,6 +145,19 @@ client.once(Events.ClientReady, async (readyClient) => {
       }
     } catch (error) {
       console.error("自動再開メッセージ送信エラー:", error);
+    }
+  });
+
+  // スレッドクローズコールバックを設定
+  admin.setThreadCloseCallback(async (threadId: string) => {
+    try {
+      const channel = await readyClient.channels.fetch(threadId);
+      if (channel && channel.type === ChannelType.PublicThread) {
+        await (channel as ThreadChannel).setArchived(true);
+        console.log(`スレッドをアーカイブしました: ${threadId}`);
+      }
+    } catch (error) {
+      console.error(`スレッドのアーカイブに失敗しました (${threadId}):`, error);
     }
   });
 
