@@ -228,6 +228,7 @@ export interface IWorker {
   processMessage(
     message: string,
     onProgress?: (content: string) => Promise<void>,
+    onReaction?: (emoji: string) => Promise<void>,
   ): Promise<string>;
   getName(): string;
   getRepository(): GitRepository | null;
@@ -264,6 +265,7 @@ export class Worker implements IWorker {
   async processMessage(
     message: string,
     onProgress: (content: string) => Promise<void> = async () => {},
+    onReaction?: (emoji: string) => Promise<void>,
   ): Promise<string> {
     this.logVerbose("メッセージ処理開始", {
       messageLength: message.length,
@@ -271,6 +273,7 @@ export class Worker implements IWorker {
       hasWorktreePath: !!this.worktreePath,
       threadId: this.threadId,
       sessionId: this.sessionId,
+      hasReactionCallback: !!onReaction,
     });
 
     // VERBOSEモードでユーザーメッセージの詳細ログ
@@ -301,6 +304,18 @@ export class Worker implements IWorker {
       // 処理開始の通知
       this.logVerbose("進捗通知開始");
       await onProgress("🤖 Claudeが考えています...");
+
+      // Claude実行開始前のリアクションを追加
+      if (onReaction) {
+        try {
+          await onReaction("⚙️");
+          this.logVerbose("Claude実行開始リアクション追加完了");
+        } catch (error) {
+          this.logVerbose("Claude実行開始リアクション追加エラー", {
+            error: (error as Error).message,
+          });
+        }
+      }
 
       this.logVerbose("Claude実行開始");
       const result = await this.executeClaude(message, onProgress);
