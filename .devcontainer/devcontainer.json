@@ -16,6 +16,9 @@
   },
   "forwardPorts": [],
   "remoteUser": "codespace",
+  "containerEnv": {
+    "GH_TOKEN": "${localEnv:GH_TOKEN}"
+  },
   "mounts": [
     "source=${localEnv:HOME}/.gitconfig,target=/home/codespace/.gitconfig,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.ssh,target=/home/codespace/.ssh,type=bind,consistency=cached",
