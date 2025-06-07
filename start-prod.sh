@@ -14,6 +14,7 @@ fi
 
 # 通常モードで起動（HMRなし）
 exec deno run \
+    --env-file \
     --allow-read \
     --allow-write \
     --allow-env \

@@ -4,8 +4,8 @@
     "fmt": "deno fmt",
     "check": "deno check **/*.ts",
     "lint": "deno lint",
-    "dev": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run --watch src/main.ts",
-    "start": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run src/main.ts",
+    "dev": "deno run --env-file --allow-read --allow-write --allow-env --allow-net --allow-run --watch src/main.ts",
+    "start": "deno run --env-file --allow-read --allow-write --allow-env --allow-net --allow-run src/main.ts",
     "setup-hooks": "sh setup-hooks.sh",
     "pre-commit": "deno fmt --check && deno lint && deno check src/main.ts && deno test --allow-read --allow-write --allow-env --allow-run"
   },
