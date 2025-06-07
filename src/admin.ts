@@ -1,6 +1,11 @@
 import { ClaudeCodeRateLimitError, IWorker, Worker } from "./worker.ts";
 import { generateWorkerName } from "./worker-name-generator.ts";
-import { AuditEntry, ThreadInfo, WorkspaceManager } from "./workspace.ts";
+import {
+  AuditEntry,
+  QueuedMessage,
+  ThreadInfo,
+  WorkspaceManager,
+} from "./workspace.ts";
 import {
   checkDevcontainerCli,
   checkDevcontainerConfig,
@@ -32,10 +37,12 @@ export interface IAdmin {
     message: string,
     onProgress?: (content: string) => Promise<void>,
     onReaction?: (emoji: string) => Promise<void>,
+    messageId?: string,
+    authorId?: string,
   ): Promise<string | DiscordMessage>;
   handleButtonInteraction(threadId: string, customId: string): Promise<string>;
   createInitialMessage(threadId: string): DiscordMessage;
-  createRateLimitMessage(threadId: string, timestamp: number): DiscordMessage;
+  createRateLimitMessage(threadId: string, timestamp: number): string;
   terminateThread(threadId: string): Promise<void>;
   restoreActiveThreads(): Promise<void>;
   setAutoResumeCallback(
@@ -323,11 +330,16 @@ export class Admin implements IAdmin {
       if (threadInfo) {
         threadInfo.rateLimitTimestamp = timestamp;
         threadInfo.lastActiveAt = new Date().toISOString();
+        threadInfo.autoResumeAfterRateLimit = true; // 自動的に自動再開を有効にする
         await this.workspaceManager.saveThreadInfo(threadInfo);
+
+        // タイマーを設定
+        this.scheduleAutoResume(threadId, timestamp);
 
         await this.logAuditEntry(threadId, "rate_limit_detected", {
           timestamp,
           resumeTime: new Date(timestamp * 1000 + 5 * 60 * 1000).toISOString(),
+          autoResumeEnabled: true,
         });
       }
     } catch (error) {
@@ -336,9 +348,9 @@ export class Admin implements IAdmin {
   }
 
   /**
-   * レートリミットメッセージとボタンを作成する
+   * レートリミットメッセージを作成する（ボタンなし）
    */
-  createRateLimitMessage(threadId: string, timestamp: number): DiscordMessage {
+  createRateLimitMessage(threadId: string, timestamp: number): string {
     const resumeTime = new Date(timestamp * 1000 + 5 * 60 * 1000);
     const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
       timeZone: "Asia/Tokyo",
@@ -349,35 +361,11 @@ export class Admin implements IAdmin {
       minute: "2-digit",
     });
 
-    return {
-      content:
-        `Claude Codeのレートリミットに達しました。利用制限により一時的に使用できない状態です。
+    return `Claude Codeのレートリミットに達しました。利用制限により一時的に使用できない状態です。
 
-自動で継続しますか？
+制限解除予定時刻：${resumeTimeStr}頃
 
-**[はい - 自動継続する]** | **[いいえ - 手動で再開する]**
-
-制限解除後（${resumeTimeStr}頃）に自動的にセッションを再開します。同意いただける場合は「はい」を選択してください。`,
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 3, // 緑
-              label: "はい - 自動継続する",
-              custom_id: `rate_limit_auto_yes_${threadId}`,
-            },
-            {
-              type: 2,
-              style: 2, // グレー
-              label: "いいえ - 手動で再開する",
-              custom_id: `rate_limit_auto_no_${threadId}`,
-            },
-          ],
-        },
-      ],
-    };
+この時間までに送信されたメッセージは、制限解除後に自動的に処理されます。`;
   }
 
   async createWorker(threadId: string): Promise<IWorker> {
@@ -460,6 +448,8 @@ export class Admin implements IAdmin {
     message: string,
     onProgress?: (content: string) => Promise<void>,
     onReaction?: (emoji: string) => Promise<void>,
+    messageId?: string,
+    authorId?: string,
   ): Promise<string | DiscordMessage> {
     this.logVerbose("メッセージルーティング開始", {
       threadId,
@@ -493,6 +483,27 @@ export class Admin implements IAdmin {
       console.log(
         `    ${message.split("\n").map((line) => `    ${line}`).join("\n")}`,
       );
+    }
+
+    // レートリミット中か確認
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+    if (threadInfo?.rateLimitTimestamp && messageId && authorId) {
+      // レートリミット中のメッセージをキューに追加
+      const queuedMessage: QueuedMessage = {
+        messageId,
+        content: message,
+        timestamp: Date.now(),
+        authorId,
+      };
+      await this.workspaceManager.addMessageToQueue(threadId, queuedMessage);
+      
+      this.logVerbose("メッセージをキューに追加", {
+        threadId,
+        messageId,
+        queueLength: (await this.workspaceManager.loadMessageQueue(threadId))?.messages.length || 0,
+      });
+      
+      return "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。";
     }
 
     const worker = this.workers.get(threadId);
@@ -723,19 +734,40 @@ export class Admin implements IAdmin {
         resumeTime: new Date().toISOString(),
       });
 
-      if (this.onAutoResumeMessage) {
-        this.logVerbose("自動再開メッセージ送信", { threadId });
-        await this.onAutoResumeMessage(threadId, "続けて");
-      } else {
-        this.logVerbose("自動再開コールバックが設定されていません", {
-          threadId,
-        });
-      }
-
       // レートリミット情報をリセット
       threadInfo.rateLimitTimestamp = undefined;
       threadInfo.autoResumeAfterRateLimit = undefined;
       await this.workspaceManager.saveThreadInfo(threadInfo);
+
+      // キューに溜まったメッセージを処理
+      const queuedMessages = await this.workspaceManager.getAndClearMessageQueue(threadId);
+      
+      if (queuedMessages.length > 0) {
+        this.logVerbose("キューからメッセージを処理", {
+          threadId,
+          messageCount: queuedMessages.length,
+        });
+        
+        // 最初のメッセージを処理
+        if (this.onAutoResumeMessage) {
+          const firstMessage = queuedMessages[0];
+          await this.onAutoResumeMessage(threadId, firstMessage.content);
+          
+          // 監査ログに記録
+          await this.logAuditEntry(threadId, "queued_message_processed", {
+            messageId: firstMessage.messageId,
+            authorId: firstMessage.authorId,
+            queuePosition: 1,
+            totalQueued: queuedMessages.length,
+          });
+        }
+      } else {
+        // キューが空の場合は「続けて」を送信
+        if (this.onAutoResumeMessage) {
+          this.logVerbose("キューが空のため「続けて」を送信", { threadId });
+          await this.onAutoResumeMessage(threadId, "続けて");
+        }
+      }
     } catch (error) {
       this.logVerbose("自動再開の実行でエラー", {
         threadId,
