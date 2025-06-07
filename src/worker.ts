@@ -269,6 +269,9 @@ export class Worker implements IWorker {
   private devcontainerStarted: boolean = false;
   private skipPermissions: boolean = false;
   private verbose: boolean = false;
+  // 設定完了状態の管理
+  private devcontainerChoiceMade: boolean = false;
+  private permissionsChoiceMade: boolean = false;
 
   constructor(
     name: string,
@@ -313,6 +316,38 @@ export class Worker implements IWorker {
     if (!this.repository || !this.worktreePath) {
       this.logVerbose("リポジトリまたはworktreeパスが未設定");
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+    }
+
+    // 両方の選択が完了していない場合は設定を促すメッセージを返す
+    if (!this.devcontainerChoiceMade || !this.permissionsChoiceMade) {
+      this.logVerbose("Claude Code設定が未完了", {
+        devcontainerChoiceMade: this.devcontainerChoiceMade,
+        permissionsChoiceMade: this.permissionsChoiceMade,
+        useDevcontainer: this.useDevcontainer,
+        skipPermissions: this.skipPermissions,
+      });
+
+      let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
+
+      if (!this.devcontainerChoiceMade) {
+        message += "**1. 実行環境を選択してください:**\n";
+        message +=
+          "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
+        message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
+      }
+
+      if (!this.permissionsChoiceMade) {
+        message += "**2. 権限設定を選択してください:**\n";
+        message +=
+          "• `/config permissions default` - 通常の権限チェックを使用（推奨）\n";
+        message +=
+          "• `/config permissions skip` - 権限チェックをスキップ（--dangerously-skip-permissions）\n\n";
+      }
+
+      message +=
+        "両方の設定が完了すると、Claude Codeを実行できるようになります。";
+
+      return message;
     }
 
     try {
@@ -742,6 +777,20 @@ export class Worker implements IWorker {
    */
   setUseDevcontainer(useDevcontainer: boolean): void {
     this.useDevcontainer = useDevcontainer;
+    this.devcontainerChoiceMade = true;
+
+    // devcontainerが有効で、worktreePathが設定されている場合はExecutorを切り替え
+    if (this.useDevcontainer && this.worktreePath) {
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え（設定変更時）");
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.worktreePath,
+        this.verbose,
+      );
+    } else if (!this.useDevcontainer && this.worktreePath) {
+      // devcontainerを無効にした場合はDefaultに戻す
+      this.logVerbose("DefaultClaudeCommandExecutorに切り替え（設定変更時）");
+      this.claudeExecutor = new DefaultClaudeCommandExecutor(this.verbose);
+    }
   }
 
   /**
@@ -763,6 +812,7 @@ export class Worker implements IWorker {
    */
   setSkipPermissions(skipPermissions: boolean): void {
     this.skipPermissions = skipPermissions;
+    this.permissionsChoiceMade = true;
   }
 
   /**
@@ -784,6 +834,30 @@ export class Worker implements IWorker {
    */
   isVerbose(): boolean {
     return this.verbose;
+  }
+
+  /**
+   * 設定が完了しているかを確認
+   */
+  isConfigurationComplete(): boolean {
+    return this.devcontainerChoiceMade && this.permissionsChoiceMade;
+  }
+
+  /**
+   * 現在の設定状態を取得
+   */
+  getConfigurationStatus(): {
+    devcontainerChoiceMade: boolean;
+    permissionsChoiceMade: boolean;
+    useDevcontainer: boolean;
+    skipPermissions: boolean;
+  } {
+    return {
+      devcontainerChoiceMade: this.devcontainerChoiceMade,
+      permissionsChoiceMade: this.permissionsChoiceMade,
+      useDevcontainer: this.useDevcontainer,
+      skipPermissions: this.skipPermissions,
+    };
   }
 
   /**
