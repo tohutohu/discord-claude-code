@@ -35,7 +35,10 @@ class MockWorker implements IWorker {
     return null;
   }
 
-  async setRepository(_repository: GitRepository, _localPath: string): Promise<void> {}
+  async setRepository(
+    _repository: GitRepository,
+    _localPath: string,
+  ): Promise<void> {}
 
   setWorktreePath() {}
 
@@ -163,7 +166,7 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     // タイマーが設定されていることを確認
     const testableAdmin2 = admin as unknown as TestableAdmin;
     assert(testableAdmin2.autoResumeTimers.has(threadId));
-    
+
     // タイマーをクリア
     const timerId = testableAdmin2.autoResumeTimers.get(threadId);
     if (timerId) {

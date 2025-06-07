@@ -22,7 +22,10 @@ Deno.test("レートリミット検出とメッセージ作成", async () => {
     "Claude Codeのレートリミットに達しました",
   );
   assertStringIncludes(message, "制限解除予定時刻");
-  assertStringIncludes(message, "この時間までに送信されたメッセージは、制限解除後に自動的に処理されます");
+  assertStringIncludes(
+    message,
+    "この時間までに送信されたメッセージは、制限解除後に自動的に処理されます",
+  );
 
   await Deno.remove(baseDir, { recursive: true });
 });
