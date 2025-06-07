@@ -49,7 +49,13 @@ describe("Devcontainer PAT環境変数設定", () => {
     await workspaceManager.saveRepositoryPat(patInfo);
 
     // Workerを作成
-    const worker = new Worker("test-worker", workspaceManager);
+    const worker = new Worker(
+      "test-worker",
+      workspaceManager,
+      undefined,
+      undefined,
+      undefined,
+    );
     worker.setThreadId("test-thread-id");
     worker.setUseDevcontainer(true);
 
@@ -77,7 +83,13 @@ describe("Devcontainer PAT環境変数設定", () => {
     // PATを保存しない
 
     // Workerを作成
-    const worker = new Worker("test-worker", workspaceManager);
+    const worker = new Worker(
+      "test-worker",
+      workspaceManager,
+      undefined,
+      undefined,
+      undefined,
+    );
     worker.setThreadId("test-thread-id");
     worker.setUseDevcontainer(true);
 

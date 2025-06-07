@@ -22,6 +22,8 @@ Deno.test("extractOutputMessage - タスクエージェントの配列形式tool
     "test-worker",
     workspaceManager,
     new TestClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -76,6 +78,8 @@ Deno.test("extractOutputMessage - 複数のテキスト要素を持つ配列形�
     "test-worker",
     workspaceManager,
     new TestClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -129,6 +133,8 @@ Deno.test("extractOutputMessage - エラー時の配列形式tool_resultを処�
     "test-worker",
     workspaceManager,
     new TestClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -172,6 +178,8 @@ Deno.test("extractOutputMessage - text以外の要素を含む配列は無視す
     "test-worker",
     workspaceManager,
     new TestClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -226,6 +234,8 @@ Deno.test("extractOutputMessage - 空の配列形式contentを処理する", asy
     "test-worker",
     workspaceManager,
     new TestClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {

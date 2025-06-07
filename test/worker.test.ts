@@ -156,7 +156,13 @@ Deno.test("Worker - verboseモードでログが出力される", async () => {
   };
 
   try {
-    const worker = new Worker("verbose-worker", workspace, executor, true);
+    const worker = new Worker(
+      "verbose-worker",
+      workspace,
+      executor,
+      true,
+      undefined,
+    );
     const message = "verbose test message";
     await worker.processMessage(message);
 

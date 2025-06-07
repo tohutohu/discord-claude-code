@@ -76,6 +76,10 @@ WORK_BASE_DIR/
 
 - `DISCORD_TOKEN`: Discord Botのトークン
 - `WORK_BASE_DIR`: 作業ディレクトリのベースパス（旧CLONE_BASE_DIR）
+- `CLAUDE_APPEND_SYSTEM_PROMPT`:
+  Claude実行時に追加するシステムプロンプト（オプション）
+  - Claude CLIの`--append-system-prompt`オプションに渡される
+  - 既存のシステムプロンプトに追加の指示を与えたい場合に使用
 
 ## 主要モジュール
 

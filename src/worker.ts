@@ -270,18 +270,21 @@ export class Worker implements IWorker {
   private verbose: boolean = false;
   // 設定完了状態の管理
   private devcontainerChoiceMade: boolean = false;
+  private appendSystemPrompt?: string;
 
   constructor(
     name: string,
     workspaceManager: WorkspaceManager,
     claudeExecutor?: ClaudeCommandExecutor,
     verbose?: boolean,
+    appendSystemPrompt?: string,
   ) {
     this.name = name;
     this.workspaceManager = workspaceManager;
     this.verbose = verbose || false;
     this.claudeExecutor = claudeExecutor ||
       new DefaultClaudeCommandExecutor(this.verbose);
+    this.appendSystemPrompt = appendSystemPrompt;
   }
 
   async processMessage(
@@ -421,6 +424,14 @@ export class Worker implements IWorker {
     // 常に権限チェックをスキップ
     args.push("--dangerously-skip-permissions");
     this.logVerbose("権限チェックスキップを使用（デフォルト）");
+
+    // append-system-promptが設定されている場合
+    if (this.appendSystemPrompt) {
+      args.push("--append-system-prompt", this.appendSystemPrompt);
+      this.logVerbose("追加システムプロンプトを使用", {
+        appendSystemPromptLength: this.appendSystemPrompt.length,
+      });
+    }
 
     this.logVerbose("Claudeコマンド実行", {
       args: args,

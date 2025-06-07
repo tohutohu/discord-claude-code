@@ -12,6 +12,8 @@ Deno.test("extractOutputMessage - TODOリスト更新（tool_use）を正しく�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   // Worker クラスの private メソッドにアクセスするためのヘルパー
@@ -101,6 +103,8 @@ Deno.test("extractOutputMessage - 通常のテキストメッセージを正し�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -143,6 +147,8 @@ Deno.test("extractOutputMessage - resultメッセージは進捗表示しない"
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -176,6 +182,8 @@ Deno.test("extractOutputMessage - エラーメッセージを正しく処理す�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -214,6 +222,8 @@ Deno.test("extractTodoListUpdate - fallback処理でテキストからTODOリス
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractTodoListUpdate = (worker as unknown as {
@@ -250,6 +260,8 @@ Deno.test("extractOutputMessage - Bashツール実行を正しく処理する", 
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -291,6 +303,8 @@ Deno.test("extractOutputMessage - ツール結果（tool_result）を正しく�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -332,6 +346,8 @@ Deno.test("extractOutputMessage - エラーツール結果を正しく処理す�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -372,6 +388,8 @@ Deno.test("extractOutputMessage - 短いツール結果を正しく処理する"
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -410,6 +428,8 @@ Deno.test("extractOutputMessage - TodoWrite成功メッセージをスキップ�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -448,6 +468,8 @@ Deno.test("extractOutputMessage - TodoWriteエラーメッセージは表示す�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -487,6 +509,8 @@ Deno.test("extractOutputMessage - 長いツール結果をスマート要約す�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -536,6 +560,8 @@ Deno.test("extractOutputMessage - エラー結果から重要部分を抽出す�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {
@@ -589,6 +615,8 @@ Deno.test("extractOutputMessage - 中程度の長さの結果を先頭末尾で�
     "test-worker",
     workspaceManager,
     createMockClaudeCommandExecutor(),
+    undefined,
+    undefined,
   );
 
   const extractOutputMessage = (worker as unknown as {

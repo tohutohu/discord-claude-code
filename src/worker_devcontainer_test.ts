@@ -17,6 +17,8 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
       "test-worker",
       workspaceManager,
       createMockClaudeCommandExecutor("Claude からのテスト応答"),
+      undefined,
+      undefined,
     );
     worker.setThreadId("test-thread-123");
 

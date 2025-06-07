@@ -11,7 +11,7 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
   try {
     workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
-    admin = new Admin(workspaceManager);
+    admin = new Admin(workspaceManager, undefined, undefined);
 
     await t.step("devcontainer.jsonが存在しない場合のチェック", async () => {
       const repoDir = await Deno.makeTempDir();
