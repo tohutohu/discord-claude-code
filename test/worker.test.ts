@@ -62,9 +62,9 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", async () 
     const repoPath = "/path/to/repo";
 
     // 両方の設定を完了させる
-    worker.setUseDevcontainer(false);  // ホスト環境を選択
-    worker.setSkipPermissions(true);   // 権限チェックをスキップ
-    
+    worker.setUseDevcontainer(false); // ホスト環境を選択
+    worker.setSkipPermissions(true); // 権限チェックをスキップ
+
     await worker.setRepository(repository, repoPath);
     const retrievedRepo = worker.getRepository();
 
@@ -106,11 +106,11 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
     const repository = createTestRepository("octocat", "Hello-World");
-    
+
     // 両方の設定を完了させる
-    worker.setUseDevcontainer(false);  // ホスト環境を選択
-    worker.setSkipPermissions(false);  // 通常の権限チェックを使用
-    
+    worker.setUseDevcontainer(false); // ホスト環境を選択
+    worker.setSkipPermissions(false); // 通常の権限チェックを使用
+
     await worker.setRepository(repository, "/test/repo");
 
     const message = "リポジトリについて教えて";
@@ -207,11 +207,11 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
       workspace,
       mockExecutor,
     );
-    
+
     // 両方の設定を完了させる
-    worker.setUseDevcontainer(false);  // ホスト環境を選択
-    worker.setSkipPermissions(true);   // 権限チェックをスキップ
-    
+    worker.setUseDevcontainer(false); // ホスト環境を選択
+    worker.setSkipPermissions(true); // 権限チェックをスキップ
+
     await worker.setRepository(repository, repoPath);
 
     const progressMessages: string[] = [];
@@ -237,18 +237,25 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
   const errorExecutor = createErrorMockClaudeCommandExecutor("モックエラー", 1);
 
   try {
-    const worker = await createTestWorker("test-worker", workspace, errorExecutor);
-    
+    const worker = await createTestWorker(
+      "test-worker",
+      workspace,
+      errorExecutor,
+    );
+
     // 両方の設定を完了させる
-    worker.setUseDevcontainer(false);  // ホスト環境を選択
-    worker.setSkipPermissions(true);   // 権限チェックをスキップ
-    
+    worker.setUseDevcontainer(false); // ホスト環境を選択
+    worker.setSkipPermissions(true); // 権限チェックをスキップ
+
     await worker.setRepository(repository, repoPath);
 
     const progressMessages: string[] = [];
-    const reply = await worker.processMessage("test message", async (content: string) => {
-      progressMessages.push(content);
-    });
+    const reply = await worker.processMessage(
+      "test message",
+      async (content: string) => {
+        progressMessages.push(content);
+      },
+    );
 
     // エラーメッセージが返されることを確認
     assertEquals(reply.includes("エラーが発生しました"), true);

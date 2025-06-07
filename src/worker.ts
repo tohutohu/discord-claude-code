@@ -312,23 +312,27 @@ export class Worker implements IWorker {
         useDevcontainer: this.useDevcontainer,
         skipPermissions: this.skipPermissions,
       });
-      
+
       let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
-      
+
       if (!this.devcontainerChoiceMade) {
         message += "**1. 実行環境を選択してください:**\n";
-        message += "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
+        message +=
+          "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
         message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
       }
-      
+
       if (!this.permissionsChoiceMade) {
         message += "**2. 権限設定を選択してください:**\n";
-        message += "• `/config permissions default` - 通常の権限チェックを使用（推奨）\n";
-        message += "• `/config permissions skip` - 権限チェックをスキップ（--dangerously-skip-permissions）\n\n";
+        message +=
+          "• `/config permissions default` - 通常の権限チェックを使用（推奨）\n";
+        message +=
+          "• `/config permissions skip` - 権限チェックをスキップ（--dangerously-skip-permissions）\n\n";
       }
-      
-      message += "両方の設定が完了すると、Claude Codeを実行できるようになります。";
-      
+
+      message +=
+        "両方の設定が完了すると、Claude Codeを実行できるようになります。";
+
       return message;
     }
 
@@ -399,7 +403,6 @@ export class Worker implements IWorker {
     prompt: string,
     onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
-
     const args = [
       "-p",
       prompt,
@@ -745,7 +748,7 @@ export class Worker implements IWorker {
   setUseDevcontainer(useDevcontainer: boolean): void {
     this.useDevcontainer = useDevcontainer;
     this.devcontainerChoiceMade = true;
-    
+
     // devcontainerが有効で、worktreePathが設定されている場合はExecutorを切り替え
     if (this.useDevcontainer && this.worktreePath) {
       this.logVerbose("DevcontainerClaudeExecutorに切り替え（設定変更時）");
