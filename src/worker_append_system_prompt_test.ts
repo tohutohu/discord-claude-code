@@ -17,15 +17,16 @@ class MockClaudeExecutor implements ClaudeCommandExecutor {
 
     // Claude実行時のエラーを防ぐため、verboseがない場合はエラーを返す
     const hasVerbose = args.includes("--verbose");
-    const hasStreamJson = args.includes("--output-format") && 
-                          args[args.indexOf("--output-format") + 1] === "stream-json";
+    const hasStreamJson = args.includes("--output-format") &&
+      args[args.indexOf("--output-format") + 1] === "stream-json";
     const hasPrint = args.includes("-p");
-    
+
     if (hasPrint && hasStreamJson && !hasVerbose) {
-      const errorMessage = "Error: When using --print, --output-format=stream-json requires --verbose\n";
-      return { 
-        code: 1, 
-        stderr: new TextEncoder().encode(errorMessage) 
+      const errorMessage =
+        "Error: When using --print, --output-format=stream-json requires --verbose\n";
+      return {
+        code: 1,
+        stderr: new TextEncoder().encode(errorMessage),
       };
     }
 
@@ -64,7 +65,7 @@ describe("Worker --append-system-prompt オプション", () => {
         cwd: repoPath,
       });
       await gitInit.output();
-      
+
       try {
         // Workerを作成（コンストラクタでmockExecutorを渡す）
         const worker = new Worker(
@@ -74,10 +75,10 @@ describe("Worker --append-system-prompt オプション", () => {
           true, // verboseをtrueに設定
           appendPrompt,
         );
-        
+
         // threadIdを設定してからリポジトリを設定
         worker.setThreadId("test-thread-1");
-        
+
         const repository = parseRepository("test/repo");
         if (repository) {
           await worker.setRepository(repository, repoPath);
@@ -90,7 +91,7 @@ describe("Worker --append-system-prompt オプション", () => {
         const savedExecutor = mockExecutor;
         worker.setUseDevcontainer(false);
         // executorを復元（TypeScriptの制限を回避）
-        Object.defineProperty(worker, 'claudeExecutor', {
+        Object.defineProperty(worker, "claudeExecutor", {
           value: savedExecutor,
           writable: true,
           configurable: true,
@@ -138,7 +139,7 @@ describe("Worker --append-system-prompt オプション", () => {
         cwd: repoPath,
       });
       await gitInit.output();
-      
+
       try {
         // Workerを作成（コンストラクタでmockExecutorを渡す）
         const worker = new Worker(
@@ -148,10 +149,10 @@ describe("Worker --append-system-prompt オプション", () => {
           true, // verboseをtrueに設定
           undefined, // appendSystemPrompt未設定
         );
-        
+
         // threadIdを設定してからリポジトリを設定
         worker.setThreadId("test-thread-2");
-        
+
         const repository = parseRepository("test/repo");
         if (repository) {
           await worker.setRepository(repository, repoPath);
@@ -161,7 +162,7 @@ describe("Worker --append-system-prompt オプション", () => {
         const savedExecutor = mockExecutor;
         worker.setUseDevcontainer(false);
         // executorを復元
-        Object.defineProperty(worker, 'claudeExecutor', {
+        Object.defineProperty(worker, "claudeExecutor", {
           value: savedExecutor,
           writable: true,
           configurable: true,
