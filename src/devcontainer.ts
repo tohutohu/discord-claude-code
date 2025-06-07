@@ -119,9 +119,14 @@ export async function startDevcontainer(
   try {
     if (onProgress) {
       await onProgress("🐳 Dockerコンテナを準備しています...");
+      await onProgress(`📁 作業ディレクトリ: ${repositoryPath}`);
     }
 
     // devcontainer up コマンドを実行（デバッグログとJSON形式で出力）
+    if (onProgress) {
+      await onProgress("🔧 devcontainer upコマンドを実行中...");
+    }
+
     const command = new Deno.Command("devcontainer", {
       args: [
         "up",
@@ -148,7 +153,7 @@ export async function startDevcontainer(
     const logBuffer: string[] = [];
     const maxLogLines = 30;
     let lastProgressUpdate = Date.now();
-    const progressUpdateInterval = 3000; // 3秒
+    const progressUpdateInterval = 2000; // 2秒
 
     // stdoutとstderrをストリーミングで読み取る
     const stdoutReader = process.stdout.getReader();
@@ -195,19 +200,51 @@ export async function startDevcontainer(
                 }
 
                 // 重要なイベントは即座に通知
+                const lowercaseMessage = message.toLowerCase();
                 if (
-                  message.toLowerCase().includes("pulling") ||
-                  message.toLowerCase().includes("downloading") ||
-                  message.toLowerCase().includes("extracting") ||
-                  message.toLowerCase().includes("building") ||
-                  message.toLowerCase().includes("creating") ||
-                  message.toLowerCase().includes("starting")
+                  lowercaseMessage.includes("pulling") ||
+                  lowercaseMessage.includes("downloading") ||
+                  lowercaseMessage.includes("extracting") ||
+                  lowercaseMessage.includes("building") ||
+                  lowercaseMessage.includes("creating") ||
+                  lowercaseMessage.includes("starting") ||
+                  lowercaseMessage.includes("running") ||
+                  lowercaseMessage.includes("container") ||
+                  lowercaseMessage.includes("image") ||
+                  lowercaseMessage.includes("layer") ||
+                  lowercaseMessage.includes("waiting") ||
+                  lowercaseMessage.includes("complete") ||
+                  lowercaseMessage.includes("success")
                 ) {
                   const now = Date.now();
                   if (now - lastProgressUpdate > 1000) { // 1秒以上経過していれば更新
                     lastProgressUpdate = now;
                     if (onProgress) {
-                      await onProgress(`🐳 ${message}`).catch(console.error);
+                      // 特定のイベントにアイコンを付与
+                      let icon = "🐳";
+                      if (
+                        lowercaseMessage.includes("pulling") ||
+                        lowercaseMessage.includes("downloading")
+                      ) {
+                        icon = "⬇️";
+                      } else if (lowercaseMessage.includes("extracting")) {
+                        icon = "📦";
+                      } else if (lowercaseMessage.includes("building")) {
+                        icon = "🔨";
+                      } else if (
+                        lowercaseMessage.includes("creating") ||
+                        lowercaseMessage.includes("starting")
+                      ) {
+                        icon = "🚀";
+                      } else if (
+                        lowercaseMessage.includes("complete") ||
+                        lowercaseMessage.includes("success")
+                      ) {
+                        icon = "✅";
+                      }
+                      await onProgress(`${icon} ${message}`).catch(
+                        console.error,
+                      );
                     }
                   }
                 }
@@ -257,6 +294,11 @@ export async function startDevcontainer(
     clearInterval(progressTimer);
 
     if (code !== 0) {
+      if (onProgress) {
+        await onProgress(
+          `❌ devcontainer起動失敗\n\`\`\`\n${errorOutput}\n\`\`\``,
+        );
+      }
       return {
         success: false,
         error: `devcontainer起動に失敗しました: ${errorOutput}`,
@@ -267,8 +309,14 @@ export async function startDevcontainer(
     const containerIdMatch = output.match(/container\s+id:\s*([a-f0-9]+)/i);
     const containerId = containerIdMatch?.[1];
 
+    // 最終的なログサマリーを送信
     if (onProgress) {
-      await onProgress("✅ devcontainerが正常に起動しました");
+      const finalLogs = logBuffer.slice(-10).join("\n");
+      await onProgress(
+        `✅ devcontainerが正常に起動しました\n\n**最終ログ:**\n\`\`\`\n${finalLogs}\n\`\`\`${
+          containerId ? `\n🆔 コンテナID: ${containerId}` : ""
+        }`,
+      );
     }
 
     return {

@@ -6,6 +6,7 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  Message,
   Partials,
   REST,
   Routes,
@@ -338,25 +339,62 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
     // devcontainerの起動処理を特別扱い
     if (result === "devcontainer_start_with_progress") {
-      await interaction.editReply("🐳 devcontainerを起動しています...");
+      // 初期メッセージを送信してメッセージIDを保持
+      let progressMessage: Message | undefined;
+      if (interaction.channel && "send" in interaction.channel) {
+        progressMessage = await interaction.channel.send({
+          content: "🐳 devcontainerを起動しています...",
+          // @ts-ignore - Discord.js v14では flags: 4096 が正しいが型定義が不完全
+          flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+        });
+      }
+
+      await interaction.editReply(
+        "devcontainerの起動を開始しました。進捗は下のメッセージで確認できます。",
+      );
 
       let lastUpdateTime = Date.now();
-      const UPDATE_INTERVAL = 2000; // 2秒ごとに更新
+      const UPDATE_INTERVAL = 1000; // 1秒ごとに更新可能
+      let accumulatedLogs: string[] = [];
+      const MAX_LOG_LINES = 20; // 表示する最大ログ行数
 
-      // 進捗更新用のコールバック（新規メッセージ投稿、通知なし）
+      // 進捗更新用のコールバック（既存メッセージを編集）
       const onProgress = async (content: string) => {
         const now = Date.now();
-        if (now - lastUpdateTime >= UPDATE_INTERVAL) {
-          try {
-            if (interaction.channel && "send" in interaction.channel) {
-              await interaction.channel.send({
-                content: content,
-                flags: 4096, // SUPPRESS_NOTIFICATIONS flag
-              });
+
+        // ログを蓄積
+        if (content.includes("```")) {
+          // コードブロック内のログを抽出
+          const match = content.match(/```\n([\s\S]*?)\n```/);
+          if (match) {
+            const logLines = match[1].split("\n").filter((line) => line.trim());
+            accumulatedLogs.push(...logLines);
+            // 最新のログのみ保持
+            if (accumulatedLogs.length > MAX_LOG_LINES) {
+              accumulatedLogs = accumulatedLogs.slice(-MAX_LOG_LINES);
             }
+          }
+        } else {
+          // 通常のメッセージはそのまま追加
+          accumulatedLogs.push(content);
+          if (accumulatedLogs.length > MAX_LOG_LINES) {
+            accumulatedLogs = accumulatedLogs.slice(-MAX_LOG_LINES);
+          }
+        }
+
+        // 更新間隔をチェック
+        if (now - lastUpdateTime >= UPDATE_INTERVAL && progressMessage) {
+          try {
+            // メッセージを更新
+            const logContent = accumulatedLogs.length > 0
+              ? `\n\`\`\`\n${accumulatedLogs.join("\n")}\n\`\`\``
+              : "";
+            await progressMessage.edit({
+              content: `🐳 **devcontainer起動中...**${logContent}`,
+            });
             lastUpdateTime = now;
-          } catch (sendError) {
-            console.error("メッセージ送信エラー:", sendError);
+          } catch (editError) {
+            console.error("メッセージ編集エラー:", editError);
           }
         }
       };
@@ -374,18 +412,52 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         const permissionMsg = skipPermissions
           ? " (権限チェックスキップ有効)"
           : " (権限チェック有効)";
+
+        // 最終的な成功メッセージでプログレスメッセージを更新
+        if (progressMessage) {
+          try {
+            await progressMessage.edit({
+              content:
+                `✅ **devcontainer起動完了！**${permissionMsg}\n\n${startResult.message}\n\n準備完了です！何かご質問をどうぞ。`,
+            });
+          } catch (editError) {
+            console.error("最終メッセージ編集エラー:", editError);
+            // 編集に失敗した場合は新規メッセージを送信
+            if (interaction.channel && "send" in interaction.channel) {
+              await interaction.channel.send(
+                `<@${interaction.user.id}> ${startResult.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+              );
+            }
+          }
+        }
+
+        // ユーザーにメンション付きで通知
         if (interaction.channel && "send" in interaction.channel) {
           await interaction.channel.send(
-            `<@${interaction.user.id}> ${startResult.message}${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`,
+            `<@${interaction.user.id}> devcontainerの準備が完了しました！`,
           );
         }
       } else {
         if (worker) {
           (worker as Worker).setUseDevcontainer(false);
         }
+
+        // エラーメッセージでプログレスメッセージを更新
+        if (progressMessage) {
+          try {
+            await progressMessage.edit({
+              content:
+                `❌ **devcontainer起動失敗**\n\n${startResult.message}\n\n通常環境でClaude実行を継続します。`,
+            });
+          } catch (editError) {
+            console.error("エラーメッセージ編集エラー:", editError);
+          }
+        }
+
+        // ユーザーにメンション付きで通知
         if (interaction.channel && "send" in interaction.channel) {
           await interaction.channel.send(
-            `<@${interaction.user.id}> ${startResult.message}\n\n通常環境でClaude実行を継続します。`,
+            `<@${interaction.user.id}> devcontainerの起動に失敗しました。通常環境でClaude実行を継続します。`,
           );
         }
       }
