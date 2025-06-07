@@ -30,9 +30,8 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
     // Setup repository
     const repository = createTestRepository("test", "repo");
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(true); // 権限チェックをスキップ
 
     await worker.setRepository(repository, tempDir);
 
@@ -79,9 +78,8 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
 
     const repository = createTestRepository("test", "repo");
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(true); // 権限チェックをスキップ
 
     await worker.setRepository(repository, tempDir);
 
@@ -125,9 +123,8 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
 
     const repository = createTestRepository("test", "repo");
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(true); // 権限チェックをスキップ
 
     await worker.setRepository(repository, tempDir);
 

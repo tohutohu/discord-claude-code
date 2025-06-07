@@ -61,9 +61,8 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", async () 
     const repository = createTestRepository("octocat", "Hello-World");
     const repoPath = "/path/to/repo";
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(true); // 権限チェックをスキップ
 
     await worker.setRepository(repository, repoPath);
     const retrievedRepo = worker.getRepository();
@@ -92,7 +91,6 @@ Deno.test("Worker - 設定未完了時の定型メッセージ", async () => {
     // 設定を促すメッセージが返されることを確認
     assertEquals(reply.includes("Claude Code実行環境の設定が必要です"), true);
     assertEquals(reply.includes("/config devcontainer"), true);
-    assertEquals(reply.includes("/config permissions"), true);
   } finally {
     // クリーンアップ
   }
@@ -107,9 +105,8 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
     const worker = await createTestWorker("test-worker", workspace, executor);
     const repository = createTestRepository("octocat", "Hello-World");
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(false); // 通常の権限チェックを使用
 
     await worker.setRepository(repository, "/test/repo");
 
@@ -208,9 +205,8 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
       mockExecutor,
     );
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(true); // 権限チェックをスキップ
 
     await worker.setRepository(repository, repoPath);
 
@@ -243,9 +239,8 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
       errorExecutor,
     );
 
-    // 両方の設定を完了させる
+    // devcontainer設定を完了させる
     worker.setUseDevcontainer(false); // ホスト環境を選択
-    worker.setSkipPermissions(true); // 権限チェックをスキップ
 
     await worker.setRepository(repository, repoPath);
 

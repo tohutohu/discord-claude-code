@@ -255,7 +255,6 @@ export interface IWorker {
   setRepository(repository: GitRepository, localPath: string): Promise<void>;
   setThreadId(threadId: string): void;
   isUsingDevcontainer(): boolean;
-  isSkipPermissions(): boolean;
 }
 
 export class Worker implements IWorker {
@@ -268,11 +267,9 @@ export class Worker implements IWorker {
   private readonly workspaceManager: WorkspaceManager;
   private useDevcontainer: boolean = false;
   private devcontainerStarted: boolean = false;
-  private skipPermissions: boolean = false;
   private verbose: boolean = false;
   // 設定完了状態の管理
   private devcontainerChoiceMade: boolean = false;
-  private permissionsChoiceMade: boolean = false;
 
   constructor(
     name: string,
@@ -319,34 +316,19 @@ export class Worker implements IWorker {
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
 
-    // 両方の選択が完了していない場合は設定を促すメッセージを返す
-    if (!this.devcontainerChoiceMade || !this.permissionsChoiceMade) {
+    // devcontainerの選択が完了していない場合は設定を促すメッセージを返す
+    if (!this.devcontainerChoiceMade) {
       this.logVerbose("Claude Code設定が未完了", {
         devcontainerChoiceMade: this.devcontainerChoiceMade,
-        permissionsChoiceMade: this.permissionsChoiceMade,
         useDevcontainer: this.useDevcontainer,
-        skipPermissions: this.skipPermissions,
       });
 
       let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
-
-      if (!this.devcontainerChoiceMade) {
-        message += "**1. 実行環境を選択してください:**\n";
-        message +=
-          "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
-        message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
-      }
-
-      if (!this.permissionsChoiceMade) {
-        message += "**2. 権限設定を選択してください:**\n";
-        message +=
-          "• `/config permissions default` - 通常の権限チェックを使用（推奨）\n";
-        message +=
-          "• `/config permissions skip` - 権限チェックをスキップ（--dangerously-skip-permissions）\n\n";
-      }
-
+      message += "**実行環境を選択してください:**\n";
       message +=
-        "両方の設定が完了すると、Claude Codeを実行できるようになります。";
+        "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
+      message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
+      message += "設定が完了すると、Claude Codeを実行できるようになります。";
 
       return message;
     }
@@ -436,11 +418,9 @@ export class Worker implements IWorker {
       this.logVerbose("セッション継続", { sessionId: this.sessionId });
     }
 
-    // --dangerously-skip-permissions オプション
-    if (this.skipPermissions) {
-      args.push("--dangerously-skip-permissions");
-      this.logVerbose("権限チェックスキップを使用");
-    }
+    // 常に権限チェックをスキップ
+    args.push("--dangerously-skip-permissions");
+    this.logVerbose("権限チェックスキップを使用（デフォルト）");
 
     this.logVerbose("Claudeコマンド実行", {
       args: args,
@@ -809,21 +789,6 @@ export class Worker implements IWorker {
   }
 
   /**
-   * --dangerously-skip-permissions オプションの使用を設定する
-   */
-  setSkipPermissions(skipPermissions: boolean): void {
-    this.skipPermissions = skipPermissions;
-    this.permissionsChoiceMade = true;
-  }
-
-  /**
-   * --dangerously-skip-permissions オプションが使用されているかを取得
-   */
-  isSkipPermissions(): boolean {
-    return this.skipPermissions;
-  }
-
-  /**
    * verboseモードを設定する
    */
   setVerbose(verbose: boolean): void {
@@ -841,7 +806,7 @@ export class Worker implements IWorker {
    * 設定が完了しているかを確認
    */
   isConfigurationComplete(): boolean {
-    return this.devcontainerChoiceMade && this.permissionsChoiceMade;
+    return this.devcontainerChoiceMade;
   }
 
   /**
@@ -849,15 +814,11 @@ export class Worker implements IWorker {
    */
   getConfigurationStatus(): {
     devcontainerChoiceMade: boolean;
-    permissionsChoiceMade: boolean;
     useDevcontainer: boolean;
-    skipPermissions: boolean;
   } {
     return {
       devcontainerChoiceMade: this.devcontainerChoiceMade,
-      permissionsChoiceMade: this.permissionsChoiceMade,
       useDevcontainer: this.useDevcontainer,
-      skipPermissions: this.skipPermissions,
     };
   }
 
