@@ -1,12 +1,15 @@
-import {
-  assert,
-  assertEquals,
-  assertExists,
-} from "std/assert/mod.ts";
-import { join } from "std/path/mod.ts";
+import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { Admin } from "./admin.ts";
 import { ClaudeCodeRateLimitError, IWorker } from "./worker.ts";
 import { QueuedMessage, WorkspaceManager } from "./workspace.ts";
+import { GitRepository } from "./git-utils.ts";
+
+// テスト用の型定義
+interface TestableAdmin {
+  workers: Map<string, IWorker>;
+  autoResumeTimers: Map<string, number>;
+  executeAutoResume(threadId: string): Promise<void>;
+}
 
 async function createTestDir(): Promise<string> {
   const testDir = await Deno.makeTempDir({
@@ -32,7 +35,7 @@ class MockWorker implements IWorker {
     return null;
   }
 
-  setRepository() {}
+  async setRepository(_repository: GitRepository, _localPath: string): Promise<void> {}
 
   setWorktreePath() {}
 
@@ -60,6 +63,10 @@ class MockWorker implements IWorker {
   async setDevcontainerChoice(): Promise<void> {}
 
   async waitForDevcontainerChoice(): Promise<void> {}
+
+  isUsingDevcontainer(): boolean {
+    return false;
+  }
 }
 
 Deno.test("Admin - レートリミット時のメッセージキュー追加", async () => {
@@ -91,10 +98,13 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
       undefined,
       undefined,
       "msg-123",
-      "user-123"
+      "user-123",
     );
 
-    assertEquals(result, "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。");
+    assertEquals(
+      result,
+      "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。",
+    );
 
     // キューに追加されていることを確認
     const queue = await workspaceManager.loadMessageQueue(threadId);
@@ -122,7 +132,8 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     mockWorker.setRateLimitBehavior(true);
 
     // Workerを直接設定（プライベートプロパティへのアクセス）
-    (admin as any).workers.set(threadId, mockWorker);
+    const testableAdmin = admin as unknown as TestableAdmin;
+    testableAdmin.workers.set(threadId, mockWorker);
 
     // スレッド情報を作成
     await workspaceManager.saveThreadInfo({
@@ -150,8 +161,14 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     assertEquals(threadInfo!.autoResumeAfterRateLimit, true);
 
     // タイマーが設定されていることを確認
-    const timers = (admin as any).autoResumeTimers as Map<string, number>;
-    assert(timers.has(threadId));
+    const testableAdmin2 = admin as unknown as TestableAdmin;
+    assert(testableAdmin2.autoResumeTimers.has(threadId));
+    
+    // タイマーをクリア
+    const timerId = testableAdmin2.autoResumeTimers.get(threadId);
+    if (timerId) {
+      clearTimeout(timerId);
+    }
   } finally {
     await Deno.remove(testDir, { recursive: true });
   }
@@ -209,7 +226,8 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
     });
 
     // executeAutoResumeを直接呼び出し（プライベートメソッドへのアクセス）
-    await (admin as any).executeAutoResume(threadId);
+    const testableAdmin = admin as unknown as TestableAdmin;
+    await testableAdmin.executeAutoResume(threadId);
 
     // コールバックが呼ばれたことを確認
     assertEquals(resumedThreadId, threadId);
@@ -259,7 +277,8 @@ Deno.test("Admin - キューが空の場合は「続けて」を送信", async (
     });
 
     // executeAutoResumeを直接呼び出し
-    await (admin as any).executeAutoResume(threadId);
+    const testableAdmin = admin as unknown as TestableAdmin;
+    await testableAdmin.executeAutoResume(threadId);
 
     // 「続けて」が送信されたことを確認
     assertEquals(resumedMessage, "続けて");

@@ -1,10 +1,5 @@
-import {
-  assertEquals,
-  assertExists,
-  assertRejects,
-} from "std/assert/mod.ts";
+import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
-import { ensureDir } from "std/fs/mod.ts";
 import { QueuedMessage, WorkspaceManager } from "./workspace.ts";
 
 async function createTestDir(): Promise<string> {

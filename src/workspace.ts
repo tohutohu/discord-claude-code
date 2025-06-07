@@ -517,7 +517,7 @@ export class WorkspaceManager {
     }
 
     const messages = queue.messages;
-    
+
     // キューをクリア
     await this.deleteMessageQueue(threadId);
 

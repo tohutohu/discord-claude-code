@@ -350,7 +350,7 @@ export class Admin implements IAdmin {
   /**
    * レートリミットメッセージを作成する（ボタンなし）
    */
-  createRateLimitMessage(threadId: string, timestamp: number): string {
+  createRateLimitMessage(_threadId: string, timestamp: number): string {
     const resumeTime = new Date(timestamp * 1000 + 5 * 60 * 1000);
     const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
       timeZone: "Asia/Tokyo",
@@ -496,13 +496,15 @@ export class Admin implements IAdmin {
         authorId,
       };
       await this.workspaceManager.addMessageToQueue(threadId, queuedMessage);
-      
+
       this.logVerbose("メッセージをキューに追加", {
         threadId,
         messageId,
-        queueLength: (await this.workspaceManager.loadMessageQueue(threadId))?.messages.length || 0,
+        queueLength:
+          (await this.workspaceManager.loadMessageQueue(threadId))?.messages
+            .length || 0,
       });
-      
+
       return "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。";
     }
 
@@ -740,19 +742,20 @@ export class Admin implements IAdmin {
       await this.workspaceManager.saveThreadInfo(threadInfo);
 
       // キューに溜まったメッセージを処理
-      const queuedMessages = await this.workspaceManager.getAndClearMessageQueue(threadId);
-      
+      const queuedMessages = await this.workspaceManager
+        .getAndClearMessageQueue(threadId);
+
       if (queuedMessages.length > 0) {
         this.logVerbose("キューからメッセージを処理", {
           threadId,
           messageCount: queuedMessages.length,
         });
-        
+
         // 最初のメッセージを処理
         if (this.onAutoResumeMessage) {
           const firstMessage = queuedMessages[0];
           await this.onAutoResumeMessage(threadId, firstMessage.content);
-          
+
           // 監査ログに記録
           await this.logAuditEntry(threadId, "queued_message_processed", {
             messageId: firstMessage.messageId,
