@@ -1,15 +1,10 @@
-import { load } from "std/dotenv/mod.ts";
-
 export interface Env {
   DISCORD_TOKEN: string;
   WORK_BASE_DIR: string;
   VERBOSE?: boolean;
 }
 
-export async function getEnv(): Promise<Env> {
-  // .envファイルを読み込み
-  await load({ export: true });
-
+export function getEnv(): Env {
   const token = Deno.env.get("DISCORD_TOKEN");
   const workBaseDir = Deno.env.get("WORK_BASE_DIR");
   const verbose = Deno.env.get("VERBOSE") === "true";

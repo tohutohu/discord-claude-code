@@ -17,6 +17,7 @@ fi
 # --watchオプションでファイル変更を監視
 # --allow-*オプションで必要な権限を付与
 exec deno run \
+    --env-file \
     --watch \
     --allow-read \
     --allow-write \

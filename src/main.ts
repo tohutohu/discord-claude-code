@@ -43,7 +43,7 @@ if (!systemCheck.success) {
 
 console.log("\n✅ システム要件チェック完了\n");
 
-const env = await getEnv();
+const env = getEnv();
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
 const admin = new Admin(workspaceManager, env.VERBOSE);
