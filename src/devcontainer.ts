@@ -111,6 +111,7 @@ export async function checkDevcontainerCli(): Promise<boolean> {
 export async function startDevcontainer(
   repositoryPath: string,
   onProgress?: (message: string) => Promise<void>,
+  ghToken?: string,
 ): Promise<{
   success: boolean;
   containerId?: string;
@@ -127,6 +128,17 @@ export async function startDevcontainer(
       await onProgress("🔧 devcontainer upコマンドを実行中...");
     }
 
+    const env: Record<string, string> = {
+      ...Deno.env.toObject(),
+      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+    };
+
+    // GitHub PATが提供されている場合は環境変数に設定
+    if (ghToken) {
+      env.GH_TOKEN = ghToken;
+      env.GITHUB_TOKEN = ghToken; // 互換性のため両方設定
+    }
+
     const command = new Deno.Command("devcontainer", {
       args: [
         "up",
@@ -140,10 +152,7 @@ export async function startDevcontainer(
       stdout: "piped",
       stderr: "piped",
       cwd: repositoryPath,
-      env: {
-        ...Deno.env.toObject(),
-        DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-      },
+      env,
     });
 
     const process = command.spawn();
@@ -337,16 +346,25 @@ export async function startDevcontainer(
 export async function execInDevcontainer(
   repositoryPath: string,
   command: string[],
+  ghToken?: string,
 ): Promise<{ code: number; stdout: Uint8Array; stderr: Uint8Array }> {
+  const env: Record<string, string> = {
+    ...Deno.env.toObject(),
+    DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+  };
+
+  // GitHub PATが提供されている場合は環境変数に設定
+  if (ghToken) {
+    env.GH_TOKEN = ghToken;
+    env.GITHUB_TOKEN = ghToken; // 互換性のため両方設定
+  }
+
   const devcontainerCommand = new Deno.Command("devcontainer", {
     args: ["exec", "--workspace-folder", repositoryPath, ...command],
     stdout: "piped",
     stderr: "piped",
     cwd: repositoryPath,
-    env: {
-      ...Deno.env.toObject(),
-      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-    },
+    env,
   });
 
   const { code, stdout, stderr } = await devcontainerCommand.output();

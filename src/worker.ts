@@ -167,10 +167,16 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
 export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
   private readonly repositoryPath: string;
   private readonly verbose: boolean;
+  private readonly ghToken?: string;
 
-  constructor(repositoryPath: string, verbose: boolean = false) {
+  constructor(
+    repositoryPath: string,
+    verbose: boolean = false,
+    ghToken?: string,
+  ) {
     this.repositoryPath = repositoryPath;
     this.verbose = verbose;
+    this.ghToken = ghToken;
   }
 
   async executeStreaming(
@@ -197,15 +203,23 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     }
 
     // devcontainer内でclaudeコマンドをストリーミング実行
+    const env: Record<string, string> = {
+      ...Deno.env.toObject(),
+      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+    };
+
+    // GitHub PATが提供されている場合は環境変数に設定
+    if (this.ghToken) {
+      env.GH_TOKEN = this.ghToken;
+      env.GITHUB_TOKEN = this.ghToken; // 互換性のため両方設定
+    }
+
     const devcontainerCommand = new Deno.Command("devcontainer", {
       args: argsWithDefaults,
       stdout: "piped",
       stderr: "piped",
       cwd: this.repositoryPath,
-      env: {
-        ...Deno.env.toObject(),
-        DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-      },
+      env,
     });
 
     const process = devcontainerCommand.spawn();
@@ -687,10 +701,26 @@ export class Worker implements IWorker {
 
     // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
     if (this.useDevcontainer && this.worktreePath) {
+      // リポジトリのPATを取得
+      let ghToken: string | undefined;
+      if (repository.fullName) {
+        const patInfo = await this.workspaceManager.loadRepositoryPat(
+          repository.fullName,
+        );
+        if (patInfo) {
+          ghToken = patInfo.token;
+          this.logVerbose("GitHub PAT取得（setRepository）", {
+            repository: repository.fullName,
+            hasToken: true,
+          });
+        }
+      }
+
       this.logVerbose("DevcontainerClaudeExecutorに切り替え");
       this.claudeExecutor = new DevcontainerClaudeExecutor(
         this.worktreePath,
         this.verbose,
+        ghToken,
       );
     }
 
@@ -1325,8 +1355,27 @@ export class Worker implements IWorker {
       };
     }
 
+    // リポジトリのPATを取得
+    let ghToken: string | undefined;
+    if (this.repository.fullName) {
+      const patInfo = await this.workspaceManager.loadRepositoryPat(
+        this.repository.fullName,
+      );
+      if (patInfo) {
+        ghToken = patInfo.token;
+        this.logVerbose("GitHub PAT取得", {
+          repository: this.repository.fullName,
+          hasToken: true,
+        });
+      }
+    }
+
     const { startDevcontainer } = await import("./devcontainer.ts");
-    const result = await startDevcontainer(this.worktreePath, onProgress);
+    const result = await startDevcontainer(
+      this.worktreePath,
+      onProgress,
+      ghToken,
+    );
 
     if (result.success) {
       this.devcontainerStarted = true;
@@ -1339,6 +1388,7 @@ export class Worker implements IWorker {
         this.claudeExecutor = new DevcontainerClaudeExecutor(
           this.worktreePath,
           this.verbose,
+          ghToken,
         );
       }
     }
