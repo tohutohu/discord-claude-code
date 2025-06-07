@@ -779,6 +779,8 @@ client.on(Events.MessageCreate, async (message) => {
       message.content,
       onProgress,
       onReaction,
+      message.id,
+      message.author.id,
     );
 
     // 最終的な返信を送信

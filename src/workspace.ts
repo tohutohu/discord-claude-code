@@ -9,6 +9,7 @@ export interface WorkspaceConfig {
   auditDir: string;
   worktreesDir: string;
   patsDir: string;
+  queuedMessagesDir: string;
 }
 
 export interface ThreadInfo {
@@ -54,6 +55,18 @@ export interface RepositoryPatInfo {
   description?: string;
 }
 
+export interface QueuedMessage {
+  messageId: string;
+  content: string;
+  timestamp: number;
+  authorId: string;
+}
+
+export interface ThreadQueue {
+  threadId: string;
+  messages: QueuedMessage[];
+}
+
 export class WorkspaceManager {
   private config: WorkspaceConfig;
 
@@ -66,6 +79,7 @@ export class WorkspaceManager {
       auditDir: join(baseDir, "audit"),
       worktreesDir: join(baseDir, "worktrees"),
       patsDir: join(baseDir, "pats"),
+      queuedMessagesDir: join(baseDir, "queued_messages"),
     };
   }
 
@@ -76,6 +90,7 @@ export class WorkspaceManager {
     await ensureDir(this.config.auditDir);
     await ensureDir(this.config.worktreesDir);
     await ensureDir(this.config.patsDir);
+    await ensureDir(this.config.queuedMessagesDir);
   }
 
   getRepositoriesDir(): string {
@@ -443,6 +458,90 @@ export class WorkspaceManager {
         return [];
       }
       throw error;
+    }
+  }
+
+  private getQueueFilePath(threadId: string): string {
+    return join(this.config.queuedMessagesDir, `${threadId}.json`);
+  }
+
+  async saveMessageQueue(threadQueue: ThreadQueue): Promise<void> {
+    const filePath = this.getQueueFilePath(threadQueue.threadId);
+    await Deno.writeTextFile(filePath, JSON.stringify(threadQueue, null, 2));
+  }
+
+  async loadMessageQueue(threadId: string): Promise<ThreadQueue | null> {
+    try {
+      const filePath = this.getQueueFilePath(threadId);
+      const content = await Deno.readTextFile(filePath);
+      return JSON.parse(content) as ThreadQueue;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async addMessageToQueue(
+    threadId: string,
+    message: QueuedMessage,
+  ): Promise<void> {
+    let queue = await this.loadMessageQueue(threadId);
+    if (!queue) {
+      queue = {
+        threadId,
+        messages: [],
+      };
+    }
+
+    queue.messages.push(message);
+    await this.saveMessageQueue(queue);
+
+    // 監査ログに記録
+    await this.appendAuditLog({
+      timestamp: new Date().toISOString(),
+      threadId,
+      action: "message_queued",
+      details: {
+        messageId: message.messageId,
+        authorId: message.authorId,
+      },
+    });
+  }
+
+  async getAndClearMessageQueue(threadId: string): Promise<QueuedMessage[]> {
+    const queue = await this.loadMessageQueue(threadId);
+    if (!queue || queue.messages.length === 0) {
+      return [];
+    }
+
+    const messages = queue.messages;
+
+    // キューをクリア
+    await this.deleteMessageQueue(threadId);
+
+    // 監査ログに記録
+    await this.appendAuditLog({
+      timestamp: new Date().toISOString(),
+      threadId,
+      action: "message_queue_cleared",
+      details: {
+        messageCount: messages.length,
+      },
+    });
+
+    return messages;
+  }
+
+  async deleteMessageQueue(threadId: string): Promise<void> {
+    const filePath = this.getQueueFilePath(threadId);
+    try {
+      await Deno.remove(filePath);
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
     }
   }
 }

@@ -16,22 +16,16 @@ Deno.test("レートリミット検出とメッセージ作成", async () => {
   // レートリミットメッセージを作成
   const message = admin.createRateLimitMessage(threadId, timestamp);
 
-  // メッセージ内容をチェック
+  // メッセージ内容をチェック（string型に対応）
   assertStringIncludes(
-    message.content,
+    message,
     "Claude Codeのレートリミットに達しました",
   );
-  assertStringIncludes(message.content, "自動で継続しますか？");
-
-  // ボタンコンポーネントをチェック
-  assertEquals(message.components?.length, 1);
-  assertEquals(message.components?.[0].components?.length, 2);
-
-  const buttons = message.components?.[0].components;
-  assertEquals(buttons?.[0].label, "はい - 自動継続する");
-  assertEquals(buttons?.[0].custom_id, `rate_limit_auto_yes_${threadId}`);
-  assertEquals(buttons?.[1].label, "いいえ - 手動で再開する");
-  assertEquals(buttons?.[1].custom_id, `rate_limit_auto_no_${threadId}`);
+  assertStringIncludes(message, "制限解除予定時刻");
+  assertStringIncludes(
+    message,
+    "この時間までに送信されたメッセージは、制限解除後に自動的に処理されます",
+  );
 
   await Deno.remove(baseDir, { recursive: true });
 });
