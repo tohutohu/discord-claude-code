@@ -216,6 +216,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 
     const devcontainerCommand = new Deno.Command("devcontainer", {
       args: argsWithDefaults,
+      stdin: "null",
       stdout: "piped",
       stderr: "piped",
       cwd: this.repositoryPath,
