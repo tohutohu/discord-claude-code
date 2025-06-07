@@ -111,6 +111,58 @@ export interface ClaudeCommandExecutor {
   ): Promise<{ code: number; stderr: Uint8Array }>;
 }
 
+class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
+  private readonly verbose: boolean;
+
+  constructor(verbose: boolean = false) {
+    this.verbose = verbose;
+  }
+
+  async executeStreaming(
+    args: string[],
+    cwd: string,
+    onData: (data: Uint8Array) => void,
+  ): Promise<{ code: number; stderr: Uint8Array }> {
+    // VERBOSEモードでコマンド詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [DefaultClaudeCommandExecutor] Claudeコマンド実行:`,
+      );
+      console.log(`  作業ディレクトリ: ${cwd}`);
+      console.log(`  引数: ${JSON.stringify(args)}`);
+    }
+
+    const command = new Deno.Command("claude", {
+      args,
+      cwd,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const process = command.spawn();
+
+    // プロセスの終了を待つ
+    const [{ code }, stderrOutput] = await Promise.all([
+      process.status,
+      processStreams(process.stdout, process.stderr, onData),
+    ]);
+
+    // VERBOSEモードで実行結果詳細ログ
+    if (this.verbose) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [DefaultClaudeCommandExecutor] 実行完了:`,
+      );
+      console.log(`  終了コード: ${code}`);
+      console.log(`  stderr長: ${stderrOutput.length}バイト`);
+    }
+
+    return { code, stderr: stderrOutput };
+  }
+}
 
 export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
   private readonly repositoryPath: string;
@@ -203,6 +255,9 @@ export class Worker implements IWorker {
   private devcontainerStarted: boolean = false;
   private skipPermissions: boolean = false;
   private verbose: boolean = false;
+  // 設定完了状態の管理
+  private devcontainerChoiceMade: boolean = false;
+  private permissionsChoiceMade: boolean = false;
 
   constructor(
     name: string,
@@ -213,7 +268,8 @@ export class Worker implements IWorker {
     this.name = name;
     this.workspaceManager = workspaceManager;
     this.verbose = verbose || false;
-    this.claudeExecutor = claudeExecutor || null as any;
+    this.claudeExecutor = claudeExecutor ||
+      new DefaultClaudeCommandExecutor(this.verbose);
   }
 
   async processMessage(
@@ -248,13 +304,32 @@ export class Worker implements IWorker {
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
 
-    // devcontainerまたは権限スキップが設定されていない場合はエラー
-    if (!this.useDevcontainer && !this.skipPermissions) {
-      this.logVerbose("devcontainerまたは権限スキップが未設定");
-      return "エラー: Claude Codeを実行するには、devcontainerの使用または権限スキップ（--dangerously-skip-permissions）の設定が必要です。\n\n" +
-        "以下のいずれかのオプションを使用してください：\n" +
-        "• `/start <repository> --devcontainer` - devcontainer環境で実行\n" +
-        "• `/start <repository> --skip-permissions` - 権限チェックをスキップして実行";
+    // 両方の選択が完了していない場合は設定を促すメッセージを返す
+    if (!this.devcontainerChoiceMade || !this.permissionsChoiceMade) {
+      this.logVerbose("Claude Code設定が未完了", {
+        devcontainerChoiceMade: this.devcontainerChoiceMade,
+        permissionsChoiceMade: this.permissionsChoiceMade,
+        useDevcontainer: this.useDevcontainer,
+        skipPermissions: this.skipPermissions,
+      });
+      
+      let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
+      
+      if (!this.devcontainerChoiceMade) {
+        message += "**1. 実行環境を選択してください:**\n";
+        message += "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
+        message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
+      }
+      
+      if (!this.permissionsChoiceMade) {
+        message += "**2. 権限設定を選択してください:**\n";
+        message += "• `/config permissions default` - 通常の権限チェックを使用（推奨）\n";
+        message += "• `/config permissions skip` - 権限チェックをスキップ（--dangerously-skip-permissions）\n\n";
+      }
+      
+      message += "両方の設定が完了すると、Claude Codeを実行できるようになります。";
+      
+      return message;
     }
 
     try {
@@ -324,12 +399,6 @@ export class Worker implements IWorker {
     prompt: string,
     onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
-    // devcontainerまたは権限スキップが設定されていない場合はエラー
-    if (!this.useDevcontainer && !this.skipPermissions) {
-      throw new Error(
-        "Claude Codeを実行するには、devcontainerの使用または権限スキップの設定が必要です"
-      );
-    }
 
     const args = [
       "-p",
@@ -370,14 +439,6 @@ export class Worker implements IWorker {
     onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
     this.logVerbose("ストリーミング実行詳細開始");
-    
-    // claudeExecutorが設定されていない場合はエラー
-    if (!this.claudeExecutor) {
-      throw new Error(
-        "ClaudeCommandExecutorが設定されていません。devcontainerまたは権限スキップを設定してください。"
-      );
-    }
-    
     const decoder = new TextDecoder();
     let buffer = "";
     let result = "";
@@ -663,31 +724,6 @@ export class Worker implements IWorker {
         this.worktreePath,
         this.verbose,
       );
-    } else if (this.skipPermissions && !this.claudeExecutor) {
-      // skipPermissionsが有効でexecutorがない場合は、ダミーのexecutorを設定
-      // 実際の実行はexecuteClaudeStreamingでホストのclaudeコマンドを使用
-      this.claudeExecutor = {
-        async executeStreaming(
-          args: string[],
-          cwd: string,
-          onData: (data: Uint8Array) => void,
-        ): Promise<{ code: number; stderr: Uint8Array }> {
-          const command = new Deno.Command("claude", {
-            args,
-            cwd,
-            stdout: "piped",
-            stderr: "piped",
-          });
-
-          const process = command.spawn();
-          const [{ code }, stderrOutput] = await Promise.all([
-            process.status,
-            processStreams(process.stdout, process.stderr, onData),
-          ]);
-
-          return { code, stderr: stderrOutput };
-        },
-      };
     }
 
     this.sessionId = null;
@@ -708,6 +744,20 @@ export class Worker implements IWorker {
    */
   setUseDevcontainer(useDevcontainer: boolean): void {
     this.useDevcontainer = useDevcontainer;
+    this.devcontainerChoiceMade = true;
+    
+    // devcontainerが有効で、worktreePathが設定されている場合はExecutorを切り替え
+    if (this.useDevcontainer && this.worktreePath) {
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え（設定変更時）");
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.worktreePath,
+        this.verbose,
+      );
+    } else if (!this.useDevcontainer && this.worktreePath) {
+      // devcontainerを無効にした場合はDefaultに戻す
+      this.logVerbose("DefaultClaudeCommandExecutorに切り替え（設定変更時）");
+      this.claudeExecutor = new DefaultClaudeCommandExecutor(this.verbose);
+    }
   }
 
   /**
@@ -729,6 +779,7 @@ export class Worker implements IWorker {
    */
   setSkipPermissions(skipPermissions: boolean): void {
     this.skipPermissions = skipPermissions;
+    this.permissionsChoiceMade = true;
   }
 
   /**
@@ -750,6 +801,30 @@ export class Worker implements IWorker {
    */
   isVerbose(): boolean {
     return this.verbose;
+  }
+
+  /**
+   * 設定が完了しているかを確認
+   */
+  isConfigurationComplete(): boolean {
+    return this.devcontainerChoiceMade && this.permissionsChoiceMade;
+  }
+
+  /**
+   * 現在の設定状態を取得
+   */
+  getConfigurationStatus(): {
+    devcontainerChoiceMade: boolean;
+    permissionsChoiceMade: boolean;
+    useDevcontainer: boolean;
+    skipPermissions: boolean;
+  } {
+    return {
+      devcontainerChoiceMade: this.devcontainerChoiceMade,
+      permissionsChoiceMade: this.permissionsChoiceMade,
+      useDevcontainer: this.useDevcontainer,
+      skipPermissions: this.skipPermissions,
+    };
   }
 
   /**
