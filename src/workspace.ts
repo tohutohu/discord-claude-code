@@ -8,6 +8,7 @@ export interface WorkspaceConfig {
   sessionsDir: string;
   auditDir: string;
   worktreesDir: string;
+  patsDir: string;
 }
 
 export interface ThreadInfo {
@@ -46,6 +47,14 @@ export interface AuditEntry {
   details: Record<string, unknown>;
 }
 
+export interface RepositoryPatInfo {
+  repositoryFullName: string;
+  token: string;
+  createdAt: string;
+  updatedAt: string;
+  description?: string;
+}
+
 export class WorkspaceManager {
   private config: WorkspaceConfig;
 
@@ -57,6 +66,7 @@ export class WorkspaceManager {
       sessionsDir: join(baseDir, "sessions"),
       auditDir: join(baseDir, "audit"),
       worktreesDir: join(baseDir, "worktrees"),
+      patsDir: join(baseDir, "pats"),
     };
   }
 
@@ -66,6 +76,7 @@ export class WorkspaceManager {
     await ensureDir(this.config.sessionsDir);
     await ensureDir(this.config.auditDir);
     await ensureDir(this.config.worktreesDir);
+    await ensureDir(this.config.patsDir);
   }
 
   getRepositoriesDir(): string {
@@ -347,6 +358,87 @@ export class WorkspaceManager {
       }
 
       return repositories.sort();
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  private getPatFilePath(repositoryFullName: string): string {
+    const safeName = repositoryFullName.replace(/\//g, "_");
+    return join(this.config.patsDir, `${safeName}.json`);
+  }
+
+  async saveRepositoryPat(patInfo: RepositoryPatInfo): Promise<void> {
+    const filePath = this.getPatFilePath(patInfo.repositoryFullName);
+    patInfo.updatedAt = new Date().toISOString();
+    await Deno.writeTextFile(filePath, JSON.stringify(patInfo, null, 2));
+
+    // 監査ログに記録
+    await this.appendAuditLog({
+      timestamp: new Date().toISOString(),
+      threadId: "system",
+      action: "save_repository_pat",
+      details: {
+        repository: patInfo.repositoryFullName,
+        description: patInfo.description,
+      },
+    });
+  }
+
+  async loadRepositoryPat(
+    repositoryFullName: string,
+  ): Promise<RepositoryPatInfo | null> {
+    try {
+      const filePath = this.getPatFilePath(repositoryFullName);
+      const content = await Deno.readTextFile(filePath);
+      return JSON.parse(content) as RepositoryPatInfo;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async deleteRepositoryPat(repositoryFullName: string): Promise<void> {
+    const filePath = this.getPatFilePath(repositoryFullName);
+    try {
+      await Deno.remove(filePath);
+
+      // 監査ログに記録
+      await this.appendAuditLog({
+        timestamp: new Date().toISOString(),
+        threadId: "system",
+        action: "delete_repository_pat",
+        details: {
+          repository: repositoryFullName,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    }
+  }
+
+  async listRepositoryPats(): Promise<RepositoryPatInfo[]> {
+    try {
+      const pats: RepositoryPatInfo[] = [];
+
+      for await (const entry of Deno.readDir(this.config.patsDir)) {
+        if (entry.isFile && entry.name.endsWith(".json")) {
+          const filePath = join(this.config.patsDir, entry.name);
+          const content = await Deno.readTextFile(filePath);
+          pats.push(JSON.parse(content) as RepositoryPatInfo);
+        }
+      }
+
+      return pats.sort((a, b) =>
+        a.repositoryFullName.localeCompare(b.repositoryFullName)
+      );
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return [];

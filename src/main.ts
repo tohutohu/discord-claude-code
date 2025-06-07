@@ -18,7 +18,7 @@ import { Admin } from "./admin.ts";
 import { Worker } from "./worker.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { RepositoryPatInfo, WorkspaceManager } from "./workspace.ts";
 import {
   checkSystemRequirements,
   formatSystemCheckResults,
@@ -91,6 +91,40 @@ const commands = [
   new SlashCommandBuilder()
     .setName("update")
     .setDescription("Discord Botのコードを最新版に更新します")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("set-pat")
+    .setDescription("リポジトリ用のGitHub Fine-Grained PATを設定します")
+    .addStringOption((option) =>
+      option.setName("repository")
+        .setDescription("対象のGitHubリポジトリ（例: owner/repo）")
+        .setRequired(true)
+        .setAutocomplete(true)
+    )
+    .addStringOption((option) =>
+      option.setName("token")
+        .setDescription("GitHub Fine-Grained PAT")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option.setName("description")
+        .setDescription("トークンの説明（省略可）")
+        .setRequired(false)
+    )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("list-pats")
+    .setDescription("登録済みのGitHub PATの一覧を表示します")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("delete-pat")
+    .setDescription("登録済みのGitHub PATを削除します")
+    .addStringOption((option) =>
+      option.setName("repository")
+        .setDescription("対象のGitHubリポジトリ（例: owner/repo）")
+        .setRequired(true)
+        .setAutocomplete(true)
+    )
     .toJSON(),
 ];
 
@@ -476,7 +510,8 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
 async function handleAutocomplete(interaction: AutocompleteInteraction) {
   try {
-    if (interaction.commandName === "start") {
+    const supportedCommands = ["start", "set-pat", "delete-pat"];
+    if (supportedCommands.includes(interaction.commandName)) {
       const focusedOption = interaction.options.getFocused(true);
 
       if (focusedOption.name === "repository") {
@@ -509,7 +544,97 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
 
   const { commandName } = interaction;
 
-  if (commandName === "update") {
+  if (commandName === "set-pat") {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const repositorySpec = interaction.options.getString("repository", true);
+      const token = interaction.options.getString("token", true);
+      const description = interaction.options.getString("description");
+
+      // リポジトリ名をパース
+      let repository;
+      try {
+        repository = parseRepository(repositorySpec);
+      } catch (error) {
+        await interaction.editReply(`エラー: ${(error as Error).message}`);
+        return;
+      }
+
+      // PAT情報を保存
+      const patInfo: RepositoryPatInfo = {
+        repositoryFullName: repository.fullName,
+        token,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        description: description || undefined,
+      };
+
+      await workspaceManager.saveRepositoryPat(patInfo);
+
+      await interaction.editReply(
+        `✅ ${repository.fullName}のGitHub PATを設定しました。${
+          description ? `\n説明: ${description}` : ""
+        }\n\n今後このリポジトリでdevcontainerを使用する際に、このPATが自動的に環境変数として設定されます。`,
+      );
+    } catch (error) {
+      console.error("PAT設定エラー:", error);
+      await interaction.editReply("エラーが発生しました。");
+    }
+  } else if (commandName === "list-pats") {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const pats = await workspaceManager.listRepositoryPats();
+
+      if (pats.length === 0) {
+        await interaction.editReply("登録済みのGitHub PATはありません。");
+        return;
+      }
+
+      const patList = pats
+        .map((pat) => {
+          const maskedToken = `${pat.token.substring(0, 7)}...${
+            pat.token.substring(pat.token.length - 4)
+          }`;
+          return `• **${pat.repositoryFullName}**\n  トークン: \`${maskedToken}\`${
+            pat.description ? `\n  説明: ${pat.description}` : ""
+          }\n  登録日: ${new Date(pat.createdAt).toLocaleString("ja-JP")}`;
+        })
+        .join("\n\n");
+
+      await interaction.editReply(
+        `📋 **登録済みのGitHub PAT一覧**\n\n${patList}`,
+      );
+    } catch (error) {
+      console.error("PAT一覧取得エラー:", error);
+      await interaction.editReply("エラーが発生しました。");
+    }
+  } else if (commandName === "delete-pat") {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const repositorySpec = interaction.options.getString("repository", true);
+
+      // リポジトリ名をパース
+      let repository;
+      try {
+        repository = parseRepository(repositorySpec);
+      } catch (error) {
+        await interaction.editReply(`エラー: ${(error as Error).message}`);
+        return;
+      }
+
+      await workspaceManager.deleteRepositoryPat(repository.fullName);
+
+      await interaction.editReply(
+        `✅ ${repository.fullName}のGitHub PATを削除しました。`,
+      );
+    } catch (error) {
+      console.error("PAT削除エラー:", error);
+      await interaction.editReply("エラーが発生しました。");
+    }
+  } else if (commandName === "update") {
     try {
       await interaction.deferReply();
 
