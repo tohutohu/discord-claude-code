@@ -78,7 +78,7 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager);
+    const admin = new Admin(workspaceManager, undefined, undefined);
     const threadId = "test-thread-rate-limit";
 
     // スレッド情報を作成
@@ -127,7 +127,7 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager);
+    const admin = new Admin(workspaceManager, undefined, undefined);
     const threadId = "test-thread-auto-timer";
 
     // モックWorkerを作成
@@ -183,7 +183,7 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager);
+    const admin = new Admin(workspaceManager, undefined, undefined);
     const threadId = "test-thread-auto-resume";
 
     // キューにメッセージを追加
@@ -256,7 +256,7 @@ Deno.test("Admin - キューが空の場合は「続けて」を送信", async (
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager);
+    const admin = new Admin(workspaceManager, undefined, undefined);
     const threadId = "test-thread-empty-queue";
 
     // スレッド情報を作成（自動再開有効、キューは空）

@@ -25,7 +25,7 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
     const allData = streamData.join("");
     mockExecutor.setResponse("test", allData);
 
-    const worker = new Worker("test-worker", workspace, mockExecutor);
+    const worker = new Worker("test-worker", workspace, mockExecutor, undefined, undefined);
 
     // Setup repository
     const repository = createTestRepository("test", "repo");
@@ -74,7 +74,7 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
     const allData = streamData.join("");
     mockExecutor.setResponse("error test", allData);
 
-    const worker = new Worker("test-worker", workspace, mockExecutor);
+    const worker = new Worker("test-worker", workspace, mockExecutor, undefined, undefined);
 
     const repository = createTestRepository("test", "repo");
 
@@ -119,7 +119,7 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
     const allData = streamData.join("");
     mockExecutor.setResponse("no callback test", allData);
 
-    const worker = new Worker("test-worker", workspace, mockExecutor);
+    const worker = new Worker("test-worker", workspace, mockExecutor, undefined, undefined);
 
     const repository = createTestRepository("test", "repo");
 

@@ -57,6 +57,7 @@ export class Admin implements IAdmin {
   private workers: Map<string, IWorker>;
   private workspaceManager: WorkspaceManager;
   private verbose: boolean;
+  private appendSystemPrompt?: string;
   private autoResumeTimers: Map<string, number> = new Map();
   private onAutoResumeMessage?: (
     threadId: string,
@@ -66,15 +67,21 @@ export class Admin implements IAdmin {
     threadId: string,
   ) => Promise<void>;
 
-  constructor(workspaceManager: WorkspaceManager, verbose: boolean = false) {
+  constructor(
+    workspaceManager: WorkspaceManager, 
+    verbose: boolean = false,
+    appendSystemPrompt?: string,
+  ) {
     this.workers = new Map();
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
+    this.appendSystemPrompt = appendSystemPrompt;
 
     if (this.verbose) {
       this.logVerbose("Admin初期化完了", {
         verboseMode: this.verbose,
         workspaceBaseDir: workspaceManager.getBaseDir(),
+        hasAppendSystemPrompt: !!this.appendSystemPrompt,
       });
     }
   }
@@ -206,6 +213,7 @@ export class Admin implements IAdmin {
       this.workspaceManager,
       undefined,
       this.verbose,
+      this.appendSystemPrompt,
     );
     worker.setThreadId(threadId);
 
@@ -399,6 +407,7 @@ export class Admin implements IAdmin {
       this.workspaceManager,
       undefined,
       this.verbose,
+      this.appendSystemPrompt,
     );
     worker.setThreadId(threadId);
     this.workers.set(threadId, worker);

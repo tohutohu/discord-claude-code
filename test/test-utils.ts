@@ -22,7 +22,7 @@ export async function createTestContext(
   const testDir = await Deno.makeTempDir({ prefix: "test_context_" });
   const workspaceManager = new WorkspaceManager(testDir);
   await workspaceManager.initialize();
-  const admin = new Admin(workspaceManager, verbose);
+  const admin = new Admin(workspaceManager, verbose, undefined);
 
   const cleanup = async () => {
     try {
@@ -64,6 +64,7 @@ export async function createTestWorker(
     workspaceManager,
     executor || createMockClaudeCommandExecutor(),
     verbose,
+    undefined,
   );
   return worker;
 }
