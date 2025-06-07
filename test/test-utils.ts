@@ -274,7 +274,6 @@ export function createErrorMockClaudeCommandExecutor(
 export function createTestDevcontainerConfig(
   options: {
     useDevcontainer?: boolean;
-    skipPermissions?: boolean;
     hasDevcontainerFile?: boolean;
     hasAnthropicsFeature?: boolean;
     containerId?: string;
@@ -283,7 +282,6 @@ export function createTestDevcontainerConfig(
 ) {
   return {
     useDevcontainer: options.useDevcontainer ?? false,
-    skipPermissions: options.skipPermissions ?? false,
     hasDevcontainerFile: options.hasDevcontainerFile ?? false,
     hasAnthropicsFeature: options.hasAnthropicsFeature ?? false,
     containerId: options.containerId,

@@ -21,7 +21,6 @@ export interface ThreadInfo {
   status: "active" | "inactive" | "archived";
   devcontainerConfig: {
     useDevcontainer: boolean;
-    skipPermissions: boolean;
     hasDevcontainerFile: boolean;
     hasAnthropicsFeature: boolean;
     containerId?: string;

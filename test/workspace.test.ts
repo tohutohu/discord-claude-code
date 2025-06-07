@@ -153,7 +153,6 @@ Deno.test("WorkspaceManager - ThreadInfoにdevcontainerConfigが含まれる", a
     const threadId = "test-thread-devcontainer";
     const devcontainerConfig = {
       useDevcontainer: true,
-      skipPermissions: false,
       hasDevcontainerFile: true,
       hasAnthropicsFeature: true,
       containerId: "test-container-123",
@@ -175,7 +174,6 @@ Deno.test("WorkspaceManager - ThreadInfoにdevcontainerConfigが含まれる", a
     const loaded = await workspace.loadThreadInfo(threadId);
 
     assertEquals(loaded?.devcontainerConfig?.useDevcontainer, true);
-    assertEquals(loaded?.devcontainerConfig?.skipPermissions, false);
     assertEquals(loaded?.devcontainerConfig?.hasDevcontainerFile, true);
     assertEquals(loaded?.devcontainerConfig?.hasAnthropicsFeature, true);
     assertEquals(loaded?.devcontainerConfig?.containerId, "test-container-123");

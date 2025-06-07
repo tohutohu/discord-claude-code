@@ -39,7 +39,6 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     // devcontainer設定を保存
     const devcontainerConfig = {
       useDevcontainer: true,
-      skipPermissions: false,
       hasDevcontainerFile: true,
       hasAnthropicsFeature: true,
       containerId: "test-container-integration",
@@ -64,7 +63,6 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     // devcontainer設定が正しく復旧されている
     const restoredConfig = await admin2.getDevcontainerConfig(threadId);
     assertEquals(restoredConfig?.useDevcontainer, true);
-    assertEquals(restoredConfig?.skipPermissions, false);
     assertEquals(restoredConfig?.hasDevcontainerFile, true);
     assertEquals(restoredConfig?.hasAnthropicsFeature, true);
     assertEquals(restoredConfig?.containerId, "test-container-integration");
@@ -107,7 +105,6 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
       // 各スレッドに異なるdevcontainer設定
       const config = {
         useDevcontainer: threadId === "thread-1",
-        skipPermissions: threadId === "thread-2",
         hasDevcontainerFile: threadId !== "thread-3",
         hasAnthropicsFeature: threadId === "thread-1",
         containerId: threadId === "thread-1"
@@ -158,7 +155,6 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
     // devcontainer設定を保存
     const config = {
       useDevcontainer: false,
-      skipPermissions: true,
       hasDevcontainerFile: false,
       hasAnthropicsFeature: false,
       isStarted: false,
@@ -170,7 +166,6 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
     const targetThread = allThreadInfos.find((t) => t.threadId === threadId);
     assertExists(targetThread);
     assertEquals(targetThread.status, "active");
-    assertEquals(targetThread.devcontainerConfig?.skipPermissions, true);
 
     // Phase 3: 再起動と復旧
     const admin2 = new Admin(workspace);
@@ -178,7 +173,6 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
 
     // 復旧後の設定確認
     const restoredConfig = await admin2.getDevcontainerConfig(threadId);
-    assertEquals(restoredConfig?.skipPermissions, true);
     assertEquals(restoredConfig?.useDevcontainer, false);
 
     // Phase 4: 設定変更と再保存
@@ -198,7 +192,6 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
     assertEquals(finalConfig?.useDevcontainer, true);
     assertEquals(finalConfig?.containerId, "new-container-123");
     assertEquals(finalConfig?.isStarted, true);
-    assertEquals(finalConfig?.skipPermissions, true); // 元の設定も保持
   } finally {
     await cleanup();
   }
@@ -216,7 +209,6 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
     await admin1.createWorker(goodThreadId);
     await admin1.saveDevcontainerConfig(goodThreadId, {
       useDevcontainer: false,
-      skipPermissions: false,
       hasDevcontainerFile: true,
       hasAnthropicsFeature: true,
       isStarted: false,
@@ -234,7 +226,6 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
       status: "active" as const,
       devcontainerConfig: {
         useDevcontainer: true,
-        skipPermissions: false,
         hasDevcontainerFile: true,
         hasAnthropicsFeature: false,
         containerId: "invalid-container",

@@ -981,7 +981,6 @@ export class Admin implements IAdmin {
       // devcontainer設定情報を保存（ファイル未存在）
       const config = {
         useDevcontainer: false,
-        skipPermissions: false,
         hasDevcontainerFile: false,
         hasAnthropicsFeature: false,
         isStarted: false,
@@ -1029,7 +1028,6 @@ export class Admin implements IAdmin {
       // devcontainer設定情報を保存（CLI未インストール）
       const config = {
         useDevcontainer: false,
-        skipPermissions: false,
         hasDevcontainerFile: true,
         hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature ?? false,
         isStarted: false,
@@ -1080,7 +1078,6 @@ export class Admin implements IAdmin {
     // devcontainer設定情報を保存（ファイル存在状況とfeature情報のみ）
     const config = {
       useDevcontainer: false, // まだ選択されていない
-      skipPermissions: false,
       hasDevcontainerFile: true,
       hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature ?? false,
       isStarted: false,
@@ -1218,7 +1215,6 @@ export class Admin implements IAdmin {
     const existingConfig = await this.getDevcontainerConfig(threadId);
     const config = {
       useDevcontainer: true,
-      skipPermissions: true, // 常にtrue
       hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
       hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
       containerId: existingConfig?.containerId,
@@ -1246,7 +1242,6 @@ export class Admin implements IAdmin {
     const existingConfig = await this.getDevcontainerConfig(threadId);
     const config = {
       useDevcontainer: false,
-      skipPermissions: true, // 常にtrue
       hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
       hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
       containerId: existingConfig?.containerId,
@@ -1264,7 +1259,6 @@ export class Admin implements IAdmin {
     threadId: string,
     config: {
       useDevcontainer: boolean;
-      skipPermissions: boolean;
       hasDevcontainerFile: boolean;
       hasAnthropicsFeature: boolean;
       containerId?: string;
@@ -1286,7 +1280,6 @@ export class Admin implements IAdmin {
   async getDevcontainerConfig(threadId: string): Promise<
     {
       useDevcontainer: boolean;
-      skipPermissions: boolean;
       hasDevcontainerFile: boolean;
       hasAnthropicsFeature: boolean;
       containerId?: string;
