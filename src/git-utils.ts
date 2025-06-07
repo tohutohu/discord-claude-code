@@ -149,9 +149,9 @@ export async function createWorktreeCopy(
     // worktreeディレクトリを作成
     await Deno.mkdir(worktreePath, { recursive: true });
 
-    // リポジトリの内容をworktreeディレクトリにコピー（.gitを除外）
+    // リポジトリの内容をworktreeディレクトリにコピー（.gitも含む）
     const copyProcess = new Deno.Command("rsync", {
-      args: ["-a", "--exclude=.git", repositoryPath + "/", worktreePath + "/"],
+      args: ["-a", repositoryPath + "/", worktreePath + "/"],
       stdout: "piped",
       stderr: "piped",
     });
@@ -162,81 +162,110 @@ export async function createWorktreeCopy(
       throw new Error(`リポジトリのコピーに失敗しました: ${error}`);
     }
 
-    // コピー先でgitリポジトリを初期化
-    const initProcess = new Deno.Command("git", {
-      args: ["init"],
-      cwd: worktreePath,
-      stdout: "piped",
-      stderr: "piped",
-    });
+    // .gitディレクトリが存在するか確認
+    try {
+      await Deno.stat(`${worktreePath}/.git`);
 
-    const initResult = await initProcess.output();
-    if (!initResult.success) {
-      const error = new TextDecoder().decode(initResult.stderr);
-      throw new Error(`git initに失敗しました: ${error}`);
-    }
+      // .gitが存在する場合は新しいブランチを作成
+      const timestamp = Date.now();
+      const branchName = `worker-${workerName}-${timestamp}`;
 
-    // gitユーザー設定（コミットに必要）
-    const configNameProcess = new Deno.Command("git", {
-      args: ["config", "user.name", "Discord Bot"],
-      cwd: worktreePath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    await configNameProcess.output();
+      const checkoutProcess = new Deno.Command("git", {
+        args: ["checkout", "-b", branchName],
+        cwd: worktreePath,
+        stdout: "piped",
+        stderr: "piped",
+      });
 
-    const configEmailProcess = new Deno.Command("git", {
-      args: ["config", "user.email", "bot@example.com"],
-      cwd: worktreePath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    await configEmailProcess.output();
+      const checkoutResult = await checkoutProcess.output();
+      if (!checkoutResult.success) {
+        const error = new TextDecoder().decode(checkoutResult.stderr);
+        throw new Error(`ブランチの作成に失敗しました: ${error}`);
+      }
+    } catch (e) {
+      // .gitディレクトリが存在しない場合（テスト環境など）
+      if (e instanceof Deno.errors.NotFound) {
+        // git initして新規リポジトリとして初期化
+        const initProcess = new Deno.Command("git", {
+          args: ["init"],
+          cwd: worktreePath,
+          stdout: "piped",
+          stderr: "piped",
+        });
 
-    // 全てのファイルをステージング
-    const addProcess = new Deno.Command("git", {
-      args: ["add", "."],
-      cwd: worktreePath,
-      stdout: "piped",
-      stderr: "piped",
-    });
+        const initResult = await initProcess.output();
+        if (!initResult.success) {
+          const error = new TextDecoder().decode(initResult.stderr);
+          throw new Error(`git initに失敗しました: ${error}`);
+        }
 
-    const addResult = await addProcess.output();
-    if (!addResult.success) {
-      const error = new TextDecoder().decode(addResult.stderr);
-      throw new Error(`git addに失敗しました: ${error}`);
-    }
+        // gitユーザー設定（コミットに必要）
+        const configNameProcess = new Deno.Command("git", {
+          args: ["config", "user.name", "Discord Bot"],
+          cwd: worktreePath,
+          stdout: "piped",
+          stderr: "piped",
+        });
+        await configNameProcess.output();
 
-    // 初期コミット
-    const timestamp = Date.now();
-    const commitProcess = new Deno.Command("git", {
-      args: ["commit", "-m", `Initial worktree copy for ${workerName} at ${timestamp}`],
-      cwd: worktreePath,
-      stdout: "piped",
-      stderr: "piped",
-    });
+        const configEmailProcess = new Deno.Command("git", {
+          args: ["config", "user.email", "bot@example.com"],
+          cwd: worktreePath,
+          stdout: "piped",
+          stderr: "piped",
+        });
+        await configEmailProcess.output();
 
-    const commitResult = await commitProcess.output();
-    if (!commitResult.success) {
-      const error = new TextDecoder().decode(commitResult.stderr);
-      throw new Error(`git commitに失敗しました: ${error}`);
-    }
+        // 全てのファイルをステージング
+        const addProcess = new Deno.Command("git", {
+          args: ["add", "."],
+          cwd: worktreePath,
+          stdout: "piped",
+          stderr: "piped",
+        });
 
-    // 現在の時刻を使ってユニークなブランチ名を生成
-    const branchName = `worker-${workerName}-${timestamp}`;
+        const addResult = await addProcess.output();
+        if (!addResult.success) {
+          const error = new TextDecoder().decode(addResult.stderr);
+          throw new Error(`git addに失敗しました: ${error}`);
+        }
 
-    // ブランチ名を設定
-    const branchProcess = new Deno.Command("git", {
-      args: ["branch", "-m", branchName],
-      cwd: worktreePath,
-      stdout: "piped",
-      stderr: "piped",
-    });
+        // 初期コミット
+        const timestamp = Date.now();
+        const commitProcess = new Deno.Command("git", {
+          args: [
+            "commit",
+            "-m",
+            `Initial worktree copy for ${workerName} at ${timestamp}`,
+          ],
+          cwd: worktreePath,
+          stdout: "piped",
+          stderr: "piped",
+        });
 
-    const branchResult = await branchProcess.output();
-    if (!branchResult.success) {
-      const error = new TextDecoder().decode(branchResult.stderr);
-      throw new Error(`ブランチ名の設定に失敗しました: ${error}`);
+        const commitResult = await commitProcess.output();
+        if (!commitResult.success) {
+          const error = new TextDecoder().decode(commitResult.stderr);
+          throw new Error(`git commitに失敗しました: ${error}`);
+        }
+
+        // ブランチ名を設定
+        const branchName = `worker-${workerName}-${timestamp}`;
+        const branchProcess = new Deno.Command("git", {
+          args: ["branch", "-m", branchName],
+          cwd: worktreePath,
+          stdout: "piped",
+          stderr: "piped",
+        });
+
+        const branchResult = await branchProcess.output();
+        if (!branchResult.success) {
+          const error = new TextDecoder().decode(branchResult.stderr);
+          throw new Error(`ブランチ名の設定に失敗しました: ${error}`);
+        }
+      } else {
+        throw e;
+      }
     }
 
     return;
