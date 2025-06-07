@@ -68,7 +68,7 @@ export class Admin implements IAdmin {
   ) => Promise<void>;
 
   constructor(
-    workspaceManager: WorkspaceManager, 
+    workspaceManager: WorkspaceManager,
     verbose: boolean = false,
     appendSystemPrompt?: string,
   ) {

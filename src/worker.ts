@@ -428,8 +428,8 @@ export class Worker implements IWorker {
     // append-system-promptが設定されている場合
     if (this.appendSystemPrompt) {
       args.push("--append-system-prompt", this.appendSystemPrompt);
-      this.logVerbose("追加システムプロンプトを使用", { 
-        appendSystemPromptLength: this.appendSystemPrompt.length 
+      this.logVerbose("追加システムプロンプトを使用", {
+        appendSystemPromptLength: this.appendSystemPrompt.length,
       });
     }
 

@@ -46,7 +46,11 @@ console.log("\n✅ システム要件チェック完了\n");
 const env = getEnv();
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
-const admin = new Admin(workspaceManager, env.VERBOSE, env.CLAUDE_APPEND_SYSTEM_PROMPT);
+const admin = new Admin(
+  workspaceManager,
+  env.VERBOSE,
+  env.CLAUDE_APPEND_SYSTEM_PROMPT,
+);
 
 if (env.VERBOSE) {
   console.log("🔍 VERBOSEモードが有効です - 詳細ログが出力されます");

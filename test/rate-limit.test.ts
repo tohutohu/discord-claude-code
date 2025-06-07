@@ -43,7 +43,13 @@ Deno.test("Worker でのレートリミット検出", () => {
   const baseDir = "/tmp/test";
   const workspaceManager = new WorkspaceManager(baseDir);
   const mockExecutor = createMockClaudeCommandExecutor();
-  const worker = new Worker("test-worker", workspaceManager, mockExecutor, undefined, undefined);
+  const worker = new Worker(
+    "test-worker",
+    workspaceManager,
+    mockExecutor,
+    undefined,
+    undefined,
+  );
 
   // private メソッドにアクセスするため型アサーション
   const workerAny = (worker as unknown) as {
