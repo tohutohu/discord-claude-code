@@ -111,58 +111,6 @@ export interface ClaudeCommandExecutor {
   ): Promise<{ code: number; stderr: Uint8Array }>;
 }
 
-class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
-  private readonly verbose: boolean;
-
-  constructor(verbose: boolean = false) {
-    this.verbose = verbose;
-  }
-
-  async executeStreaming(
-    args: string[],
-    cwd: string,
-    onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
-    // VERBOSEモードでコマンド詳細ログ
-    if (this.verbose) {
-      console.log(
-        `[${
-          new Date().toISOString()
-        }] [DefaultClaudeCommandExecutor] Claudeコマンド実行:`,
-      );
-      console.log(`  作業ディレクトリ: ${cwd}`);
-      console.log(`  引数: ${JSON.stringify(args)}`);
-    }
-
-    const command = new Deno.Command("claude", {
-      args,
-      cwd,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const process = command.spawn();
-
-    // プロセスの終了を待つ
-    const [{ code }, stderrOutput] = await Promise.all([
-      process.status,
-      processStreams(process.stdout, process.stderr, onData),
-    ]);
-
-    // VERBOSEモードで実行結果詳細ログ
-    if (this.verbose) {
-      console.log(
-        `[${
-          new Date().toISOString()
-        }] [DefaultClaudeCommandExecutor] 実行完了:`,
-      );
-      console.log(`  終了コード: ${code}`);
-      console.log(`  stderr長: ${stderrOutput.length}バイト`);
-    }
-
-    return { code, stderr: stderrOutput };
-  }
-}
 
 export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
   private readonly repositoryPath: string;
@@ -265,8 +213,7 @@ export class Worker implements IWorker {
     this.name = name;
     this.workspaceManager = workspaceManager;
     this.verbose = verbose || false;
-    this.claudeExecutor = claudeExecutor ||
-      new DefaultClaudeCommandExecutor(this.verbose);
+    this.claudeExecutor = claudeExecutor || null as any;
   }
 
   async processMessage(
@@ -299,6 +246,15 @@ export class Worker implements IWorker {
     if (!this.repository || !this.worktreePath) {
       this.logVerbose("リポジトリまたはworktreeパスが未設定");
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+    }
+
+    // devcontainerまたは権限スキップが設定されていない場合はエラー
+    if (!this.useDevcontainer && !this.skipPermissions) {
+      this.logVerbose("devcontainerまたは権限スキップが未設定");
+      return "エラー: Claude Codeを実行するには、devcontainerの使用または権限スキップ（--dangerously-skip-permissions）の設定が必要です。\n\n" +
+        "以下のいずれかのオプションを使用してください：\n" +
+        "• `/start <repository> --devcontainer` - devcontainer環境で実行\n" +
+        "• `/start <repository> --skip-permissions` - 権限チェックをスキップして実行";
     }
 
     try {
@@ -368,6 +324,13 @@ export class Worker implements IWorker {
     prompt: string,
     onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
+    // devcontainerまたは権限スキップが設定されていない場合はエラー
+    if (!this.useDevcontainer && !this.skipPermissions) {
+      throw new Error(
+        "Claude Codeを実行するには、devcontainerの使用または権限スキップの設定が必要です"
+      );
+    }
+
     const args = [
       "-p",
       prompt,
@@ -407,6 +370,14 @@ export class Worker implements IWorker {
     onProgress: (content: string) => Promise<void>,
   ): Promise<string> {
     this.logVerbose("ストリーミング実行詳細開始");
+    
+    // claudeExecutorが設定されていない場合はエラー
+    if (!this.claudeExecutor) {
+      throw new Error(
+        "ClaudeCommandExecutorが設定されていません。devcontainerまたは権限スキップを設定してください。"
+      );
+    }
+    
     const decoder = new TextDecoder();
     let buffer = "";
     let result = "";
@@ -692,6 +663,31 @@ export class Worker implements IWorker {
         this.worktreePath,
         this.verbose,
       );
+    } else if (this.skipPermissions && !this.claudeExecutor) {
+      // skipPermissionsが有効でexecutorがない場合は、ダミーのexecutorを設定
+      // 実際の実行はexecuteClaudeStreamingでホストのclaudeコマンドを使用
+      this.claudeExecutor = {
+        async executeStreaming(
+          args: string[],
+          cwd: string,
+          onData: (data: Uint8Array) => void,
+        ): Promise<{ code: number; stderr: Uint8Array }> {
+          const command = new Deno.Command("claude", {
+            args,
+            cwd,
+            stdout: "piped",
+            stderr: "piped",
+          });
+
+          const process = command.spawn();
+          const [{ code }, stderrOutput] = await Promise.all([
+            process.status,
+            processStreams(process.stdout, process.stderr, onData),
+          ]);
+
+          return { code, stderr: stderrOutput };
+        },
+      };
     }
 
     this.sessionId = null;

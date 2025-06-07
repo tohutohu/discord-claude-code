@@ -3,6 +3,7 @@ import { Worker } from "../src/worker.ts";
 import { parseRepository } from "../src/git-utils.ts";
 import {
   captureConsoleOutput,
+  createErrorMockClaudeCommandExecutor,
   createMockClaudeCommandExecutor,
   createMockStreamingClaudeCommandExecutor,
   createTestRepository,
@@ -60,6 +61,8 @@ Deno.test("Worker - リポジトリ情報を設定・取得できる", async () 
     const repository = createTestRepository("octocat", "Hello-World");
     const repoPath = "/path/to/repo";
 
+    // skipPermissionsを設定してリポジトリを設定
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, repoPath);
     const retrievedRepo = worker.getRepository();
 
@@ -79,6 +82,8 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
     const repository = createTestRepository("octocat", "Hello-World");
+    // skipPermissionsを設定してリポジトリを設定
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, "/test/repo");
 
     const message = "リポジトリについて教えて";
@@ -175,6 +180,8 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
       workspace,
       mockExecutor,
     );
+    // skipPermissionsを設定してリポジトリを設定
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, repoPath);
 
     const progressMessages: string[] = [];
@@ -194,33 +201,25 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
 });
 
 Deno.test("Worker - エラーメッセージも正しく出力される", async () => {
-  if (Deno.env.get("CI") === "true") {
-    console.log("CI環境でスキップ: claude コマンドが利用できないため");
-    return;
-  }
-
   const workspace = await createTestWorkspaceManager();
   const repository = parseRepository("test/repo");
   const repoPath = "/test/repo";
+  const errorExecutor = createErrorMockClaudeCommandExecutor("モックエラー", 1);
 
   try {
-    const worker = new Worker("test-worker", workspace);
+    const worker = await createTestWorker("test-worker", workspace, errorExecutor);
+    // skipPermissionsを設定してリポジトリを設定
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, repoPath);
 
     const progressMessages: string[] = [];
+    const reply = await worker.processMessage("test message", async (content: string) => {
+      progressMessages.push(content);
+    });
 
-    try {
-      await worker.processMessage("test message", async (content: string) => {
-        progressMessages.push(content);
-      });
-
-      // ここには到達しないはず（claudeコマンドがないため）
-      assertEquals(true, false, "エラーが発生するはず");
-    } catch (error) {
-      // エラーメッセージの確認
-      assertEquals(error instanceof Error, true);
-      assertEquals(progressMessages.length >= 0, true);
-    }
+    // エラーメッセージが返されることを確認
+    assertEquals(reply.includes("エラーが発生しました"), true);
+    assertEquals(progressMessages.length > 0, true);
   } finally {
     // クリーンアップ
   }

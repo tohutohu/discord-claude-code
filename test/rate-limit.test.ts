@@ -2,6 +2,7 @@ import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
 import { ClaudeCodeRateLimitError, Worker } from "../src/worker.ts";
 import { WorkspaceManager } from "../src/workspace.ts";
+import { createMockClaudeCommandExecutor } from "./test-utils.ts";
 
 Deno.test("レートリミット検出とメッセージ作成", async () => {
   const baseDir = await Deno.makeTempDir({ prefix: "test_rate_limit_" });
@@ -47,7 +48,8 @@ Deno.test("ClaudeCodeRateLimitError の作成と属性", () => {
 Deno.test("Worker でのレートリミット検出", () => {
   const baseDir = "/tmp/test";
   const workspaceManager = new WorkspaceManager(baseDir);
-  const worker = new Worker("test-worker", workspaceManager);
+  const mockExecutor = createMockClaudeCommandExecutor();
+  const worker = new Worker("test-worker", workspaceManager, mockExecutor);
 
   // private メソッドにアクセスするため型アサーション
   const workerAny = (worker as unknown) as {

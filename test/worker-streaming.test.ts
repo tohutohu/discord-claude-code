@@ -29,6 +29,7 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
 
     // Setup repository
     const repository = createTestRepository("test", "repo");
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, tempDir);
 
     const progressUpdates: string[] = [];
@@ -73,6 +74,7 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
     const worker = new Worker("test-worker", workspace, mockExecutor);
 
     const repository = createTestRepository("test", "repo");
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, tempDir);
 
     const progressUpdates: string[] = [];
@@ -114,6 +116,7 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
     const worker = new Worker("test-worker", workspace, mockExecutor);
 
     const repository = createTestRepository("test", "repo");
+    worker.setSkipPermissions(true);
     await worker.setRepository(repository, tempDir);
 
     // No progress callback provided
