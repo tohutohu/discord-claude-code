@@ -127,107 +127,122 @@ async function updateRepositoryWithGh(
   }
 }
 
-export async function isWorktreeExists(
-  repositoryPath: string,
+export async function isWorktreeCopyExists(
   worktreePath: string,
 ): Promise<boolean> {
   try {
-    // git worktree list コマンドでワークツリーの一覧を取得
-    const worktreeProcess = new Deno.Command("git", {
-      args: ["worktree", "list"],
-      cwd: repositoryPath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-    const worktreeResult = await worktreeProcess.output();
-    if (!worktreeResult.success) {
-      const error = new TextDecoder().decode(worktreeResult.stderr);
-      throw new Error(`git worktree listに失敗しました: ${error}`);
-    }
-    const worktreeOutput = new TextDecoder().decode(worktreeResult.stdout);
-    // ワークツリーのパスが存在するかチェック
-    const worktreeLines = worktreeOutput.split("\n").map((line) => line.trim());
-    return worktreeLines.some((line) => line.startsWith(worktreePath));
-  } catch (error) {
-    // .gitディレクトリが存在しない場合はエラーになるので、falseを返す
+    // worktreeディレクトリが存在するかチェック
+    const stat = await Deno.stat(worktreePath);
+    return stat.isDirectory;
+  } catch (_error) {
+    // ディレクトリが存在しない場合
     return false;
   }
 }
 
-export async function createWorktree(
+export async function createWorktreeCopy(
   repositoryPath: string,
   workerName: string,
   worktreePath: string,
 ): Promise<void> {
-  // 現在の時刻を使ってユニークなブランチ名を生成
-  const timestamp = Date.now();
-  const branchName = `worker-${workerName}-${timestamp}`;
-
   try {
-    // デフォルトブランチを取得
-    const defaultBranch = await getDefaultBranch(repositoryPath);
+    // worktreeディレクトリを作成
+    await Deno.mkdir(worktreePath, { recursive: true });
 
-    // worktreeを作成
-    const worktreeProcess = new Deno.Command("git", {
-      args: [
-        "worktree",
-        "add",
-        "-b",
-        branchName,
-        worktreePath,
-        defaultBranch,
-      ],
-      cwd: repositoryPath,
+    // リポジトリの内容をworktreeディレクトリにコピー（.gitを除外）
+    const copyProcess = new Deno.Command("rsync", {
+      args: ["-a", "--exclude=.git", repositoryPath + "/", worktreePath + "/"],
       stdout: "piped",
       stderr: "piped",
     });
 
-    const worktreeResult = await worktreeProcess.output();
-    if (!worktreeResult.success) {
-      const error = new TextDecoder().decode(worktreeResult.stderr);
-      throw new Error(`git worktreeの作成に失敗しました: ${error}`);
+    const copyResult = await copyProcess.output();
+    if (!copyResult.success) {
+      const error = new TextDecoder().decode(copyResult.stderr);
+      throw new Error(`リポジトリのコピーに失敗しました: ${error}`);
+    }
+
+    // コピー先でgitリポジトリを初期化
+    const initProcess = new Deno.Command("git", {
+      args: ["init"],
+      cwd: worktreePath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const initResult = await initProcess.output();
+    if (!initResult.success) {
+      const error = new TextDecoder().decode(initResult.stderr);
+      throw new Error(`git initに失敗しました: ${error}`);
+    }
+
+    // gitユーザー設定（コミットに必要）
+    const configNameProcess = new Deno.Command("git", {
+      args: ["config", "user.name", "Discord Bot"],
+      cwd: worktreePath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    await configNameProcess.output();
+
+    const configEmailProcess = new Deno.Command("git", {
+      args: ["config", "user.email", "bot@example.com"],
+      cwd: worktreePath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+    await configEmailProcess.output();
+
+    // 全てのファイルをステージング
+    const addProcess = new Deno.Command("git", {
+      args: ["add", "."],
+      cwd: worktreePath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const addResult = await addProcess.output();
+    if (!addResult.success) {
+      const error = new TextDecoder().decode(addResult.stderr);
+      throw new Error(`git addに失敗しました: ${error}`);
+    }
+
+    // 初期コミット
+    const timestamp = Date.now();
+    const commitProcess = new Deno.Command("git", {
+      args: ["commit", "-m", `Initial worktree copy for ${workerName} at ${timestamp}`],
+      cwd: worktreePath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const commitResult = await commitProcess.output();
+    if (!commitResult.success) {
+      const error = new TextDecoder().decode(commitResult.stderr);
+      throw new Error(`git commitに失敗しました: ${error}`);
+    }
+
+    // 現在の時刻を使ってユニークなブランチ名を生成
+    const branchName = `worker-${workerName}-${timestamp}`;
+
+    // ブランチ名を設定
+    const branchProcess = new Deno.Command("git", {
+      args: ["branch", "-m", branchName],
+      cwd: worktreePath,
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const branchResult = await branchProcess.output();
+    if (!branchResult.success) {
+      const error = new TextDecoder().decode(branchResult.stderr);
+      throw new Error(`ブランチ名の設定に失敗しました: ${error}`);
     }
 
     return;
   } catch (error) {
-    throw new Error(`worktreeの作成に失敗しました: ${error}`);
+    throw new Error(`worktreeコピーの作成に失敗しました: ${error}`);
   }
-}
-
-async function getDefaultBranch(repositoryPath: string): Promise<string> {
-  // 現在のブランチを取得
-  const currentBranchProcess = new Deno.Command("git", {
-    args: ["branch", "--show-current"],
-    cwd: repositoryPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const currentBranchResult = await currentBranchProcess.output();
-  if (currentBranchResult.success) {
-    const currentBranch = new TextDecoder().decode(currentBranchResult.stdout)
-      .trim();
-    if (currentBranch) {
-      return currentBranch;
-    }
-  }
-
-  // 現在のブランチが取得できない場合は、リモートのデフォルトブランチを取得
-  const defaultBranchProcess = new Deno.Command("git", {
-    args: ["symbolic-ref", "refs/remotes/origin/HEAD"],
-    cwd: repositoryPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  const defaultBranchResult = await defaultBranchProcess.output();
-  if (defaultBranchResult.success) {
-    const output = new TextDecoder().decode(defaultBranchResult.stdout).trim();
-    return output.replace("refs/remotes/origin/", "");
-  }
-
-  // それでもダメならHEADを使用
-  return "HEAD";
 }
 
 async function getCurrentBranch(repoPath: string): Promise<string> {
