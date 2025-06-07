@@ -74,34 +74,79 @@ async function processStreams(
   return stderrOutput;
 }
 
-interface ClaudeStreamMessage {
-  type: string;
-  subtype?: string;
-  session_id?: string;
-  message?: {
-    id: string;
-    type: string;
-    role: string;
-    model: string;
-    content: Array<{
+// Claude Code SDK message schema based on https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
+type ClaudeStreamMessage =
+  | {
+    type: "assistant";
+    message: {
+      id: string;
       type: string;
-      text?: string;
-      id?: string;
-      name?: string;
-      input?: Record<string, unknown>;
-      tool_use_id?: string;
-      content?: string;
-      is_error?: boolean;
-    }>;
-    stop_reason: string;
-    usage?: {
-      input_tokens: number;
-      output_tokens: number;
+      role: string;
+      model: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        id?: string;
+        name?: string;
+        input?: Record<string, unknown>;
+      }>;
+      stop_reason: string;
+      usage?: {
+        input_tokens: number;
+        output_tokens: number;
+      };
     };
+    session_id: string;
+  }
+  | {
+    type: "user";
+    message: {
+      id: string;
+      type: string;
+      role: string;
+      model: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        tool_use_id?: string;
+        content?: string | Array<{ type: string; text?: string }>;
+        is_error?: boolean;
+      }>;
+      stop_reason: string;
+      usage?: {
+        input_tokens: number;
+        output_tokens: number;
+      };
+    };
+    session_id: string;
+  }
+  | {
+    type: "result";
+    subtype: "success" | "error_max_turns";
+    cost_usd?: number;
+    duration_ms?: number;
+    duration_api_ms?: number;
+    is_error: boolean;
+    num_turns?: number;
+    result?: string;
+    session_id: string;
+  }
+  | {
+    type: "system";
+    subtype: "init";
+    session_id: string;
+    tools?: string[];
+    mcp_servers?: {
+      name: string;
+      status: string;
+    }[];
+  }
+  | {
+    type: "error";
+    result?: string;
+    is_error: boolean;
+    session_id?: string;
   };
-  result?: string;
-  is_error?: boolean;
-}
 
 export interface ClaudeCommandExecutor {
   executeStreaming(
@@ -453,20 +498,48 @@ export class Worker implements IWorker {
         this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
           lineNumber: processedLines,
           hasSessionId: !!parsed.session_id,
-          hasMessage: !!parsed.message,
+          hasMessage:
+            !!(parsed.type === "assistant" || parsed.type === "user") &&
+            !!parsed.message,
         });
 
         // 最終結果を取得
-        if (parsed.type === "result" && parsed.result) {
-          result = parsed.result;
-          this.logVerbose("最終結果取得", { resultLength: result.length });
+        if (parsed.type === "result") {
+          if ("result" in parsed && parsed.result) {
+            result = parsed.result;
+            this.logVerbose("最終結果取得", {
+              resultLength: result.length,
+              subtype: parsed.subtype,
+              isError: parsed.is_error,
+              cost: parsed.cost_usd,
+              duration: parsed.duration_ms,
+              turns: parsed.num_turns,
+            });
 
-          // Claude Codeレートリミットの検出
-          if (this.isClaudeCodeRateLimit(parsed.result)) {
-            const timestamp = this.extractRateLimitTimestamp(parsed.result);
-            if (timestamp) {
-              throw new ClaudeCodeRateLimitError(timestamp);
+            // Claude Codeレートリミットの検出
+            if (this.isClaudeCodeRateLimit(parsed.result)) {
+              const timestamp = this.extractRateLimitTimestamp(parsed.result);
+              if (timestamp) {
+                throw new ClaudeCodeRateLimitError(timestamp);
+              }
             }
+          }
+
+          // メタデータをログに記録（オプション）
+          if (this.verbose && "subtype" in parsed) {
+            console.log(
+              `[${
+                new Date().toISOString()
+              }] [Worker:${this.name}] Claude実行完了:`,
+              {
+                subtype: parsed.subtype,
+                cost_usd: parsed.cost_usd,
+                duration_ms: parsed.duration_ms,
+                api_duration_ms: parsed.duration_api_ms,
+                turns: parsed.num_turns,
+                is_error: parsed.is_error,
+              },
+            );
           }
         }
 
@@ -827,13 +900,27 @@ export class Worker implements IWorker {
    */
   private extractOutputMessage(parsed: ClaudeStreamMessage): string | null {
     // assistantメッセージの場合
-    if (parsed.type === "assistant" && parsed.message?.content) {
+    if (
+      parsed.type === "assistant" && "message" in parsed &&
+      parsed.message?.content
+    ) {
       return this.extractAssistantMessage(parsed.message.content);
     }
 
     // userメッセージの場合（tool_result等）
-    if (parsed.type === "user" && parsed.message?.content) {
+    if (
+      parsed.type === "user" && "message" in parsed && parsed.message?.content
+    ) {
       return this.extractUserMessage(parsed.message.content);
+    }
+
+    // systemメッセージの場合（初期化情報）
+    if (parsed.type === "system" && parsed.subtype === "init") {
+      const tools = parsed.tools?.join(", ") || "なし";
+      const mcpServers = parsed.mcp_servers?.map((s) =>
+        `${s.name}(${s.status})`
+      ).join(", ") || "なし";
+      return `🔧 **システム初期化:** ツール: ${tools}, MCPサーバー: ${mcpServers}`;
     }
 
     // resultメッセージは最終結果として別途処理されるため、ここでは返さない
@@ -842,8 +929,8 @@ export class Worker implements IWorker {
     }
 
     // エラーメッセージの場合
-    if (parsed.is_error && parsed.message?.content) {
-      return this.extractErrorMessage(parsed.message.content);
+    if (parsed.type === "error" && parsed.result) {
+      return `❌ **エラー:** ${parsed.result}`;
     }
 
     return null;
@@ -859,9 +946,6 @@ export class Worker implements IWorker {
       id?: string;
       name?: string;
       input?: Record<string, unknown>;
-      tool_use_id?: string;
-      content?: string;
-      is_error?: boolean;
     }>,
   ): string | null {
     let textContent = "";
@@ -935,24 +1019,6 @@ export class Worker implements IWorker {
       }
     }
     return null;
-  }
-
-  /**
-   * エラーメッセージのcontentを処理する
-   */
-  private extractErrorMessage(
-    content: Array<{
-      type: string;
-      text?: string;
-    }>,
-  ): string | null {
-    let errorContent = "";
-    for (const item of content) {
-      if (item.type === "text" && item.text) {
-        errorContent += item.text;
-      }
-    }
-    return errorContent || null;
   }
 
   /**

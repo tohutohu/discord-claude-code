@@ -185,21 +185,57 @@ Deno.test("extractOutputMessage - エラーメッセージを正しく処理す�
   );
 
   try {
-    // エラーメッセージ
+    // エラーメッセージ（新しい形式）
     const parsedMessage = {
       "type": "error",
+      "result": "エラーが発生しました。",
       "is_error": true,
-      "message": {
-        "content": [{
-          "type": "text",
-          "text": "エラーが発生しました。",
-        }],
-      },
     };
 
     const result = extractOutputMessage(parsedMessage);
 
-    assertEquals(result, "エラーが発生しました。");
+    assertEquals(result, "❌ **エラー:** エラーが発生しました。");
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("extractOutputMessage - systemメッセージを正しく処理する", async () => {
+  const tempDir = await Deno.makeTempDir();
+  const workspaceManager = new WorkspaceManager(tempDir);
+  await workspaceManager.initialize();
+
+  const worker = new Worker(
+    "test-worker",
+    workspaceManager,
+    createMockClaudeCommandExecutor(),
+  );
+
+  const extractOutputMessage = (worker as unknown as {
+    extractOutputMessage: (parsed: Record<string, unknown>) => string | null;
+  }).extractOutputMessage.bind(
+    worker,
+  );
+
+  try {
+    // システム初期化メッセージ
+    const parsedMessage = {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "test-session",
+      "tools": ["Bash", "Read", "Write"],
+      "mcp_servers": [
+        { "name": "filesystem", "status": "active" },
+        { "name": "web", "status": "inactive" },
+      ],
+    };
+
+    const result = extractOutputMessage(parsedMessage);
+
+    assertEquals(
+      result,
+      "🔧 **システム初期化:** ツール: Bash, Read, Write, MCPサーバー: filesystem(active), web(inactive)",
+    );
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
