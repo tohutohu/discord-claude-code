@@ -266,17 +266,19 @@ export class WorkspaceManager {
     threadId: string,
     repositoryPath: string,
   ): Promise<string> {
-    const { createWorktree, isWorktreeExists } = await import("./git-utils.ts");
+    const { createWorktreeCopy, isWorktreeCopyExists } = await import(
+      "./git-utils.ts"
+    );
 
     // WorkspaceManagerのgetWorktreePathを使用してパスを取得
     const worktreePath = this.getWorktreePath(threadId);
-    // worktreeが既に存在する場合は何もしない
-    const exists = await isWorktreeExists(repositoryPath, worktreePath);
+    // worktreeコピーが既に存在する場合は何もしない
+    const exists = await isWorktreeCopyExists(worktreePath);
     if (exists) {
       return worktreePath;
     }
 
-    await createWorktree(repositoryPath, threadId, worktreePath);
+    await createWorktreeCopy(repositoryPath, threadId, worktreePath);
     return worktreePath;
   }
 
@@ -295,49 +297,27 @@ export class WorkspaceManager {
       throw error;
     }
 
-    const command = new Deno.Command("git", {
-      args: ["worktree", "remove", worktreePath, "--force"],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stderr } = await command.output();
-
-    if (code !== 0) {
-      const errorMessage = new TextDecoder().decode(stderr);
+    // worktreeコピーを削除
+    try {
+      await Deno.remove(worktreePath, { recursive: true });
+    } catch (removeError) {
       console.warn(
-        `git worktreeの削除に失敗しました (${threadId}): ${errorMessage}`,
+        `ディレクトリの強制削除に失敗しました (${threadId}): ${removeError}`,
       );
-
-      try {
-        await Deno.remove(worktreePath, { recursive: true });
-      } catch (removeError) {
-        console.warn(
-          `ディレクトリの強制削除に失敗しました (${threadId}): ${removeError}`,
-        );
-      }
     }
   }
 
   async cleanupWorktree(threadId: string): Promise<void> {
     const worktreePath = this.getWorktreePath(threadId);
 
-    try {
-      const command = new Deno.Command("git", {
-        args: ["worktree", "prune"],
-        stdout: "piped",
-        stderr: "piped",
-      });
-      await command.output();
-    } catch (error) {
-      console.warn(`git worktree pruneに失敗しました: ${error}`);
-    }
-
+    // worktreeコピーを削除
     try {
       await Deno.remove(worktreePath, { recursive: true });
     } catch (error) {
       if (!(error instanceof Deno.errors.NotFound)) {
-        console.warn(`worktreeディレクトリの削除に失敗しました: ${error}`);
+        console.warn(
+          `worktreeコピーディレクトリの削除に失敗しました: ${error}`,
+        );
       }
     }
   }
