@@ -206,12 +206,10 @@ export class Admin implements IAdmin {
     if (threadInfo.devcontainerConfig) {
       const config = threadInfo.devcontainerConfig;
       worker.setUseDevcontainer(config.useDevcontainer);
-      worker.setSkipPermissions(config.skipPermissions);
 
       this.logVerbose("devcontainer設定復旧", {
         threadId,
         useDevcontainer: config.useDevcontainer,
-        skipPermissions: config.skipPermissions,
         hasContainerId: !!config.containerId,
         isStarted: config.isStarted,
       });
@@ -575,24 +573,6 @@ export class Admin implements IAdmin {
       return await this.handleDevcontainerNoButton(threadId);
     }
 
-    // 権限設定関連のボタン処理
-    if (customId.startsWith(`permissions_skip_${threadId}`)) {
-      return await this.handlePermissionsButton(threadId, true);
-    }
-
-    if (customId.startsWith(`permissions_no_skip_${threadId}`)) {
-      return await this.handlePermissionsButton(threadId, false);
-    }
-
-    // devcontainer権限設定ボタン処理
-    if (customId.startsWith(`devcontainer_permissions_`)) {
-      const skipPermissions = customId.includes("_skip_");
-      return await this.handleDevcontainerPermissionsButton(
-        threadId,
-        skipPermissions,
-      );
-    }
-
     // レートリミット自動継続ボタン処理
     if (customId.startsWith(`rate_limit_auto_yes_${threadId}`)) {
       return await this.handleRateLimitAutoButton(threadId, true);
@@ -889,7 +869,7 @@ export class Admin implements IAdmin {
   createInitialMessage(threadId: string): DiscordMessage {
     return {
       content:
-        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. 権限設定の選択\n4. Claude実行環境の準備\n\n終了する場合は下のボタンを押してください。",
+        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. Claude実行環境の準備\n\n終了する場合は下のボタンを押してください。",
       components: [
         {
           type: 1,
@@ -1231,21 +1211,23 @@ export class Admin implements IAdmin {
       return "Workerが見つかりません。";
     }
 
-    // devcontainer設定情報を保存（部分的）
+    const workerTyped = worker as Worker;
+    workerTyped.setUseDevcontainer(true);
+
+    // devcontainer設定情報を保存
     const existingConfig = await this.getDevcontainerConfig(threadId);
     const config = {
       useDevcontainer: true,
-      skipPermissions: existingConfig?.skipPermissions ?? false,
+      skipPermissions: true, // 常にtrue
       hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
       hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
       containerId: existingConfig?.containerId,
-      isStarted: existingConfig?.isStarted ?? false,
+      isStarted: false,
     };
     await this.saveDevcontainerConfig(threadId, config);
 
-    // 権限設定の選択ボタンを表示するため、返信メッセージで更新する必要がある
-    // この処理は main.ts のhandleButtonInteractionで別途実装する
-    return "devcontainer_permissions_choice";
+    // devcontainerを起動 (進捗コールバックはmain.tsから渡される)
+    return "devcontainer_start_with_progress";
   }
 
   /**
@@ -1260,11 +1242,11 @@ export class Admin implements IAdmin {
     const workerTyped = worker as Worker;
     workerTyped.setUseDevcontainer(false);
 
-    // devcontainer設定情報を保存（部分的）
+    // devcontainer設定情報を保存
     const existingConfig = await this.getDevcontainerConfig(threadId);
     const config = {
       useDevcontainer: false,
-      skipPermissions: existingConfig?.skipPermissions ?? false,
+      skipPermissions: true, // 常にtrue
       hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
       hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
       containerId: existingConfig?.containerId,
@@ -1272,74 +1254,7 @@ export class Admin implements IAdmin {
     };
     await this.saveDevcontainerConfig(threadId, config);
 
-    // 権限設定の選択ボタンを表示するため、返信メッセージで更新する必要がある
-    return "local_permissions_choice";
-  }
-
-  /**
-   * 権限設定ボタンの処理（devcontainer未使用時）
-   */
-  private async handlePermissionsButton(
-    threadId: string,
-    skipPermissions: boolean,
-  ): Promise<string> {
-    const worker = this.workers.get(threadId);
-    if (!worker) {
-      return "Workerが見つかりません。";
-    }
-
-    const workerTyped = worker as Worker;
-    workerTyped.setSkipPermissions(skipPermissions);
-
-    // devcontainer設定情報を保存（権限設定を更新）
-    const existingConfig = await this.getDevcontainerConfig(threadId);
-    const config = {
-      useDevcontainer: false,
-      skipPermissions,
-      hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
-      hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
-      containerId: existingConfig?.containerId,
-      isStarted: false,
-    };
-    await this.saveDevcontainerConfig(threadId, config);
-
-    const permissionMsg = skipPermissions
-      ? "権限チェックスキップを有効にしました。"
-      : "権限チェックを有効にしました。";
-
-    return `通常のローカル環境でClaude実行を設定しました。${permissionMsg}\n\n準備完了です！何かご質問をどうぞ。`;
-  }
-
-  /**
-   * devcontainer権限設定ボタンの処理
-   */
-  private async handleDevcontainerPermissionsButton(
-    threadId: string,
-    skipPermissions: boolean,
-  ): Promise<string> {
-    const worker = this.workers.get(threadId);
-    if (!worker) {
-      return "Workerが見つかりません。";
-    }
-
-    const workerTyped = worker as Worker;
-    workerTyped.setUseDevcontainer(true);
-    workerTyped.setSkipPermissions(skipPermissions);
-
-    // devcontainer設定情報を保存（権限設定を更新）
-    const existingConfig = await this.getDevcontainerConfig(threadId);
-    const config = {
-      useDevcontainer: true,
-      skipPermissions,
-      hasDevcontainerFile: existingConfig?.hasDevcontainerFile ?? false,
-      hasAnthropicsFeature: existingConfig?.hasAnthropicsFeature ?? false,
-      containerId: existingConfig?.containerId,
-      isStarted: false,
-    };
-    await this.saveDevcontainerConfig(threadId, config);
-
-    // devcontainerを起動 (進捗コールバックはmain.tsから渡される)
-    return "devcontainer_start_with_progress";
+    return `通常のローカル環境でClaude実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`;
   }
 
   /**

@@ -335,7 +335,6 @@ Deno.test("Admin - 初期メッセージにdevcontainer流れの説明が含ま�
     initialMessage.content.includes("devcontainer利用の可否選択"),
     true,
   );
-  assertEquals(initialMessage.content.includes("権限設定の選択"), true);
   assertEquals(initialMessage.content.includes("Claude実行環境の準備"), true);
 });
 
@@ -472,7 +471,7 @@ Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる"
   // devcontainer設定を保存
   const config = {
     useDevcontainer: true,
-    skipPermissions: false,
+    skipPermissions: true, // 常にtrue
     hasDevcontainerFile: true,
     hasAnthropicsFeature: true,
     containerId: "container123",
@@ -485,7 +484,7 @@ Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる"
   const retrievedConfig = await admin.getDevcontainerConfig(threadId);
 
   assertEquals(retrievedConfig?.useDevcontainer, true);
-  assertEquals(retrievedConfig?.skipPermissions, false);
+  assertEquals(retrievedConfig?.skipPermissions, true);
   assertEquals(retrievedConfig?.hasDevcontainerFile, true);
   assertEquals(retrievedConfig?.hasAnthropicsFeature, true);
   assertEquals(retrievedConfig?.containerId, "container123");
@@ -543,7 +542,7 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   // devcontainer設定を保存
   const config = {
     useDevcontainer: true,
-    skipPermissions: false,
+    skipPermissions: true, // 常にtrue
     hasDevcontainerFile: true,
     hasAnthropicsFeature: true,
     containerId: "test-container-456",
@@ -571,7 +570,7 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   // devcontainer設定も復旧されている
   const restoredConfig = await admin2.getDevcontainerConfig(threadId);
   assertEquals(restoredConfig?.useDevcontainer, true);
-  assertEquals(restoredConfig?.skipPermissions, false);
+  assertEquals(restoredConfig?.skipPermissions, true);
   assertEquals(restoredConfig?.hasDevcontainerFile, true);
   assertEquals(restoredConfig?.hasAnthropicsFeature, true);
   assertEquals(restoredConfig?.containerId, "test-container-456");
@@ -619,7 +618,7 @@ Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
     status: "active" as const,
     devcontainerConfig: {
       useDevcontainer: false,
-      skipPermissions: false,
+      skipPermissions: true, // 常にtrue
       hasDevcontainerFile: false,
       hasAnthropicsFeature: false,
       isStarted: false,
@@ -713,7 +712,7 @@ Deno.test("Admin - worktreeが存在するスレッドは正常に復旧され�
     status: "active" as const,
     devcontainerConfig: {
       useDevcontainer: false,
-      skipPermissions: false,
+      skipPermissions: true, // 常にtrue
       hasDevcontainerFile: false,
       hasAnthropicsFeature: false,
       isStarted: false,
@@ -777,7 +776,6 @@ Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", asyn
   // Worker内のdevcontainer設定が復旧されていることを確認
   if (worker) {
     assertEquals(worker.isUsingDevcontainer(), true);
-    assertEquals(worker.isSkipPermissions(), true);
   }
 
   // devcontainer設定がAdminからも取得できることを確認
@@ -823,7 +821,6 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
   // Worker内のdevcontainer設定がデフォルト値であることを確認
   if (worker) {
     assertEquals(worker.isUsingDevcontainer(), false);
-    assertEquals(worker.isSkipPermissions(), false);
   }
 
   // devcontainer設定がnullであることを確認
