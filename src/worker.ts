@@ -1082,6 +1082,36 @@ export class Worker implements IWorker {
   }
 
   /**
+   * ファイルパスから作業ディレクトリを除外した相対パスを取得
+   */
+  private getRelativePath(filePath: string): string {
+    if (!filePath) return "";
+
+    // worktreePathが設定されている場合はそれを基準に
+    if (this.worktreePath && filePath.startsWith(this.worktreePath)) {
+      return filePath.slice(this.worktreePath.length).replace(/^\//, "");
+    }
+
+    // worktreePathがない場合は、リポジトリのパスパターンを探す
+    const repoPattern = /\/repositories\/[^\/]+\/[^\/]+\//;
+    const match = filePath.match(repoPattern);
+    if (match && match.index !== undefined) {
+      // リポジトリディレクトリ以降のパスを返す
+      return filePath.slice(match.index + match[0].length);
+    }
+
+    // threadsディレクトリのパターンも探す
+    const threadsPattern = /\/threads\/[^\/]+\/worktree\//;
+    const threadsMatch = filePath.match(threadsPattern);
+    if (threadsMatch && threadsMatch.index !== undefined) {
+      // worktreeディレクトリ以降のパスを返す
+      return filePath.slice(threadsMatch.index + threadsMatch[0].length);
+    }
+
+    return filePath;
+  }
+
+  /**
    * ツール名に対応するアイコンを取得
    */
   private getToolIcon(toolName: string): string {
@@ -1128,19 +1158,29 @@ export class Worker implements IWorker {
         return "コマンド実行";
       }
       case "Read":
-        return `ファイル読み込み: ${input?.file_path || ""}`;
+        return `ファイル読み込み: ${
+          this.getRelativePath(input?.file_path as string || "")
+        }`;
       case "Write":
-        return `ファイル書き込み: ${input?.file_path || ""}`;
+        return `ファイル書き込み: ${
+          this.getRelativePath(input?.file_path as string || "")
+        }`;
       case "Edit":
-        return `ファイル編集: ${input?.file_path || ""}`;
+        return `ファイル編集: ${
+          this.getRelativePath(input?.file_path as string || "")
+        }`;
       case "MultiEdit":
-        return `ファイル一括編集: ${input?.file_path || ""}`;
+        return `ファイル一括編集: ${
+          this.getRelativePath(input?.file_path as string || "")
+        }`;
       case "Glob":
         return `ファイル検索: ${input?.pattern || ""}`;
       case "Grep":
         return `コンテンツ検索: ${input?.pattern || ""}`;
       case "LS":
-        return `ディレクトリ一覧: ${input?.path || ""}`;
+        return `ディレクトリ一覧: ${
+          this.getRelativePath(input?.path as string || "")
+        }`;
       case "Task":
         return `エージェントタスク: ${input?.description || ""}`;
       case "WebFetch":
@@ -1148,9 +1188,13 @@ export class Worker implements IWorker {
       case "WebSearch":
         return `Web検索: ${input?.query || ""}`;
       case "NotebookRead":
-        return `ノートブック読み込み: ${input?.notebook_path || ""}`;
+        return `ノートブック読み込み: ${
+          this.getRelativePath(input?.notebook_path as string || "")
+        }`;
       case "NotebookEdit":
-        return `ノートブック編集: ${input?.notebook_path || ""}`;
+        return `ノートブック編集: ${
+          this.getRelativePath(input?.notebook_path as string || "")
+        }`;
       case "TodoRead":
         return "TODOリスト確認";
       default:
