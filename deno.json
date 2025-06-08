@@ -7,7 +7,13 @@
     "dev": "deno run --env-file --allow-read --allow-write --allow-env --allow-net --allow-run --watch src/main.ts",
     "start": "deno run --env-file --allow-read --allow-write --allow-env --allow-net --allow-run src/main.ts",
     "setup-hooks": "sh setup-hooks.sh",
-    "pre-commit": "deno fmt --check && deno lint && deno check src/main.ts && deno test --allow-read --allow-write --allow-env --allow-run"
+    "pre-commit": "deno fmt --check && deno lint && deno check src/main.ts && deno test --allow-read --allow-write --allow-env --allow-run",
+    "test:quiet": "deno run --allow-run --allow-env scripts/deno-test-quiet.ts --allow-read --allow-write --allow-env --allow-net --allow-run",
+    "fmt:quiet": "deno run --allow-run --allow-env scripts/deno-fmt-quiet.ts",
+    "check:quiet": "deno run --allow-run --allow-env scripts/deno-check-quiet.ts **/*.ts",
+    "lint:quiet": "deno run --allow-run --allow-env scripts/deno-lint-quiet.ts",
+    "test:all:quiet": "deno run --allow-run --allow-env scripts/deno-test-all-quiet.ts",
+    "pre-commit:quiet": "deno run --allow-run --allow-env scripts/deno-fmt-quiet.ts --check && deno run --allow-run --allow-env scripts/deno-lint-quiet.ts && deno run --allow-run --allow-env scripts/deno-check-quiet.ts src/main.ts && deno run --allow-run --allow-env scripts/deno-test-quiet.ts --allow-read --allow-write --allow-env --allow-run"
   },
   "imports": {
     "std/": "https://deno.land/std@0.224.0/",

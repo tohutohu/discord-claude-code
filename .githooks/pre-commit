@@ -2,6 +2,7 @@
 
 # pre-commit hook for Deno project
 # Runs format, lint, type check, and tests before allowing commit
+# Uses quiet versions to minimize token usage
 
 echo "🔍 Running pre-commit checks..."
 
@@ -9,7 +10,7 @@ echo "🔍 Running pre-commit checks..."
 echo "📝 Running formatter..."
 # Get list of changed files before formatting
 CHANGED_FILES=$(git diff --name-only)
-deno fmt
+deno run --allow-run --allow-env scripts/deno-fmt-quiet.ts
 # Check if any files were modified by formatter
 if [ -n "$(git diff --name-only)" ]; then
     echo "🔧 Files were auto-formatted. Adding formatted files to commit..."
@@ -17,23 +18,23 @@ if [ -n "$(git diff --name-only)" ]; then
     git diff --name-only | xargs -r git add
 fi
 
-# Run linter
+# Run linter with quiet output
 echo "🧹 Running linter..."
-if ! deno lint; then
+if ! deno run --allow-run --allow-env scripts/deno-lint-quiet.ts; then
     echo "❌ Lint check failed! Fix the linting errors before committing."
     exit 1
 fi
 
-# Run type check
+# Run type check with quiet output
 echo "🔎 Running type check..."
-if ! deno check src/main.ts; then
+if ! deno run --allow-run --allow-env scripts/deno-check-quiet.ts src/main.ts; then
     echo "❌ Type check failed! Fix the type errors before committing."
     exit 1
 fi
 
-# Run tests
+# Run tests with quiet output
 echo "🧪 Running tests..."
-if ! deno test --allow-read --allow-write --allow-env --allow-run; then
+if ! deno run --allow-run --allow-env scripts/deno-test-quiet.ts --allow-read --allow-write --allow-env --allow-run; then
     echo "❌ Tests failed! Fix the failing tests before committing."
     exit 1
 fi
