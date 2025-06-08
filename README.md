@@ -1,7 +1,7 @@
 # Claude Discord Bot
 
 Claude AIを活用したDiscord
-Bot。GitHubリポジトリをクローンして、Claudeがコードを読み込み、修正やレビューを行うことができます。
+Bot。GitHubリポジトリをクローンして、Claudeがコードを読み込み、修正やレビューを行えます。
 
 ## 機能
 
@@ -82,7 +82,7 @@ deno task start
 
 1. Botを招待したサーバーで以下のスラッシュコマンドを実行:
 
-```
+```text
 /claude <GitHubリポジトリ名>
 ```
 
@@ -111,7 +111,7 @@ deno task start
 
 ### 作業ディレクトリ構造
 
-```
+```text
 WORK_BASE_DIR/
 ├── repositories/          # クローンされたGitHubリポジトリ
 │   └── {org}/
@@ -204,7 +204,7 @@ deno task dev
 
 ### メッセージフロー
 
-```
+```text
 Discord User
     ↓
 main.ts (MessageCreate)
@@ -255,7 +255,7 @@ Claude CLI実行
 
 ## ライセンス
 
-[ライセンスを記載]
+MIT License - 詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
 ## 貢献
 
