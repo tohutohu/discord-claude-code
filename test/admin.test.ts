@@ -124,7 +124,7 @@ Deno.test("Admin - 存在しないスレッドへのメッセージはエラー�
   }
 });
 
-Deno.test("Admin - 初期メッセージに終了ボタンが含まれる", async () => {
+Deno.test("Admin - 初期メッセージが正しく作成される", async () => {
   const { admin, cleanup } = await createTestContext();
   const threadId = "thread-333";
 
@@ -133,41 +133,7 @@ Deno.test("Admin - 初期メッセージに終了ボタンが含まれる", asyn
 
     assertExists(initialMessage.content);
     assertExists(initialMessage.components);
-    assertEquals(initialMessage.components.length, 1);
-    assertEquals(initialMessage.components[0].type, 1);
-    assertEquals(initialMessage.components[0].components.length, 1);
-    assertEquals(initialMessage.components[0].components[0].type, 2);
-    assertEquals(
-      initialMessage.components[0].components[0].custom_id,
-      `terminate_${threadId}`,
-    );
-    assertEquals(
-      initialMessage.components[0].components[0].label,
-      "スレッドを終了",
-    );
-  } finally {
-    await cleanup();
-  }
-});
-
-Deno.test("Admin - 終了ボタンでスレッドを終了できる", async () => {
-  const { admin, workspaceManager, cleanup } = await createTestContext();
-  const threadId = "thread-444";
-
-  try {
-    await admin.createWorker(threadId);
-    assertExists(admin.getWorker(threadId));
-
-    const result = await admin.handleButtonInteraction(
-      threadId,
-      `terminate_${threadId}`,
-    );
-
-    assertEquals(result, ERROR_MESSAGES.THREAD_TERMINATED);
-    assertEquals(admin.getWorker(threadId), null);
-
-    const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-    assertEquals(threadInfo?.status, "archived");
+    assertEquals(initialMessage.components.length, 0);
   } finally {
     await cleanup();
   }
