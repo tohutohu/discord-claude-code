@@ -7,11 +7,14 @@ echo "🔍 Running pre-commit checks..."
 
 # Run format (auto-fix mode)
 echo "📝 Running formatter..."
+# Get list of changed files before formatting
+CHANGED_FILES=$(git diff --name-only)
 deno fmt
 # Check if any files were modified by formatter
 if [ -n "$(git diff --name-only)" ]; then
     echo "🔧 Files were auto-formatted. Adding formatted files to commit..."
-    git add -u
+    # Only add files that were actually changed by the formatter
+    git diff --name-only | xargs -r git add
 fi
 
 # Run linter
