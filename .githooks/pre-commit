@@ -5,11 +5,13 @@
 
 echo "🔍 Running pre-commit checks..."
 
-# Run format check
-echo "📝 Checking format..."
-if ! deno fmt --check; then
-    echo "❌ Format check failed! Run 'deno fmt' to fix formatting issues."
-    exit 1
+# Run format (auto-fix mode)
+echo "📝 Running formatter..."
+deno fmt
+# Check if any files were modified by formatter
+if [ -n "$(git diff --name-only)" ]; then
+    echo "🔧 Files were auto-formatted. Adding formatted files to commit..."
+    git add -u
 fi
 
 # Run linter
