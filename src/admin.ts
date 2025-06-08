@@ -1034,7 +1034,7 @@ export class Admin implements IAdmin {
 
       // devcontainer CLIの確認
       const hasDevcontainerCli = await checkDevcontainerCli();
-      
+
       if (!hasDevcontainerCli) {
         // devcontainer CLI未インストールの場合は通常のローカル環境で実行
         const config = {
@@ -1364,7 +1364,9 @@ export class Admin implements IAdmin {
   /**
    * fallback devcontainer選択ボタンの処理
    */
-  private async handleFallbackDevcontainerButton(threadId: string): Promise<string> {
+  private async handleFallbackDevcontainerButton(
+    threadId: string,
+  ): Promise<string> {
     const worker = this.workers.get(threadId);
     if (!worker) {
       return "Workerが見つかりません。";

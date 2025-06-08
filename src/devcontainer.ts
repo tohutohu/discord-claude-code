@@ -381,10 +381,10 @@ export async function prepareFallbackDevcontainer(
     // fallback_devcontainerディレクトリのパスを取得
     const currentDir = new URL(".", import.meta.url).pathname;
     const fallbackDir = join(currentDir, "..", "fallback_devcontainer");
-    
+
     // .devcontainerディレクトリをリポジトリにコピー
     const targetDevcontainerDir = join(repositoryPath, ".devcontainer");
-    
+
     // ターゲットディレクトリが既に存在する場合はエラー
     try {
       await Deno.stat(targetDevcontainerDir);
@@ -397,16 +397,16 @@ export async function prepareFallbackDevcontainer(
         throw error;
       }
     }
-    
+
     // fallback devcontainerをコピー
     const command = new Deno.Command("cp", {
       args: ["-r", join(fallbackDir, ".devcontainer"), repositoryPath],
       stdout: "piped",
       stderr: "piped",
     });
-    
+
     const { code, stderr } = await command.output();
-    
+
     if (code !== 0) {
       const errorMsg = new TextDecoder().decode(stderr);
       return {
@@ -414,7 +414,7 @@ export async function prepareFallbackDevcontainer(
         error: `fallback devcontainerのコピーに失敗しました: ${errorMsg}`,
       };
     }
-    
+
     return { success: true };
   } catch (error) {
     return {
@@ -439,7 +439,7 @@ export async function startFallbackDevcontainer(
   if (onProgress) {
     await onProgress("📦 fallback devcontainerを準備しています...");
   }
-  
+
   // fallback devcontainerをコピー
   const prepareResult = await prepareFallbackDevcontainer(repositoryPath);
   if (!prepareResult.success) {
@@ -448,12 +448,12 @@ export async function startFallbackDevcontainer(
       error: prepareResult.error,
     };
   }
-  
+
   if (onProgress) {
     await onProgress("✅ fallback devcontainerの準備が完了しました");
     await onProgress("🐳 devcontainerを起動しています...");
   }
-  
+
   // 通常のdevcontainer起動処理を実行
   return await startDevcontainer(repositoryPath, onProgress, ghToken);
 }
