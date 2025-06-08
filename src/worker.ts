@@ -316,6 +316,7 @@ export class Worker implements IWorker {
   // 設定完了状態の管理
   private devcontainerChoiceMade: boolean = false;
   private appendSystemPrompt?: string;
+  private useFallbackDevcontainer: boolean = false;
 
   constructor(
     name: string,
@@ -870,6 +871,23 @@ export class Worker implements IWorker {
    */
   isDevcontainerStarted(): boolean {
     return this.devcontainerStarted;
+  }
+
+  /**
+   * fallback devcontainerの使用を設定する
+   */
+  setUseFallbackDevcontainer(useFallback: boolean): void {
+    this.useFallbackDevcontainer = useFallback;
+    this.logVerbose("fallback devcontainer設定変更", {
+      useFallbackDevcontainer: useFallback,
+    });
+  }
+
+  /**
+   * fallback devcontainerが使用されているかを取得
+   */
+  isUsingFallbackDevcontainer(): boolean {
+    return this.useFallbackDevcontainer;
   }
 
   /**

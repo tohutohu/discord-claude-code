@@ -604,6 +604,16 @@ export class Admin implements IAdmin {
       return await this.handleRateLimitAutoButton(threadId, false);
     }
 
+    // ローカル環境選択ボタン処理
+    if (customId.startsWith(`local_env_${threadId}`)) {
+      return await this.handleLocalEnvButton(threadId);
+    }
+
+    // fallback devcontainer選択ボタン処理
+    if (customId.startsWith(`fallback_devcontainer_${threadId}`)) {
+      return await this.handleFallbackDevcontainerButton(threadId);
+    }
+
     return "未知のボタンが押されました。";
   }
 
@@ -1018,38 +1028,69 @@ export class Admin implements IAdmin {
     });
 
     if (!devcontainerInfo.configExists) {
-      this.logVerbose("devcontainer.json未発見、ローカル環境で実行", {
+      this.logVerbose("devcontainer.json未発見", {
         threadId,
       });
 
-      // devcontainer設定情報を保存（ファイル未存在）
-      const config = {
-        useDevcontainer: false,
-        hasDevcontainerFile: false,
-        hasAnthropicsFeature: false,
-        isStarted: false,
-      };
-      await this.saveDevcontainerConfig(threadId, config);
+      // devcontainer CLIの確認
+      const hasDevcontainerCli = await checkDevcontainerCli();
 
+      if (!hasDevcontainerCli) {
+        // devcontainer CLI未インストールの場合は通常のローカル環境で実行
+        const config = {
+          useDevcontainer: false,
+          hasDevcontainerFile: false,
+          hasAnthropicsFeature: false,
+          isStarted: false,
+        };
+        await this.saveDevcontainerConfig(threadId, config);
+
+        return {
+          hasDevcontainer: false,
+          message:
+            "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 1,
+                  label: "権限チェックあり",
+                  custom_id: `permissions_no_skip_${threadId}`,
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "権限チェックスキップ",
+                  custom_id: `permissions_skip_${threadId}`,
+                },
+              ],
+            },
+          ],
+        };
+      }
+
+      // devcontainer CLIがインストールされている場合はfallback devcontainerの選択肢を提供
       return {
         hasDevcontainer: false,
         message:
-          "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+          "devcontainer.jsonが見つかりませんでした。\n\n以下のオプションから選択してください：\n1. 通常のローカル環境でClaudeを実行\n2. fallback devcontainerを使用（標準的な開発環境をコンテナで提供）",
         components: [
           {
             type: 1,
             components: [
               {
                 type: 2,
-                style: 1,
-                label: "権限チェックあり",
-                custom_id: `permissions_no_skip_${threadId}`,
+                style: 2,
+                label: "ローカル環境で実行",
+                custom_id: `local_env_${threadId}`,
               },
               {
                 type: 2,
-                style: 2,
-                label: "権限チェックスキップ",
-                custom_id: `permissions_skip_${threadId}`,
+                style: 1,
+                label: "fallback devcontainerを使用",
+                custom_id: `fallback_devcontainer_${threadId}`,
               },
             ],
           },
@@ -1294,6 +1335,153 @@ export class Admin implements IAdmin {
     await this.saveDevcontainerConfig(threadId, config);
 
     return `通常のローカル環境でClaude実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`;
+  }
+
+  /**
+   * ローカル環境選択ボタンの処理
+   */
+  private async handleLocalEnvButton(threadId: string): Promise<string> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return "Workerが見つかりません。";
+    }
+
+    const workerTyped = worker as Worker;
+    workerTyped.setUseDevcontainer(false);
+
+    // devcontainer設定情報を保存
+    const config = {
+      useDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
+
+    return `通常のローカル環境でClaudeを実行します。\n\n\`--dangerously-skip-permissions\`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）`;
+  }
+
+  /**
+   * fallback devcontainer選択ボタンの処理
+   */
+  private async handleFallbackDevcontainerButton(
+    threadId: string,
+  ): Promise<string> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return "Workerが見つかりません。";
+    }
+
+    const workerTyped = worker as Worker;
+    workerTyped.setUseDevcontainer(true);
+    workerTyped.setUseFallbackDevcontainer(true);
+
+    // devcontainer設定情報を保存
+    const config = {
+      useDevcontainer: true,
+      hasDevcontainerFile: false, // fallbackを使用
+      hasAnthropicsFeature: true, // fallbackにはClaude Codeが含まれている
+      useFallback: true,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
+
+    // fallback devcontainerを起動
+    return "fallback_devcontainer_start_with_progress";
+  }
+
+  /**
+   * 指定されたWorkerのfallback devcontainerを起動する
+   */
+  async startFallbackDevcontainerForWorker(
+    threadId: string,
+    onProgress?: (message: string) => Promise<void>,
+  ): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const worker = this.workers.get(threadId);
+    if (!worker) {
+      return {
+        success: false,
+        message: "Workerが見つかりません。",
+      };
+    }
+
+    const repository = worker.getRepository();
+    if (!repository) {
+      return {
+        success: false,
+        message: "リポジトリが設定されていません。",
+      };
+    }
+
+    const repositoryPath = this.workspaceManager.getRepositoryPath(
+      repository.org,
+      repository.repo,
+    );
+
+    this.logVerbose("fallback devcontainer起動開始", {
+      threadId,
+      repositoryPath,
+      hasOnProgress: !!onProgress,
+    });
+
+    // fallback devcontainerを起動
+    const { startFallbackDevcontainer } = await import("./devcontainer.ts");
+    const result = await startFallbackDevcontainer(
+      repositoryPath,
+      onProgress,
+    );
+
+    this.logVerbose("fallback devcontainer起動結果", {
+      threadId,
+      success: result.success,
+      hasContainerId: !!result.containerId,
+      hasError: !!result.error,
+    });
+
+    if (result.success) {
+      // devcontainer設定情報を更新（起動状態とcontainerId）
+      const existingConfig = await this.getDevcontainerConfig(threadId);
+      if (existingConfig) {
+        const updatedConfig = {
+          ...existingConfig,
+          containerId: result.containerId || "unknown",
+          isStarted: true,
+        };
+        await this.saveDevcontainerConfig(threadId, updatedConfig);
+      }
+
+      await this.logAuditEntry(threadId, "fallback_devcontainer_started", {
+        containerId: result.containerId || "unknown",
+      });
+
+      this.logVerbose("fallback devcontainer起動成功、監査ログ記録完了", {
+        threadId,
+        containerId: result.containerId,
+      });
+
+      return {
+        success: true,
+        message:
+          "fallback devcontainerが正常に起動しました。Claude実行環境が準備完了です。",
+      };
+    } else {
+      await this.logAuditEntry(threadId, "fallback_devcontainer_start_failed", {
+        error: result.error,
+      });
+
+      this.logVerbose("fallback devcontainer起動失敗、監査ログ記録完了", {
+        threadId,
+        error: result.error,
+      });
+
+      return {
+        success: false,
+        message: `fallback devcontainerの起動に失敗しました: ${result.error}`,
+      };
+    }
   }
 
   /**

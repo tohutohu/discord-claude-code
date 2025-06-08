@@ -384,6 +384,116 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
           );
         }
       }
+    } else if (result === "fallback_devcontainer_start_with_progress") {
+      // fallback devcontainerの起動処理
+      await interaction.editReply(
+        "📦 fallback devcontainerを起動しています...",
+      );
+
+      const logs: string[] = [];
+      let lastUpdateTime = Date.now();
+      const updateInterval = 1000; // 1秒
+      const maxLogLines = 20;
+
+      // タイマーIDを保存
+      // deno-lint-ignore prefer-const
+      let timerId: number | undefined;
+
+      // 定期的な更新処理
+      const updateProgress = async () => {
+        try {
+          if (logs.length > 0) {
+            const logSection = logs.slice(-maxLogLines).join("\n");
+            await interaction.editReply({
+              content:
+                `📦 fallback devcontainerを起動しています...\n\n**ログ:**\n\`\`\`\n${logSection}\n\`\`\`\n\n⏳ 初回起動は数分かかる場合があります。`,
+            });
+          }
+        } catch (error) {
+          console.error("進捗更新エラー:", error);
+        }
+      };
+
+      // 定期的な更新タイマーを開始
+      timerId = setInterval(updateProgress, updateInterval);
+
+      try {
+        // fallback devcontainerを起動
+        const startResult = await admin.startFallbackDevcontainerForWorker(
+          threadId,
+          async (message) => {
+            // 進捗メッセージをログに追加
+            logs.push(message);
+
+            // 即座の更新が必要なメッセージパターン
+            const importantPatterns = [
+              "pulling",
+              "downloading",
+              "extracting",
+              "building",
+              "creating",
+              "starting",
+              "waiting",
+              "complete",
+              "success",
+              "error",
+              "failed",
+            ];
+
+            const isImportant = importantPatterns.some((pattern) =>
+              message.toLowerCase().includes(pattern)
+            );
+
+            if (isImportant && Date.now() - lastUpdateTime > 500) {
+              lastUpdateTime = Date.now();
+              await updateProgress();
+            }
+          },
+        );
+
+        // タイマーをクリア
+        clearInterval(timerId);
+
+        // 最終結果を更新
+        if (startResult.success) {
+          const finalLogs = logs.slice(-10).join("\n");
+          await interaction.editReply({
+            content:
+              `✅ fallback devcontainerが正常に起動しました！\n\n**最終ログ:**\n\`\`\`\n${finalLogs}\n\`\`\`\n\n準備完了です！何かご質問をどうぞ。`,
+          });
+
+          // ユーザーにメンション付きで通知
+          if (interaction.channel && "send" in interaction.channel) {
+            await interaction.channel.send(
+              `<@${interaction.user.id}> fallback devcontainerの起動が完了しました！Claude実行環境が準備完了です。`,
+            );
+          }
+        } else {
+          await interaction.editReply({
+            content:
+              `❌ fallback devcontainerの起動に失敗しました。\n\nエラー: ${startResult.message}`,
+          });
+
+          // ユーザーにメンション付きで通知
+          if (interaction.channel && "send" in interaction.channel) {
+            await interaction.channel.send(
+              `<@${interaction.user.id}> fallback devcontainerの起動に失敗しました。通常環境でClaude実行を継続します。`,
+            );
+          }
+        }
+      } catch (error) {
+        // エラーが発生した場合もタイマーをクリア
+        if (timerId) {
+          clearInterval(timerId);
+        }
+
+        console.error("fallback devcontainer起動エラー:", error);
+        await interaction.editReply({
+          content: `❌ fallback devcontainerの起動中にエラーが発生しました: ${
+            (error as Error).message
+          }`,
+        });
+      }
     } else {
       await interaction.editReply(result);
     }
