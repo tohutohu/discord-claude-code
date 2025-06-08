@@ -132,10 +132,17 @@ deno test --allow-read --allow-write --allow-env --allow-run  # テストのみ
 - ライブラリは導入前に徹底的に調査し情報をdocsディレクトリ以下にまとめる
 - ライブラリは最新のものを使用する
 - テスト駆動開発により実装を行う
-- 最小単位ごとに `deno fmt`, `deno check`, `deno lint`, `deno test`
+- 最小単位ごとに `deno check`, `deno test`, `deno lint`, `deno fmt`
   を実行して成功することを確認してから先に進む
+  - testやlintの修正の中でフォーマットに合わないようになることがあるので必ずこの順番で確認を行う
 - any型やlintの無視をしない
 - 指示された作業が終わるごとにコミットする
+
+## 標準的なものに加えて利用可能なツール
+
+- ripgrep
+- ast-grep(sg)
+- semgrep
 
 ## 重要な実装パターン
 
