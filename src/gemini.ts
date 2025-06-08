@@ -94,8 +94,13 @@ ${text}`;
 
 export function generateThreadName(
   summary: string,
-  repositoryName: string,
+  repositoryName?: string,
 ): string {
+  // リポジトリ名が提供されていない場合は要約のみを返す
+  if (!repositoryName) {
+    return summary;
+  }
+
   // リポジトリ名から所有者部分を除去（owner/repo -> repo）
   const repoShortName = repositoryName.includes("/")
     ? repositoryName.split("/")[1]

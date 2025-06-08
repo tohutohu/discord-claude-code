@@ -11,6 +11,16 @@ Deno.test("generateThreadName - オーナーなしのリポジトリ名でも動
   assertEquals(result, "バグ修正(repo)");
 });
 
+Deno.test("generateThreadName - リポジトリ名なしの場合は要約のみを返す", () => {
+  const result = generateThreadName("新機能の追加");
+  assertEquals(result, "新機能の追加");
+});
+
+Deno.test("generateThreadName - リポジトリ名がundefinedの場合も要約のみを返す", () => {
+  const result = generateThreadName("テストコードの改善", undefined);
+  assertEquals(result, "テストコードの改善");
+});
+
 Deno.test("summarizeWithGemini - API失敗時にエラーを返す", async () => {
   // 無効なAPIキーでテスト
   const result = await summarizeWithGemini("invalid-key", "テストメッセージ");
