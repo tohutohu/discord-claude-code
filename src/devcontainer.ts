@@ -162,7 +162,7 @@ export async function startDevcontainer(
     const logBuffer: string[] = [];
     const maxLogLines = 30;
     let lastProgressUpdate = Date.now();
-    const progressUpdateInterval = 2000; // 2秒
+    const progressUpdateInterval = 1000; // 1秒に短縮してより頻繁に更新
 
     // stdoutとstderrをストリーミングで読み取る
     const stdoutReader = process.stdout.getReader();
@@ -177,6 +177,11 @@ export async function startDevcontainer(
         await onProgress(logMessage).catch(console.error);
       }
     }, progressUpdateInterval);
+
+    // 最初のログをすぐに送信
+    if (onProgress) {
+      await onProgress("🔄 devcontainer CLIを実行中...").catch(console.error);
+    }
 
     // stdoutの読み取り
     const stdoutPromise = (async () => {
@@ -226,7 +231,7 @@ export async function startDevcontainer(
                   lowercaseMessage.includes("success")
                 ) {
                   const now = Date.now();
-                  if (now - lastProgressUpdate > 1000) { // 1秒以上経過していれば更新
+                  if (now - lastProgressUpdate > 500) { // 0.5秒以上経過していれば更新（より頻繁に）
                     lastProgressUpdate = now;
                     if (onProgress) {
                       // 特定のイベントにアイコンを付与

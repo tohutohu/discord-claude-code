@@ -256,12 +256,18 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
     if (result === "devcontainer_start_with_progress") {
       // 初期メッセージを送信してメッセージIDを保持
       let progressMessage: Message | undefined;
-      if (interaction.channel && "send" in interaction.channel) {
-        progressMessage = await interaction.channel.send({
-          content: "🐳 devcontainerを起動しています...",
-          // @ts-ignore - Discord.js v14では flags: 4096 が正しいが型定義が不完全
-          flags: 4096, // SUPPRESS_NOTIFICATIONS flag
-        });
+      try {
+        // スレッドチャンネルでもsendメソッドが使えるように、より確実な方法で送信
+        const channel = interaction.channel;
+        if (channel && channel.isTextBased() && "send" in channel) {
+          progressMessage = await channel.send({
+            content: "🐳 devcontainerを起動しています...",
+            // @ts-ignore - Discord.js v14では flags: 4096 が正しいが型定義が不完全
+            flags: 4096, // SUPPRESS_NOTIFICATIONS flag
+          });
+        }
+      } catch (error) {
+        console.error("初期プログレスメッセージの送信に失敗:", error);
       }
 
       await interaction.editReply(
