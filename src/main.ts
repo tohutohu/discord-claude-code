@@ -390,12 +390,13 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         "📦 fallback devcontainerを起動しています...",
       );
 
-      let logs: string[] = [];
+      const logs: string[] = [];
       let lastUpdateTime = Date.now();
       const updateInterval = 1000; // 1秒
       const maxLogLines = 20;
 
       // タイマーIDを保存
+      // deno-lint-ignore prefer-const
       let timerId: number | undefined;
 
       // 定期的な更新処理
