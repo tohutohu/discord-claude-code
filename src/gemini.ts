@@ -11,7 +11,7 @@ export async function summarizeWithGemini(
 ): Promise<SummarizeResult> {
   try {
     const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-0130:generateContent?key=${apiKey}`;
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
     const prompt =
       `以下のテキストは、プログラミングに関する指示やタスクの説明です。
