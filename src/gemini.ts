@@ -43,7 +43,7 @@ ${text}`;
         temperature: 0.3,
         topK: 1,
         topP: 0.8,
-        maxOutputTokens: 100,
+        maxOutputTokens: 10000,
       },
     };
 
@@ -60,7 +60,7 @@ ${text}`;
       console.error("Gemini API error:", response.status, errorText);
       return {
         success: false,
-        error: `Gemini API error: ${response.status}`,
+        error: `Gemini API error: ${response.status}, ${errorText}`,
       };
     }
 
@@ -70,7 +70,7 @@ ${text}`;
     if (!summary) {
       return {
         success: false,
-        error: "No summary generated",
+        error: `No summary generated: ${JSON.stringify(data)}`,
       };
     }
 
