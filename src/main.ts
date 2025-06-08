@@ -779,35 +779,76 @@ client.on(Events.MessageCreate, async (message) => {
 
   // GEMINI_API_KEYが設定されていて、スレッド名が一時的なものの場合、最初のメッセージで名前を更新（非同期）
   if (env.GEMINI_API_KEY && thread.name.match(/^[\w-]+\/[\w-]+-\d+$/)) {
+    console.log(
+      `[ThreadRename] 開始: スレッドID=${threadId}, 現在の名前="${thread.name}"`,
+    );
+
     // スレッド名生成を非同期で実行（メッセージ処理をブロックしない）
     (async () => {
       try {
         // スレッド情報を取得
+        console.log(`[ThreadRename] スレッド情報を取得中...`);
         const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-        if (threadInfo && threadInfo.repositoryFullName) {
-          // Gemini APIで要約
-          const summarizeResult = await summarizeWithGemini(
-            env.GEMINI_API_KEY!, // 既にif文でチェック済み
-            message.content,
-            30, // 最大30文字
+
+        if (!threadInfo) {
+          console.log(
+            `[ThreadRename] スレッド情報が見つかりません: threadId=${threadId}`,
           );
-
-          if (summarizeResult.success && summarizeResult.summary) {
-            // スレッド名を生成
-            const newThreadName = generateThreadName(
-              summarizeResult.summary,
-              threadInfo.repositoryFullName,
-            );
-
-            // スレッド名を更新
-            await thread.setName(newThreadName);
-            console.log(
-              `スレッド名を更新しました: ${thread.name} -> ${newThreadName}`,
-            );
-          }
+          // スレッド情報がなくても続行（リポジトリ名なしで要約のみ使用）
+        } else if (threadInfo.repositoryFullName) {
+          console.log(
+            `[ThreadRename] リポジトリ名: ${threadInfo.repositoryFullName}`,
+          );
+        } else {
+          console.log(
+            `[ThreadRename] リポジトリ名が設定されていません。要約のみでスレッド名を生成します`,
+          );
         }
+
+        // Gemini APIで要約
+        console.log(
+          `[ThreadRename] Gemini APIで要約を生成中... メッセージ長=${message.content.length}`,
+        );
+        const summarizeResult = await summarizeWithGemini(
+          env.GEMINI_API_KEY!, // 既にif文でチェック済み
+          message.content,
+          30, // 最大30文字
+        );
+
+        if (!summarizeResult.success) {
+          console.log(
+            `[ThreadRename] Gemini API失敗: ${JSON.stringify(summarizeResult)}`,
+          );
+          return;
+        }
+
+        if (!summarizeResult.summary) {
+          console.log(`[ThreadRename] 要約が空です`);
+          return;
+        }
+
+        console.log(
+          `[ThreadRename] 要約生成成功: "${summarizeResult.summary}"`,
+        );
+
+        // スレッド名を生成
+        const newThreadName = generateThreadName(
+          summarizeResult.summary,
+          threadInfo?.repositoryFullName ?? undefined,
+        );
+
+        console.log(`[ThreadRename] 新しいスレッド名: "${newThreadName}"`);
+
+        // スレッド名を更新
+        console.log(`[ThreadRename] Discord APIでスレッド名を更新中...`);
+        await thread.setName(newThreadName);
+
+        console.log(
+          `[ThreadRename] 成功: "${thread.name}" -> "${newThreadName}"`,
+        );
       } catch (error) {
-        console.error("スレッド名の更新に失敗しました:", error);
+        console.error("[ThreadRename] エラー:", error);
+        console.error("[ThreadRename] エラースタック:", (error as Error).stack);
         // エラーが発生してもメッセージ処理には影響しない
       }
     })(); // 即時実行してawaitしない
