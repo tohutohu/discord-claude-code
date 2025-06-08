@@ -24,6 +24,7 @@ import {
   formatSystemCheckResults,
 } from "./system-check.ts";
 import { performGitUpdate } from "./git-update.ts";
+import { generateThreadName, summarizeWithGemini } from "./gemini.ts";
 
 // システム要件チェック
 console.log("システム要件をチェックしています...");
@@ -824,6 +825,43 @@ client.on(Events.MessageCreate, async (message) => {
   if (!message.channel.isThread()) return;
 
   const threadId = message.channel.id;
+  const thread = message.channel as ThreadChannel;
+
+  // GEMINI_API_KEYが設定されていて、スレッド名が一時的なものの場合、最初のメッセージで名前を更新（非同期）
+  if (env.GEMINI_API_KEY && thread.name.match(/^[\w-]+\/[\w-]+-\d+$/)) {
+    // スレッド名生成を非同期で実行（メッセージ処理をブロックしない）
+    (async () => {
+      try {
+        // スレッド情報を取得
+        const threadInfo = await workspaceManager.loadThreadInfo(threadId);
+        if (threadInfo && threadInfo.repositoryFullName) {
+          // Gemini APIで要約
+          const summarizeResult = await summarizeWithGemini(
+            env.GEMINI_API_KEY!, // 既にif文でチェック済み
+            message.content,
+            30, // 最大30文字
+          );
+
+          if (summarizeResult.success && summarizeResult.summary) {
+            // スレッド名を生成
+            const newThreadName = generateThreadName(
+              summarizeResult.summary,
+              threadInfo.repositoryFullName,
+            );
+
+            // スレッド名を更新
+            await thread.setName(newThreadName);
+            console.log(
+              `スレッド名を更新しました: ${thread.name} -> ${newThreadName}`,
+            );
+          }
+        }
+      } catch (error) {
+        console.error("スレッド名の更新に失敗しました:", error);
+        // エラーが発生してもメッセージ処理には影響しない
+      }
+    })(); // 即時実行してawaitしない
+  }
 
   // /configコマンドの処理
   if (message.content.startsWith("/config devcontainer ")) {
