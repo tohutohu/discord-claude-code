@@ -581,11 +581,6 @@ export class Admin implements IAdmin {
     threadId: string,
     customId: string,
   ): Promise<string> {
-    if (customId === `terminate_${threadId}`) {
-      await this.terminateThread(threadId);
-      return "スレッドを終了しました。worktreeも削除されました。";
-    }
-
     // devcontainer関連のボタン処理
     if (customId.startsWith(`devcontainer_yes_${threadId}`)) {
       return await this.handleDevcontainerYesButton(threadId);
@@ -920,23 +915,11 @@ export class Admin implements IAdmin {
     }
   }
 
-  createInitialMessage(threadId: string): DiscordMessage {
+  createInitialMessage(_threadId: string): DiscordMessage {
     return {
       content:
-        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. Claude実行環境の準備\n\n終了する場合は下のボタンを押してください。",
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 4,
-              label: "スレッドを終了",
-              custom_id: `terminate_${threadId}`,
-            },
-          ],
-        },
-      ],
+        "Claude Code Bot スレッドが開始されました。\n\n/start コマンドでリポジトリを指定してください。\n\n**リポジトリ設定後の流れ:**\n1. devcontainer.jsonの存在確認\n2. devcontainer利用の可否選択\n3. Claude実行環境の準備",
+      components: [],
     };
   }
 

@@ -80,6 +80,10 @@ WORK_BASE_DIR/
   Claude実行時に追加するシステムプロンプト（オプション）
   - Claude CLIの`--append-system-prompt`オプションに渡される
   - 既存のシステムプロンプトに追加の指示を与えたい場合に使用
+- `GEMINI_API_KEY`: Google Gemini APIキー（オプション）
+  - 設定されている場合、最初のユーザーメッセージを要約してスレッド名を自動生成
+  - スレッド名のフォーマット: `${指示の要約}(${リポジトリ名})`
+  - Discordのスレッド一覧で見やすくなるよう最大30文字に制限
 
 ## 主要モジュール
 
@@ -105,6 +109,12 @@ WORK_BASE_DIR/
 - GitRepository: リポジトリ情報の型定義
 - parseRepository: リポジトリ名のパース
 - ensureRepository: リポジトリのクローン・更新（WorkspaceManager対応）
+
+### src/gemini.ts
+
+- summarizeWithGemini: Gemini APIを使用してテキストを要約
+- generateThreadName: 要約とリポジトリ名からスレッド名を生成
+- 最初のユーザーメッセージを基にDiscordスレッド名を自動生成
 
 ## テストコマンド
 

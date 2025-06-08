@@ -24,6 +24,7 @@ import {
   formatSystemCheckResults,
 } from "./system-check.ts";
 import { performGitUpdate } from "./git-update.ts";
+import { generateThreadName, summarizeWithGemini } from "./gemini.ts";
 
 // システム要件チェック
 console.log("システム要件をチェックしています...");
@@ -250,20 +251,6 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       threadId,
       interaction.customId,
     );
-
-    // スレッド終了ボタンが押された場合は元のメッセージからボタンを削除
-    if (interaction.customId === `terminate_${threadId}`) {
-      try {
-        await interaction.message.edit({
-          content: interaction.message.content,
-          components: [], // ボタンを削除
-        });
-      } catch (error) {
-        console.error("ボタン削除エラー:", error);
-      }
-      await interaction.editReply(result);
-      return;
-    }
 
     // devcontainerの起動処理を特別扱い
     if (result === "devcontainer_start_with_progress") {
@@ -763,55 +750,19 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
   }
 }
 
-// リアクションの処理
-client.on(Events.MessageReactionAdd, async (reaction, user) => {
-  // Bot自身のリアクションは無視
-  if (user.bot) return;
+// スレッドアーカイブイベントの処理
+client.on(Events.ThreadUpdate, async (oldThread, newThread) => {
+  // アーカイブ状態が変更された場合のみ処理
+  if (!oldThread.archived && newThread.archived) {
+    console.log(`スレッド ${newThread.id} がアーカイブされました`);
 
-  // スレッド内のメッセージのみ処理
-  if (!reaction.message.channel.isThread()) return;
-
-  // partial messageの場合は完全に取得
-  if (reaction.message.partial) {
     try {
-      await reaction.message.fetch();
+      // Workerの終了処理
+      await admin.terminateThread(newThread.id);
+      console.log(`スレッド ${newThread.id} のWorkerとworktreeを削除しました`);
     } catch (error) {
-      console.error("メッセージの取得に失敗:", error);
-      return;
+      console.error(`スレッド ${newThread.id} の終了処理でエラー:`, error);
     }
-  }
-
-  // Bot自身のメッセージかチェック
-  if (!reaction.message.author?.bot) return;
-
-  // endリアクションかチェック（絵文字の名前で判定）
-  if (reaction.emoji.name !== "🔚" && reaction.emoji.name !== "end") return;
-
-  // メッセージ内容にresultが含まれているかチェック
-  if (!reaction.message.content?.includes("**最終結果:**")) return;
-
-  const threadId = reaction.message.channel.id;
-
-  try {
-    // 終了ボタン付きメッセージを投稿
-    await reaction.message.channel.send({
-      content: "このスレッドを終了してアーカイブしますか？",
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 4,
-              label: "スレッドを終了",
-              custom_id: `terminate_${threadId}`,
-            },
-          ],
-        },
-      ],
-    });
-  } catch (error) {
-    console.error("終了ボタンメッセージの送信に失敗:", error);
   }
 });
 
@@ -824,6 +775,43 @@ client.on(Events.MessageCreate, async (message) => {
   if (!message.channel.isThread()) return;
 
   const threadId = message.channel.id;
+  const thread = message.channel as ThreadChannel;
+
+  // GEMINI_API_KEYが設定されていて、スレッド名が一時的なものの場合、最初のメッセージで名前を更新（非同期）
+  if (env.GEMINI_API_KEY && thread.name.match(/^[\w-]+\/[\w-]+-\d+$/)) {
+    // スレッド名生成を非同期で実行（メッセージ処理をブロックしない）
+    (async () => {
+      try {
+        // スレッド情報を取得
+        const threadInfo = await workspaceManager.loadThreadInfo(threadId);
+        if (threadInfo && threadInfo.repositoryFullName) {
+          // Gemini APIで要約
+          const summarizeResult = await summarizeWithGemini(
+            env.GEMINI_API_KEY!, // 既にif文でチェック済み
+            message.content,
+            30, // 最大30文字
+          );
+
+          if (summarizeResult.success && summarizeResult.summary) {
+            // スレッド名を生成
+            const newThreadName = generateThreadName(
+              summarizeResult.summary,
+              threadInfo.repositoryFullName,
+            );
+
+            // スレッド名を更新
+            await thread.setName(newThreadName);
+            console.log(
+              `スレッド名を更新しました: ${thread.name} -> ${newThreadName}`,
+            );
+          }
+        }
+      } catch (error) {
+        console.error("スレッド名の更新に失敗しました:", error);
+        // エラーが発生してもメッセージ処理には影響しない
+      }
+    })(); // 即時実行してawaitしない
+  }
 
   // /configコマンドの処理
   if (message.content.startsWith("/config devcontainer ")) {
