@@ -10,14 +10,25 @@ export interface UpdateResult {
 
 /**
  * Gitリポジトリの安全な更新を実行する
+ * @param options - オプション設定
+ * @param options.skipActualUpdate - 実際のGit操作をスキップするかどうか（テスト用）
  */
-export async function performGitUpdate(): Promise<UpdateResult> {
+export async function performGitUpdate(
+  options: { skipActualUpdate?: boolean } = {},
+): Promise<UpdateResult> {
   const result: UpdateResult = {
     success: false,
     message: "",
   };
 
   try {
+    // テスト用オプションが指定されている場合は実際のgit操作をスキップ
+    if (options.skipActualUpdate) {
+      result.success = true;
+      result.message = "テスト実行中のため、実際のgit更新はスキップされました";
+      return result;
+    }
+
     // 1. 現在の状態を確認
     const statusResult = await exec("git status --porcelain");
     const hasLocalChanges = statusResult.output.trim().length > 0;
