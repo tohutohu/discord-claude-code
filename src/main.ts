@@ -251,20 +251,6 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
       interaction.customId,
     );
 
-    // スレッド終了ボタンが押された場合は元のメッセージからボタンを削除
-    if (interaction.customId === `terminate_${threadId}`) {
-      try {
-        await interaction.message.edit({
-          content: interaction.message.content,
-          components: [], // ボタンを削除
-        });
-      } catch (error) {
-        console.error("ボタン削除エラー:", error);
-      }
-      await interaction.editReply(result);
-      return;
-    }
-
     // devcontainerの起動処理を特別扱い
     if (result === "devcontainer_start_with_progress") {
       // 初期メッセージを送信してメッセージIDを保持
@@ -763,55 +749,19 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
   }
 }
 
-// リアクションの処理
-client.on(Events.MessageReactionAdd, async (reaction, user) => {
-  // Bot自身のリアクションは無視
-  if (user.bot) return;
+// スレッドアーカイブイベントの処理
+client.on(Events.ThreadUpdate, async (oldThread, newThread) => {
+  // アーカイブ状態が変更された場合のみ処理
+  if (!oldThread.archived && newThread.archived) {
+    console.log(`スレッド ${newThread.id} がアーカイブされました`);
 
-  // スレッド内のメッセージのみ処理
-  if (!reaction.message.channel.isThread()) return;
-
-  // partial messageの場合は完全に取得
-  if (reaction.message.partial) {
     try {
-      await reaction.message.fetch();
+      // Workerの終了処理
+      await admin.terminateThread(newThread.id);
+      console.log(`スレッド ${newThread.id} のWorkerとworktreeを削除しました`);
     } catch (error) {
-      console.error("メッセージの取得に失敗:", error);
-      return;
+      console.error(`スレッド ${newThread.id} の終了処理でエラー:`, error);
     }
-  }
-
-  // Bot自身のメッセージかチェック
-  if (!reaction.message.author?.bot) return;
-
-  // endリアクションかチェック（絵文字の名前で判定）
-  if (reaction.emoji.name !== "🔚" && reaction.emoji.name !== "end") return;
-
-  // メッセージ内容にresultが含まれているかチェック
-  if (!reaction.message.content?.includes("**最終結果:**")) return;
-
-  const threadId = reaction.message.channel.id;
-
-  try {
-    // 終了ボタン付きメッセージを投稿
-    await reaction.message.channel.send({
-      content: "このスレッドを終了してアーカイブしますか？",
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 4,
-              label: "スレッドを終了",
-              custom_id: `terminate_${threadId}`,
-            },
-          ],
-        },
-      ],
-    });
-  } catch (error) {
-    console.error("終了ボタンメッセージの送信に失敗:", error);
   }
 });
 
