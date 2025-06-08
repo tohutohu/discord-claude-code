@@ -153,6 +153,7 @@ export interface ClaudeCommandExecutor {
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
+    signal?: AbortSignal,
   ): Promise<{ code: number; stderr: Uint8Array }>;
 }
 
@@ -167,6 +168,7 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
+    signal?: AbortSignal,
   ): Promise<{ code: number; stderr: Uint8Array }> {
     // VERBOSEモードでコマンド詳細ログ
     if (this.verbose) {
@@ -184,6 +186,7 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
       cwd,
       stdout: "piped",
       stderr: "piped",
+      signal,
     });
 
     const process = command.spawn();
@@ -228,6 +231,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    signal?: AbortSignal,
   ): Promise<{ code: number; stderr: Uint8Array }> {
     const argsWithDefaults = [
       "exec",
@@ -266,6 +270,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
       stderr: "piped",
       cwd: this.repositoryPath,
       env,
+      signal,
     });
 
     const process = devcontainerCommand.spawn();
@@ -317,6 +322,9 @@ export class Worker implements IWorker {
   private devcontainerChoiceMade: boolean = false;
   private appendSystemPrompt?: string;
   private useFallbackDevcontainer: boolean = false;
+  // Claude実行の中断制御
+  private currentAbortController: AbortController | null = null;
+  private isExecuting: boolean = false;
 
   constructor(
     name: string,
@@ -619,11 +627,36 @@ export class Worker implements IWorker {
       }
     };
 
-    const { code, stderr } = await this.claudeExecutor.executeStreaming(
-      args,
-      this.worktreePath!,
-      onData,
-    );
+    // 実行状態を設定
+    this.currentAbortController = new AbortController();
+    this.isExecuting = true;
+
+    let code: number;
+    let stderr: Uint8Array;
+
+    try {
+      const result = await this.claudeExecutor.executeStreaming(
+        args,
+        this.worktreePath!,
+        onData,
+        this.currentAbortController.signal,
+      );
+      code = result.code;
+      stderr = result.stderr;
+    } catch (error) {
+      // 中断エラーの場合は特別な処理
+      if (
+        error instanceof Deno.errors.Interrupted ||
+        (error as Error).name === "AbortError"
+      ) {
+        throw new Error("ユーザーにより中断されました");
+      }
+      throw error;
+    } finally {
+      // 実行状態をリセット
+      this.isExecuting = false;
+      this.currentAbortController = null;
+    }
 
     this.logVerbose("ストリーミング実行完了", {
       exitCode: code,
@@ -1551,6 +1584,23 @@ export class Worker implements IWorker {
       await this.workspaceManager.saveSessionLog(sessionLog);
     } catch (error) {
       console.error("セッションログの保存に失敗しました:", error);
+    }
+  }
+
+  /**
+   * 現在Claude実行中かどうかを確認
+   */
+  isClaudeExecuting(): boolean {
+    return this.isExecuting;
+  }
+
+  /**
+   * 実行中のClaudeプロセスを中断
+   */
+  abortClaude(): void {
+    if (this.currentAbortController && this.isExecuting) {
+      this.logVerbose("Claude実行を中断します");
+      this.currentAbortController.abort();
     }
   }
 }
