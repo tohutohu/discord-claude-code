@@ -609,12 +609,6 @@ export class Admin implements IAdmin {
       return await this.handleFallbackDevcontainerButton(threadId);
     }
 
-    // 終了ボタン処理
-    if (customId.startsWith(`terminate_${threadId}`)) {
-      await this.terminateThread(threadId);
-      return "スレッドを終了しました。worktreeも削除されました。";
-    }
-
     return "未知のボタンが押されました。";
   }
 

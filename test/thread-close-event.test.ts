@@ -1,5 +1,5 @@
-import { assertEquals } from "https://deno.land/std@0.217.0/testing/asserts.ts";
-import { describe, it } from "https://deno.land/std@0.217.0/testing/bdd.ts";
+import { assertEquals } from "https://deno.land/std@0.224.0/testing/asserts.ts";
+import { describe, it } from "https://deno.land/std@0.224.0/testing/bdd.ts";
 
 // テスト用の型定義
 interface MockThread {
