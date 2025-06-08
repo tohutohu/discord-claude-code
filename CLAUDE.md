@@ -117,6 +117,13 @@ deno task fmt     # フォーマット
 deno task lint    # lint
 deno task check   # 型チェック
 deno test --allow-read --allow-write --allow-env --allow-run  # テストのみ
+
+# トークン節約版（エラー時のみ詳細出力）
+deno task test:quiet    # テスト実行（quiet版）
+deno task fmt:quiet     # フォーマット（quiet版）
+deno task lint:quiet    # lint（quiet版）
+deno task check:quiet   # 型チェック（quiet版）
+deno task test:all:quiet  # 全チェック（quiet版）
 ```
 
 ## データ永続化機能
@@ -135,6 +142,8 @@ deno test --allow-read --allow-write --allow-env --allow-run  # テストのみ
 - 最小単位ごとに `deno check`, `deno test`, `deno lint`, `deno fmt`
   を実行して成功することを確認してから先に進む
   - testやlintの修正の中でフォーマットに合わないようになることがあるので必ずこの順番で確認を行う
+  - **agent codingでは`deno task check:quiet`, `deno task test:quiet`,
+    `deno task lint:quiet`, `deno task fmt:quiet`を使用してトークンを節約する**
 - any型やlintの無視をしない
 - 指示された作業が終わるごとにコミットする
 
