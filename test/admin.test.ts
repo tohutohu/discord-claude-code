@@ -197,7 +197,13 @@ Deno.test("Admin - devcontainer.jsonが存在しない場合の設定確認", as
     true,
   );
   assertEquals(Array.isArray(result.components), true);
-  assertEquals(result.message.includes("--dangerously-skip-permissions"), true);
+
+  // devcontainer CLIの有無によってメッセージが変わるため、どちらかの条件を満たすことを確認
+  const hasPermissionsOption = result.message.includes(
+    "--dangerously-skip-permissions",
+  );
+  const hasFallbackOption = result.message.includes("fallback devcontainer");
+  assertEquals(hasPermissionsOption || hasFallbackOption, true);
 
   // クリーンアップ
   await Deno.remove(testRepoDir, { recursive: true });
