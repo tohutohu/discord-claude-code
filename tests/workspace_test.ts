@@ -1,11 +1,6 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
-import {
-  AuditEntry,
-  SessionLog,
-  ThreadInfo,
-  WorkspaceManager,
-} from "../src/workspace.ts";
+import { AuditEntry, ThreadInfo, WorkspaceManager } from "../src/workspace.ts";
 
 const testDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
 
@@ -30,7 +25,6 @@ Deno.test("スレッド情報を保存・読み込みできる", async () => {
     createdAt: "2024-01-01T00:00:00.000Z",
     lastActiveAt: "2024-01-01T01:00:00.000Z",
     status: "active",
-    devcontainerConfig: null,
   };
 
   // 保存
@@ -64,7 +58,6 @@ Deno.test("スレッドの最終アクティブ時刻を更新できる", async 
     createdAt: "2024-01-01T00:00:00.000Z",
     lastActiveAt: "2024-01-01T00:00:00.000Z",
     status: "active",
-    devcontainerConfig: null,
   };
 
   await workspace.saveThreadInfo(threadInfo);
@@ -76,71 +69,6 @@ Deno.test("スレッドの最終アクティブ時刻を更新できる", async 
   const updated = await workspace.loadThreadInfo("test-thread-002");
   assertExists(updated);
   assertEquals(updated.lastActiveAt !== threadInfo.lastActiveAt, true);
-});
-
-Deno.test("セッションログを保存・読み込みできる", async () => {
-  const workspace = new WorkspaceManager(testDir);
-  await workspace.initialize();
-
-  const sessionLog: SessionLog = {
-    sessionId: "session-001",
-    threadId: "thread-001",
-    timestamp: "2024-01-01T00:00:00.000Z",
-    type: "command",
-    content: "テストコマンド",
-    metadata: { test: true },
-  };
-
-  // 保存
-  await workspace.saveSessionLog(sessionLog);
-
-  // 読み込み
-  const logs = await workspace.loadSessionLogs("thread-001");
-  assertEquals(logs.length, 1);
-  assertEquals(logs[0].sessionId, sessionLog.sessionId);
-  assertEquals(logs[0].type, sessionLog.type);
-  assertEquals(logs[0].content, sessionLog.content);
-});
-
-Deno.test("複数のセッションログを時系列順で読み込める", async () => {
-  const workspace = new WorkspaceManager(testDir);
-  await workspace.initialize();
-
-  const logs = [
-    {
-      sessionId: "session-002",
-      threadId: "thread-002",
-      timestamp: "2024-01-01T02:00:00.000Z",
-      type: "response" as const,
-      content: "レスポンス2",
-    },
-    {
-      sessionId: "session-001",
-      threadId: "thread-002",
-      timestamp: "2024-01-01T01:00:00.000Z",
-      type: "command" as const,
-      content: "コマンド1",
-    },
-    {
-      sessionId: "session-003",
-      threadId: "thread-002",
-      timestamp: "2024-01-01T03:00:00.000Z",
-      type: "error" as const,
-      content: "エラー3",
-    },
-  ];
-
-  // 順序をわざと入れ替えて保存
-  for (const log of logs) {
-    await workspace.saveSessionLog(log);
-  }
-
-  // 読み込み（時系列順になっているかチェック）
-  const loaded = await workspace.loadSessionLogs("thread-002");
-  assertEquals(loaded.length, 3);
-  assertEquals(loaded[0].content, "コマンド1");
-  assertEquals(loaded[1].content, "レスポンス2");
-  assertEquals(loaded[2].content, "エラー3");
 });
 
 Deno.test("監査ログを追記できる", async () => {
@@ -195,7 +123,6 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
       createdAt: "2024-01-01T00:00:00.000Z",
       lastActiveAt: "2024-01-01T01:00:00.000Z",
       status: "inactive",
-      devcontainerConfig: null,
     },
     {
       threadId: "thread-new",
@@ -205,7 +132,6 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
       createdAt: "2024-01-01T00:00:00.000Z",
       lastActiveAt: "2024-01-01T03:00:00.000Z",
       status: "active",
-      devcontainerConfig: null,
     },
     {
       threadId: "thread-mid",
@@ -215,7 +141,6 @@ Deno.test("すべてのスレッド情報を最終アクティブ時刻順で取
       createdAt: "2024-01-01T00:00:00.000Z",
       lastActiveAt: "2024-01-01T02:00:00.000Z",
       status: "active",
-      devcontainerConfig: null,
     },
   ];
 

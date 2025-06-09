@@ -4,6 +4,7 @@ import {
   AuditEntry,
   QueuedMessage,
   ThreadInfo,
+  WorkerState,
   WorkspaceManager,
 } from "./workspace.ts";
 import {
@@ -97,26 +98,46 @@ export class Admin implements IAdmin {
     this.logVerbose("アクティブスレッド復旧開始");
 
     try {
-      const allThreadInfos = await this.workspaceManager.getAllThreadInfos();
-      const activeThreads = allThreadInfos.filter(
-        (thread) => thread.status === "active",
-      );
+      // アクティブスレッドリストを読み込む
+      const adminState = await this.workspaceManager.loadAdminState();
+      if (!adminState || adminState.activeThreadIds.length === 0) {
+        this.logVerbose("アクティブスレッドリストが空または存在しない");
+        return;
+      }
 
       this.logVerbose("復旧対象スレッド発見", {
-        totalThreads: allThreadInfos.length,
-        activeThreads: activeThreads.length,
+        activeThreadCount: adminState.activeThreadIds.length,
+        threadIds: adminState.activeThreadIds,
       });
 
-      for (const threadInfo of activeThreads) {
+      for (const threadId of adminState.activeThreadIds) {
         try {
+          // スレッド情報を読み込む
+          const threadInfo = await this.workspaceManager.loadThreadInfo(
+            threadId,
+          );
+          if (!threadInfo) {
+            this.logVerbose("スレッド情報が見つからない", { threadId });
+            // アクティブリストから削除
+            await this.workspaceManager.removeActiveThread(threadId);
+            continue;
+          }
+
+          // アーカイブ済みの場合はスキップ
+          if (threadInfo.status === "archived") {
+            this.logVerbose("アーカイブ済みスレッドをスキップ", { threadId });
+            await this.workspaceManager.removeActiveThread(threadId);
+            continue;
+          }
+
           await this.restoreThread(threadInfo);
         } catch (error) {
           this.logVerbose("スレッド復旧失敗", {
-            threadId: threadInfo.threadId,
+            threadId,
             error: (error as Error).message,
           });
           console.error(
-            `スレッド ${threadInfo.threadId} の復旧に失敗しました:`,
+            `スレッド ${threadId} の復旧に失敗しました:`,
             error,
           );
         }
@@ -145,7 +166,6 @@ export class Admin implements IAdmin {
     this.logVerbose("スレッド復旧開始", {
       threadId,
       repositoryFullName: threadInfo.repositoryFullName,
-      hasDevcontainerConfig: !!threadInfo.devcontainerConfig,
     });
 
     // worktreeとディレクトリの存在確認
@@ -160,7 +180,7 @@ export class Admin implements IAdmin {
               worktreePath: threadInfo.worktreePath,
             },
           );
-          await this.archiveThread(threadInfo);
+          await this.archiveThread(threadId);
           return;
         }
       } catch (error) {
@@ -169,7 +189,7 @@ export class Admin implements IAdmin {
             threadId,
             worktreePath: threadInfo.worktreePath,
           });
-          await this.archiveThread(threadInfo);
+          await this.archiveThread(threadId);
           return;
         }
         throw error;
@@ -197,7 +217,7 @@ export class Admin implements IAdmin {
                   worktreePath: threadInfo.worktreePath,
                 },
               );
-              await this.archiveThread(threadInfo);
+              await this.archiveThread(threadId);
               return;
             }
           }
@@ -210,107 +230,157 @@ export class Admin implements IAdmin {
       }
     }
 
-    // Workerを作成（ただし既存のWorker作成ロジックをスキップして直接作成）
-    const workerName = generateWorkerName();
-    const worker = new Worker(
-      workerName,
-      this.workspaceManager,
-      undefined,
-      this.verbose,
-      this.appendSystemPrompt,
-      this.translatorUrl,
-    );
-    worker.setThreadId(threadId);
+    // WorkerStateを読み込む
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
 
-    // devcontainer設定を復旧
-    if (threadInfo.devcontainerConfig) {
-      const config = threadInfo.devcontainerConfig;
-      worker.setUseDevcontainer(config.useDevcontainer);
-
-      this.logVerbose("devcontainer設定復旧", {
+    if (workerState) {
+      // 既存のWorkerStateから復元
+      this.logVerbose("WorkerStateから復元", {
         threadId,
-        useDevcontainer: config.useDevcontainer,
-        hasContainerId: !!config.containerId,
-        isStarted: config.isStarted,
+        workerName: workerState.workerName,
+        hasRepository: !!workerState.repository,
       });
-    }
 
-    // リポジトリ情報を復旧
-    if (
-      threadInfo.repositoryFullName && threadInfo.repositoryLocalPath &&
-      threadInfo.worktreePath
-    ) {
-      try {
-        // リポジトリ情報を再構築
-        const { parseRepository } = await import("./git-utils.ts");
-        const repository = parseRepository(threadInfo.repositoryFullName);
+      const worker = new Worker(
+        workerState.workerName,
+        this.workspaceManager,
+        undefined,
+        this.verbose,
+        this.appendSystemPrompt,
+        this.translatorUrl,
+      );
 
-        if (repository) {
-          await worker.setRepository(
-            repository,
-            threadInfo.repositoryLocalPath,
-          );
-          this.logVerbose("リポジトリ情報復旧完了", {
+      // WorkerStateから復元
+      await worker.restoreFromState(workerState);
+
+      // Workerを管理Mapに追加
+      this.workers.set(threadId, worker);
+
+      // 最終アクティブ時刻を更新
+      await this.workspaceManager.updateThreadLastActive(threadId);
+
+      // 監査ログに記録
+      await this.logAuditEntry(threadId, "thread_restored", {
+        workerName: workerState.workerName,
+        repositoryFullName: workerState.repository?.fullName,
+        fromWorkerState: true,
+      });
+
+      this.logVerbose("スレッド復旧完了（WorkerStateから）", {
+        threadId,
+        workerName: workerState.workerName,
+        hasRepository: !!worker.getRepository(),
+      });
+    } else {
+      // WorkerStateがない場合は従来の方法で復元
+      this.logVerbose("WorkerStateが見つからない、ThreadInfoから復元", {
+        threadId,
+      });
+
+      const workerName = generateWorkerName();
+      const worker = new Worker(
+        workerName,
+        this.workspaceManager,
+        undefined,
+        this.verbose,
+        this.appendSystemPrompt,
+        this.translatorUrl,
+      );
+      worker.setThreadId(threadId);
+
+      // devcontainer設定はWorkerStateで管理されるようになった
+
+      // リポジトリ情報を復旧
+      if (
+        threadInfo.repositoryFullName && threadInfo.repositoryLocalPath &&
+        threadInfo.worktreePath
+      ) {
+        try {
+          // リポジトリ情報を再構築
+          const { parseRepository } = await import("./git-utils.ts");
+          const repository = parseRepository(threadInfo.repositoryFullName);
+
+          if (repository) {
+            await worker.setRepository(
+              repository,
+              threadInfo.repositoryLocalPath,
+            );
+            this.logVerbose("リポジトリ情報復旧完了", {
+              threadId,
+              repositoryFullName: threadInfo.repositoryFullName,
+              worktreePath: threadInfo.worktreePath,
+            });
+          }
+        } catch (error) {
+          this.logVerbose("リポジトリ情報復旧失敗", {
             threadId,
             repositoryFullName: threadInfo.repositoryFullName,
-            worktreePath: threadInfo.worktreePath,
+            error: (error as Error).message,
           });
+          console.warn(
+            `スレッド ${threadId} のリポジトリ情報復旧に失敗しました:`,
+            error,
+          );
         }
-      } catch (error) {
-        this.logVerbose("リポジトリ情報復旧失敗", {
-          threadId,
-          repositoryFullName: threadInfo.repositoryFullName,
-          error: (error as Error).message,
-        });
-        console.warn(
-          `スレッド ${threadId} のリポジトリ情報復旧に失敗しました:`,
-          error,
-        );
       }
+
+      // Workerを管理Mapに追加
+      this.workers.set(threadId, worker);
+
+      // 最終アクティブ時刻を更新
+      await this.workspaceManager.updateThreadLastActive(threadId);
+
+      // 監査ログに記録
+      await this.logAuditEntry(threadId, "thread_restored", {
+        workerName,
+        repositoryFullName: threadInfo.repositoryFullName,
+        fromWorkerState: false,
+      });
+
+      this.logVerbose("スレッド復旧完了（ThreadInfoから）", {
+        threadId,
+        workerName,
+        hasRepository: !!worker.getRepository(),
+      });
     }
-
-    // Workerを管理Mapに追加
-    this.workers.set(threadId, worker);
-
-    // 最終アクティブ時刻を更新
-    await this.workspaceManager.updateThreadLastActive(threadId);
-
-    // 監査ログに記録
-    await this.logAuditEntry(threadId, "thread_restored", {
-      workerName,
-      repositoryFullName: threadInfo.repositoryFullName,
-      hasDevcontainerConfig: !!threadInfo.devcontainerConfig,
-    });
-
-    this.logVerbose("スレッド復旧完了", {
-      threadId,
-      workerName,
-      hasRepository: !!worker.getRepository(),
-    });
   }
 
   /**
    * スレッドをアーカイブ状態にする
    */
-  private async archiveThread(threadInfo: ThreadInfo): Promise<void> {
-    threadInfo.status = "archived";
-    threadInfo.lastActiveAt = new Date().toISOString();
-    await this.workspaceManager.saveThreadInfo(threadInfo);
+  private async archiveThread(threadId: string): Promise<void> {
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    if (workerState) {
+      workerState.status = "archived";
+      workerState.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveWorkerState(workerState);
 
-    await this.logAuditEntry(
-      threadInfo.threadId,
-      "thread_archived_on_restore",
-      {
-        repositoryFullName: threadInfo.repositoryFullName,
-        worktreePath: threadInfo.worktreePath,
-        reason: "worktree_not_found",
-      },
-    );
+      await this.logAuditEntry(
+        threadId,
+        "thread_archived_on_restore",
+        {
+          repositoryFullName: workerState.repository?.fullName,
+          worktreePath: workerState.worktreePath,
+          reason: "worktree_not_found",
+        },
+      );
 
-    this.logVerbose("スレッドをアーカイブ状態に変更", {
-      threadId: threadInfo.threadId,
-      repositoryFullName: threadInfo.repositoryFullName,
-    });
+      this.logVerbose("スレッドをアーカイブ状態に変更", {
+        threadId,
+        repositoryFullName: workerState.repository?.fullName,
+      });
+    }
+
+    // ThreadInfoもアーカイブ状態に更新
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+    if (threadInfo) {
+      threadInfo.status = "archived";
+      threadInfo.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveThreadInfo(threadInfo);
+    }
+
+    // アクティブスレッドリストからも削除
+    await this.workspaceManager.removeActiveThread(threadId);
   }
 
   /**
@@ -332,19 +402,19 @@ export class Admin implements IAdmin {
   }
 
   /**
-   * レートリミット情報をスレッド情報に保存する
+   * レートリミット情報をWorker状態に保存する
    */
   private async saveRateLimitInfo(
     threadId: string,
     timestamp: number,
   ): Promise<void> {
     try {
-      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-      if (threadInfo) {
-        threadInfo.rateLimitTimestamp = timestamp;
-        threadInfo.lastActiveAt = new Date().toISOString();
-        threadInfo.autoResumeAfterRateLimit = true; // 自動的に自動再開を有効にする
-        await this.workspaceManager.saveThreadInfo(threadInfo);
+      const workerState = await this.workspaceManager.loadWorkerState(threadId);
+      if (workerState) {
+        workerState.rateLimitTimestamp = timestamp;
+        workerState.lastActiveAt = new Date().toISOString();
+        workerState.autoResumeAfterRateLimit = true; // 自動的に自動再開を有効にする
+        await this.workspaceManager.saveWorkerState(workerState);
 
         // タイマーを設定
         this.scheduleAutoResume(threadId, timestamp);
@@ -424,7 +494,15 @@ export class Admin implements IAdmin {
       totalWorkerCount: this.workers.size,
     });
 
-    // スレッド情報を永続化
+    // アクティブスレッドリストに追加
+    await this.workspaceManager.addActiveThread(threadId);
+    this.logVerbose("アクティブスレッドリストに追加完了", { threadId });
+
+    // Worker状態を保存（statusを含む）
+    await worker.saveState();
+    this.logVerbose("Worker状態保存完了", { threadId });
+
+    // ThreadInfoも作成・保存
     const threadInfo: ThreadInfo = {
       threadId,
       repositoryFullName: null,
@@ -433,11 +511,9 @@ export class Admin implements IAdmin {
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active",
-      devcontainerConfig: null,
     };
-
     await this.workspaceManager.saveThreadInfo(threadInfo);
-    this.logVerbose("スレッド情報永続化完了", { threadId });
+    this.logVerbose("ThreadInfo保存完了", { threadId });
 
     // 監査ログに記録
     await this.logAuditEntry(threadId, "worker_created", {
@@ -501,8 +577,8 @@ export class Admin implements IAdmin {
     }
 
     // レートリミット中か確認
-    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-    if (threadInfo?.rateLimitTimestamp && messageId && authorId) {
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    if (workerState?.rateLimitTimestamp && messageId && authorId) {
       // レートリミット中のメッセージをキューに追加
       const queuedMessage: QueuedMessage = {
         messageId,
@@ -510,14 +586,17 @@ export class Admin implements IAdmin {
         timestamp: Date.now(),
         authorId,
       };
-      await this.workspaceManager.addMessageToQueue(threadId, queuedMessage);
+
+      if (!workerState.queuedMessages) {
+        workerState.queuedMessages = [];
+      }
+      workerState.queuedMessages.push(queuedMessage);
+      await this.workspaceManager.saveWorkerState(workerState);
 
       this.logVerbose("メッセージをキューに追加", {
         threadId,
         messageId,
-        queueLength:
-          (await this.workspaceManager.loadMessageQueue(threadId))?.messages
-            .length || 0,
+        queueLength: workerState.queuedMessages.length,
       });
 
       return "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。";
@@ -539,9 +618,10 @@ export class Admin implements IAdmin {
       repositoryFullName: worker.getRepository()?.fullName,
     });
 
-    // スレッドの最終アクティブ時刻を更新
-    await this.workspaceManager.updateThreadLastActive(threadId);
-    this.logVerbose("スレッド最終アクティブ時刻を更新", { threadId });
+    // 最終アクティブ時刻はWorkerのsaveStateで更新される
+    this.logVerbose("Worker処理に委譲（最終アクティブ時刻は自動更新）", {
+      threadId,
+    });
 
     // 監査ログに記録
     await this.logAuditEntry(threadId, "message_received", {
@@ -626,22 +706,22 @@ export class Admin implements IAdmin {
     autoResume: boolean,
   ): Promise<string> {
     try {
-      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-      if (!threadInfo || !threadInfo.rateLimitTimestamp) {
+      const workerState = await this.workspaceManager.loadWorkerState(threadId);
+      if (!workerState || !workerState.rateLimitTimestamp) {
         return "レートリミット情報が見つかりません。";
       }
 
       if (autoResume) {
         // 自動継続を設定
-        threadInfo.autoResumeAfterRateLimit = true;
-        await this.workspaceManager.saveThreadInfo(threadInfo);
+        workerState.autoResumeAfterRateLimit = true;
+        await this.workspaceManager.saveWorkerState(workerState);
 
         await this.logAuditEntry(threadId, "rate_limit_auto_resume_enabled", {
-          timestamp: threadInfo.rateLimitTimestamp,
+          timestamp: workerState.rateLimitTimestamp,
         });
 
         const resumeTime = new Date(
-          threadInfo.rateLimitTimestamp * 1000 + 5 * 60 * 1000,
+          workerState.rateLimitTimestamp * 1000 + 5 * 60 * 1000,
         );
         const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
           timeZone: "Asia/Tokyo",
@@ -653,19 +733,19 @@ export class Admin implements IAdmin {
         });
 
         // タイマーを設定
-        this.scheduleAutoResume(threadId, threadInfo.rateLimitTimestamp);
+        this.scheduleAutoResume(threadId, workerState.rateLimitTimestamp);
 
         return `自動継続が設定されました。${resumeTimeStr}頃に「続けて」というプロンプトで自動的にセッションを再開します。`;
       } else {
         // 手動再開を選択
-        threadInfo.autoResumeAfterRateLimit = false;
-        await this.workspaceManager.saveThreadInfo(threadInfo);
+        workerState.autoResumeAfterRateLimit = false;
+        await this.workspaceManager.saveWorkerState(workerState);
 
         await this.logAuditEntry(
           threadId,
           "rate_limit_manual_resume_selected",
           {
-            timestamp: threadInfo.rateLimitTimestamp,
+            timestamp: workerState.rateLimitTimestamp,
           },
         );
 
@@ -742,28 +822,32 @@ export class Admin implements IAdmin {
    */
   private async executeAutoResume(threadId: string): Promise<void> {
     try {
-      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-      if (!threadInfo || !threadInfo.autoResumeAfterRateLimit) {
+      const workerState = await this.workspaceManager.loadWorkerState(threadId);
+      if (!workerState || !workerState.autoResumeAfterRateLimit) {
         this.logVerbose(
-          "自動再開がキャンセルされているか、スレッド情報が見つかりません",
+          "自動再開がキャンセルされているか、Worker情報が見つかりません",
           { threadId },
         );
         return;
       }
 
       await this.logAuditEntry(threadId, "auto_resume_executed", {
-        rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+        rateLimitTimestamp: workerState.rateLimitTimestamp,
         resumeTime: new Date().toISOString(),
       });
 
       // レートリミット情報をリセット
-      threadInfo.rateLimitTimestamp = undefined;
-      threadInfo.autoResumeAfterRateLimit = undefined;
-      await this.workspaceManager.saveThreadInfo(threadInfo);
+      workerState.rateLimitTimestamp = undefined;
+      workerState.autoResumeAfterRateLimit = undefined;
+      await this.workspaceManager.saveWorkerState(workerState);
 
       // キューに溜まったメッセージを処理
-      const queuedMessages = await this.workspaceManager
-        .getAndClearMessageQueue(threadId);
+      const queuedMessages = workerState.queuedMessages || [];
+      if (queuedMessages.length > 0) {
+        // キューをクリア
+        workerState.queuedMessages = [];
+        await this.workspaceManager.saveWorkerState(workerState);
+      }
 
       if (queuedMessages.length > 0) {
         this.logVerbose("キューからメッセージを処理", {
@@ -822,36 +906,36 @@ export class Admin implements IAdmin {
     this.logVerbose("レートリミットタイマー復旧開始");
 
     try {
-      const allThreadInfos = await this.workspaceManager.getAllThreadInfos();
-      const rateLimitThreads = allThreadInfos.filter(
-        (thread) =>
-          thread.status === "active" &&
-          thread.autoResumeAfterRateLimit === true &&
-          thread.rateLimitTimestamp,
+      const allWorkerStates = await this.workspaceManager.getAllWorkerStates();
+      const rateLimitWorkers = allWorkerStates.filter(
+        (worker) =>
+          worker.status === "active" &&
+          worker.autoResumeAfterRateLimit === true &&
+          worker.rateLimitTimestamp,
       );
 
-      this.logVerbose("レートリミット復旧対象スレッド発見", {
-        totalThreads: allThreadInfos.length,
-        rateLimitThreads: rateLimitThreads.length,
+      this.logVerbose("レートリミット復旧対象Worker発見", {
+        totalWorkers: allWorkerStates.length,
+        rateLimitWorkers: rateLimitWorkers.length,
       });
 
-      for (const threadInfo of rateLimitThreads) {
+      for (const workerState of rateLimitWorkers) {
         try {
-          await this.restoreRateLimitTimer(threadInfo);
+          await this.restoreRateLimitTimer(workerState);
         } catch (error) {
           this.logVerbose("レートリミットタイマー復旧失敗", {
-            threadId: threadInfo.threadId,
+            threadId: workerState.threadId,
             error: (error as Error).message,
           });
           console.error(
-            `レートリミットタイマーの復旧に失敗しました (threadId: ${threadInfo.threadId}):`,
+            `レートリミットタイマーの復旧に失敗しました (threadId: ${workerState.threadId}):`,
             error,
           );
         }
       }
 
       this.logVerbose("レートリミットタイマー復旧完了", {
-        restoredTimerCount: rateLimitThreads.length,
+        restoredTimerCount: rateLimitWorkers.length,
       });
     } catch (error) {
       this.logVerbose("レートリミットタイマー復旧でエラー", {
@@ -867,53 +951,53 @@ export class Admin implements IAdmin {
   /**
    * 単一スレッドのレートリミットタイマーを復旧する
    */
-  private async restoreRateLimitTimer(threadInfo: ThreadInfo): Promise<void> {
-    if (!threadInfo.rateLimitTimestamp) {
+  private async restoreRateLimitTimer(workerState: WorkerState): Promise<void> {
+    if (!workerState.rateLimitTimestamp) {
       return;
     }
 
     const currentTime = Date.now();
-    const resumeTime = threadInfo.rateLimitTimestamp * 1000 + 5 * 60 * 1000;
+    const resumeTime = workerState.rateLimitTimestamp * 1000 + 5 * 60 * 1000;
 
     // 既に時間が過ぎている場合は即座に実行
     if (currentTime >= resumeTime) {
       this.logVerbose("レートリミット時間が既に過ぎているため即座に実行", {
-        threadId: threadInfo.threadId,
-        rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+        threadId: workerState.threadId,
+        rateLimitTimestamp: workerState.rateLimitTimestamp,
         currentTime: new Date(currentTime).toISOString(),
         resumeTime: new Date(resumeTime).toISOString(),
       });
 
       // 即座に自動再開を実行
-      await this.executeAutoResume(threadInfo.threadId);
+      await this.executeAutoResume(workerState.threadId);
 
       await this.logAuditEntry(
-        threadInfo.threadId,
+        workerState.threadId,
         "rate_limit_timer_restored_immediate",
         {
-          rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+          rateLimitTimestamp: workerState.rateLimitTimestamp,
           currentTime: new Date(currentTime).toISOString(),
         },
       );
     } else {
       // まだ時間が残っている場合はタイマーを再設定
       this.logVerbose("レートリミットタイマーを再設定", {
-        threadId: threadInfo.threadId,
-        rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+        threadId: workerState.threadId,
+        rateLimitTimestamp: workerState.rateLimitTimestamp,
         resumeTime: new Date(resumeTime).toISOString(),
         delayMs: resumeTime - currentTime,
       });
 
       this.scheduleAutoResume(
-        threadInfo.threadId,
-        threadInfo.rateLimitTimestamp,
+        workerState.threadId,
+        workerState.rateLimitTimestamp,
       );
 
       await this.logAuditEntry(
-        threadInfo.threadId,
+        workerState.threadId,
         "rate_limit_timer_restored",
         {
-          rateLimitTimestamp: threadInfo.rateLimitTimestamp,
+          rateLimitTimestamp: workerState.rateLimitTimestamp,
           resumeTime: new Date(resumeTime).toISOString(),
           delayMs: resumeTime - currentTime,
         },
@@ -955,13 +1039,27 @@ export class Admin implements IAdmin {
       this.logVerbose("自動再開タイマークリア", { threadId });
       this.clearAutoResumeTimer(threadId);
 
+      // WorkerStateをアーカイブ状態に更新
+      const workerState = await this.workspaceManager.loadWorkerState(threadId);
+      if (workerState) {
+        this.logVerbose("WorkerStateをアーカイブ状態に更新", { threadId });
+        workerState.status = "archived";
+        workerState.lastActiveAt = new Date().toISOString();
+        await this.workspaceManager.saveWorkerState(workerState);
+      }
+
+      // ThreadInfoもアーカイブ状態に更新
       const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
       if (threadInfo) {
-        this.logVerbose("スレッド情報をアーカイブ状態に更新", { threadId });
+        this.logVerbose("ThreadInfoをアーカイブ状態に更新", { threadId });
         threadInfo.status = "archived";
         threadInfo.lastActiveAt = new Date().toISOString();
         await this.workspaceManager.saveThreadInfo(threadInfo);
       }
+
+      // アクティブスレッドリストから削除
+      await this.workspaceManager.removeActiveThread(threadId);
+      this.logVerbose("アクティブスレッドリストから削除完了", { threadId });
 
       await this.logAuditEntry(threadId, "thread_terminated", {
         workerName: worker.getName(),
@@ -1486,11 +1584,11 @@ export class Admin implements IAdmin {
       isStarted: boolean;
     },
   ): Promise<void> {
-    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-    if (threadInfo) {
-      threadInfo.devcontainerConfig = config;
-      threadInfo.lastActiveAt = new Date().toISOString();
-      await this.workspaceManager.saveThreadInfo(threadInfo);
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    if (workerState) {
+      workerState.devcontainerConfig = config;
+      workerState.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveWorkerState(workerState);
       this.logVerbose("devcontainer設定保存完了", { threadId, config });
     }
   }
@@ -1507,8 +1605,8 @@ export class Admin implements IAdmin {
       isStarted: boolean;
     } | null
   > {
-    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-    return threadInfo?.devcontainerConfig || null;
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    return workerState?.devcontainerConfig || null;
   }
 
   private async logAuditEntry(

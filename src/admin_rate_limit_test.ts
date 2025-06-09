@@ -90,8 +90,18 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active",
-      devcontainerConfig: null,
+    });
+
+    // Worker状態を作成（レートリミット中）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      status: "active",
       rateLimitTimestamp: Math.floor(Date.now() / 1000), // レートリミット中
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
     });
 
     // レートリミット中のメッセージ送信
@@ -110,12 +120,16 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
     );
 
     // キューに追加されていることを確認
-    const queue = await workspaceManager.loadMessageQueue(threadId);
-    assertExists(queue);
-    assertEquals(queue!.messages.length, 1);
-    assertEquals(queue!.messages[0].messageId, "msg-123");
-    assertEquals(queue!.messages[0].content, "テストメッセージ");
-    assertEquals(queue!.messages[0].authorId, "user-123");
+    const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
+    assertExists(updatedWorkerState);
+    assertExists(updatedWorkerState!.queuedMessages);
+    assertEquals(updatedWorkerState!.queuedMessages!.length, 1);
+    assertEquals(updatedWorkerState!.queuedMessages![0].messageId, "msg-123");
+    assertEquals(
+      updatedWorkerState!.queuedMessages![0].content,
+      "テストメッセージ",
+    );
+    assertEquals(updatedWorkerState!.queuedMessages![0].authorId, "user-123");
   } finally {
     await Deno.remove(testDir, { recursive: true });
   }
@@ -147,7 +161,17 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active",
-      devcontainerConfig: null,
+    });
+
+    // Worker状態も作成
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
     });
 
     // レートリミットエラーを発生させる
@@ -157,11 +181,11 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     assert(typeof result === "string");
     assert(result.includes("Claude Codeのレートリミットに達しました"));
 
-    // スレッド情報が更新されていることを確認
-    const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-    assertExists(threadInfo);
-    assertExists(threadInfo!.rateLimitTimestamp);
-    assertEquals(threadInfo!.autoResumeAfterRateLimit, true);
+    // Worker状態が更新されていることを確認
+    const workerState = await workspaceManager.loadWorkerState(threadId);
+    assertExists(workerState);
+    assertExists(workerState!.rateLimitTimestamp);
+    assertEquals(workerState!.autoResumeAfterRateLimit, true);
 
     // タイマーが設定されていることを確認
     const testableAdmin2 = admin as unknown as TestableAdmin;
@@ -202,11 +226,9 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
       },
     ];
 
-    for (const msg of queuedMessages) {
-      await workspaceManager.addMessageToQueue(threadId, msg);
-    }
+    // Worker状態を作成する際にqueuedMessagesを含める（後で設定）
 
-    // スレッド情報を作成（自動再開有効）
+    // スレッド情報を作成
     await workspaceManager.saveThreadInfo({
       threadId,
       repositoryFullName: null,
@@ -215,9 +237,20 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active",
-      devcontainerConfig: null,
+    });
+
+    // Worker状態を作成（レートリミット中、自動再開有効）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      status: "active",
       rateLimitTimestamp: Math.floor(Date.now() / 1000),
       autoResumeAfterRateLimit: true,
+      queuedMessages: queuedMessages,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
     });
 
     // 自動再開コールバックを設定
@@ -237,14 +270,11 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
     assertEquals(resumedMessage, "最初のメッセージ");
 
     // キューがクリアされていることを確認
-    const queue = await workspaceManager.loadMessageQueue(threadId);
-    assertEquals(queue, null);
-
-    // スレッド情報がリセットされていることを確認
-    const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-    assertExists(threadInfo);
-    assertEquals(threadInfo!.rateLimitTimestamp, undefined);
-    assertEquals(threadInfo!.autoResumeAfterRateLimit, undefined);
+    const workerState = await workspaceManager.loadWorkerState(threadId);
+    assertExists(workerState);
+    assertEquals(workerState!.queuedMessages?.length || 0, 0);
+    assertEquals(workerState!.rateLimitTimestamp, undefined);
+    assertEquals(workerState!.autoResumeAfterRateLimit, undefined);
   } finally {
     await Deno.remove(testDir, { recursive: true });
   }
@@ -259,7 +289,7 @@ Deno.test("Admin - キューが空の場合は「続けて」を送信", async (
     const admin = new Admin(workspaceManager, undefined, undefined);
     const threadId = "test-thread-empty-queue";
 
-    // スレッド情報を作成（自動再開有効、キューは空）
+    // スレッド情報を作成
     await workspaceManager.saveThreadInfo({
       threadId,
       repositoryFullName: null,
@@ -268,9 +298,19 @@ Deno.test("Admin - キューが空の場合は「続けて」を送信", async (
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active",
-      devcontainerConfig: null,
+    });
+
+    // Worker状態を作成（レートリミット中、自動再開有効、キューは空）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      status: "active",
       rateLimitTimestamp: Math.floor(Date.now() / 1000),
       autoResumeAfterRateLimit: true,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
     });
 
     // 自動再開コールバックを設定

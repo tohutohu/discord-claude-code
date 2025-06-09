@@ -72,7 +72,6 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     const threadInfo = await workspace.loadThreadInfo(threadId);
     assertExists(threadInfo);
     assertEquals(threadInfo.status, "active");
-    assertEquals(threadInfo.devcontainerConfig?.useDevcontainer, true);
 
     // Phase 4: スレッド終了
     await admin2.terminateThread(threadId);
@@ -224,15 +223,11 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
       status: "active" as const,
-      devcontainerConfig: {
-        useDevcontainer: true,
-        hasDevcontainerFile: true,
-        hasAnthropicsFeature: false,
-        containerId: "invalid-container",
-        isStarted: true,
-      },
     };
     await workspace.saveThreadInfo(badThreadInfo);
+
+    // アクティブスレッドリストに追加
+    await workspace.addActiveThread(badThreadId);
 
     // Phase 2: 復旧処理（エラーハンドリング）
     const admin2 = new Admin(workspace, undefined, undefined);

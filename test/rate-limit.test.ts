@@ -87,10 +87,10 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
   await admin.createWorker(threadId);
 
   // レートリミット情報を保存
-  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-  if (threadInfo) {
-    threadInfo.rateLimitTimestamp = timestamp;
-    await workspaceManager.saveThreadInfo(threadInfo);
+  const workerState = await workspaceManager.loadWorkerState(threadId);
+  if (workerState) {
+    workerState.rateLimitTimestamp = timestamp;
+    await workspaceManager.saveWorkerState(workerState);
   }
 
   // 「はい」ボタンの処理
@@ -100,9 +100,9 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
   );
   assertStringIncludes(yesResult, "自動継続が設定されました");
 
-  // スレッド情報が更新されていることを確認
-  const updatedThreadInfo = await workspaceManager.loadThreadInfo(threadId);
-  assertEquals(updatedThreadInfo?.autoResumeAfterRateLimit, true);
+  // WorkerStateが更新されていることを確認
+  const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
+  assertEquals(updatedWorkerState?.autoResumeAfterRateLimit, true);
 
   // 「いいえ」ボタンの処理
   const noResult = await admin.handleButtonInteraction(
@@ -111,9 +111,9 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
   );
   assertStringIncludes(noResult, "手動での再開が選択されました");
 
-  // スレッド情報が更新されていることを確認
-  const finalThreadInfo = await workspaceManager.loadThreadInfo(threadId);
-  assertEquals(finalThreadInfo?.autoResumeAfterRateLimit, false);
+  // WorkerStateが更新されていることを確認
+  const finalWorkerState = await workspaceManager.loadWorkerState(threadId);
+  assertEquals(finalWorkerState?.autoResumeAfterRateLimit, false);
 
   // スレッドを終了してタイマーをクリア
   await admin.terminateThread(threadId);
@@ -138,11 +138,11 @@ Deno.test("レートリミットタイマーの復旧 - 時間が残っている
   await admin.createWorker(threadId);
 
   // レートリミット情報を保存（自動継続有効）
-  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-  if (threadInfo) {
-    threadInfo.rateLimitTimestamp = futureTimestamp;
-    threadInfo.autoResumeAfterRateLimit = true;
-    await workspaceManager.saveThreadInfo(threadInfo);
+  const workerState = await workspaceManager.loadWorkerState(threadId);
+  if (workerState) {
+    workerState.rateLimitTimestamp = futureTimestamp;
+    workerState.autoResumeAfterRateLimit = true;
+    await workspaceManager.saveWorkerState(workerState);
   }
 
   // 新しいAdminインスタンスで復旧をテスト
@@ -155,7 +155,12 @@ Deno.test("レートリミットタイマーの復旧 - 時間が残っている
   };
   assertEquals(adminAny.autoResumeTimers.has(threadId), true);
 
-  // クリーンアップ
+  // クリーンアップ - タイマーを手動でクリア
+  const timerId = adminAny.autoResumeTimers.get(threadId);
+  if (timerId) {
+    clearTimeout(timerId);
+  }
+  await admin.terminateThread(threadId); // adminのWorkerも終了
   await admin2.terminateThread(threadId);
   await Deno.remove(baseDir, { recursive: true });
 });
@@ -177,11 +182,11 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   await admin.createWorker(threadId);
 
   // レートリミット情報を保存（自動継続有効）
-  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-  if (threadInfo) {
-    threadInfo.rateLimitTimestamp = pastTimestamp;
-    threadInfo.autoResumeAfterRateLimit = true;
-    await workspaceManager.saveThreadInfo(threadInfo);
+  const workerState = await workspaceManager.loadWorkerState(threadId);
+  if (workerState) {
+    workerState.rateLimitTimestamp = pastTimestamp;
+    workerState.autoResumeAfterRateLimit = true;
+    await workspaceManager.saveWorkerState(workerState);
   }
 
   // 自動再開コールバックをモック
@@ -204,9 +209,9 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   assertEquals(autoResumeMessage, "続けて");
 
   // レートリミット情報がリセットされていることを確認
-  const updatedThreadInfo = await workspaceManager.loadThreadInfo(threadId);
-  assertEquals(updatedThreadInfo?.rateLimitTimestamp, undefined);
-  assertEquals(updatedThreadInfo?.autoResumeAfterRateLimit, undefined);
+  const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
+  assertEquals(updatedWorkerState?.rateLimitTimestamp, undefined);
+  assertEquals(updatedWorkerState?.autoResumeAfterRateLimit, undefined);
 
   // クリーンアップ
   await admin.terminateThread(threadId);
@@ -230,11 +235,11 @@ Deno.test("レートリミットタイマーの復旧 - 自動継続が無効の
   await admin.createWorker(threadId);
 
   // レートリミット情報を保存（自動継続無効）
-  const threadInfo = await workspaceManager.loadThreadInfo(threadId);
-  if (threadInfo) {
-    threadInfo.rateLimitTimestamp = futureTimestamp;
-    threadInfo.autoResumeAfterRateLimit = false;
-    await workspaceManager.saveThreadInfo(threadInfo);
+  const workerState = await workspaceManager.loadWorkerState(threadId);
+  if (workerState) {
+    workerState.rateLimitTimestamp = futureTimestamp;
+    workerState.autoResumeAfterRateLimit = false;
+    await workspaceManager.saveWorkerState(workerState);
   }
 
   // 新しいAdminインスタンスで復旧をテスト
