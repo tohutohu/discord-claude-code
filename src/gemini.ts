@@ -1,3 +1,5 @@
+import { GoogleGenAI } from "@google/genai";
+
 export interface SummarizeResult {
   success: boolean;
   summary?: string;
@@ -10,8 +12,7 @@ export async function summarizeWithGemini(
   maxLength: number = 30,
 ): Promise<SummarizeResult> {
   try {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt =
       `以下のテキストは、プログラミングに関する指示やタスクの説明です。
@@ -29,48 +30,30 @@ export async function summarizeWithGemini(
 テキスト：
 ${text}`;
 
-    const requestBody = {
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash-001",
+      contents: prompt,
+      config: {
         temperature: 0.3,
         topK: 1,
         topP: 0.8,
         maxOutputTokens: 10000,
       },
-    };
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Gemini API error:", response.status, errorText);
+    if (!response || !response.text) {
       return {
         success: false,
-        error: `Gemini API error: ${response.status}, ${errorText}`,
+        error: `No summary generated: ${JSON.stringify(response)}`,
       };
     }
 
-    const data = await response.json();
-    const summary = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const summary = response.text.trim();
 
     if (!summary) {
       return {
         success: false,
-        error: `No summary generated: ${JSON.stringify(data)}`,
+        error: "Generated summary is empty",
       };
     }
 
