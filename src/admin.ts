@@ -942,6 +942,7 @@ export class Admin implements IAdmin {
 
   /**
    * Discordボタンのインタラクションを処理する
+   *
    * customIdに基づいて適切なハンドラーを呼び出します。
    *
    * @param threadId - ボタンが押されたスレッドのID
@@ -985,7 +986,17 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット自動継続ボタンのハンドラー
+   *
    * ユーザーが自動継続または手動再開を選択した際の処理を行います。
+   *
+   * 自動継続が選択された場合：
+   * - autoResumeAfterRateLimitをtrueに設定
+   * - 5分後に自動再開するタイマーを設定
+   * - 監査ログに"rate_limit_auto_resume_enabled"として記録
+   *
+   * 手動再開が選択された場合：
+   * - autoResumeAfterRateLimitをfalseに設定
+   * - 監査ログに"rate_limit_manual_resume_selected"として記録
    *
    * @param threadId - スレッドID
    * @param autoResume - true: 自動継続を有効化、false: 手動再開を選択
@@ -1049,6 +1060,7 @@ export class Admin implements IAdmin {
 
   /**
    * 自動再開コールバックを設定する
+   *
    * レートリミット解除後に自動的にメッセージを送信するためのコールバック関数を設定します。
    *
    * @param callback - 自動再開時に呼び出されるコールバック関数
@@ -1061,6 +1073,7 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドクローズコールバックを設定する
+   *
    * スレッド終了時にDiscordスレッドをクローズするためのコールバック関数を設定します。
    *
    * @param callback - スレッドクローズ時に呼び出されるコールバック関数
@@ -1073,11 +1086,19 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット後の自動再開をスケジュールする
+   *
    * 5分後に自動的にセッションを再開するタイマーを設定します。
    * 既存のタイマーがある場合はクリアしてから新規設定します。
    *
+   * タイマー設定のロジック：
+   * 1. 既存タイマーのクリア
+   * 2. 再開時刻の計算（レートリミットタイムスタンプ + 5分）
+   * 3. 現在時刻から再開時刻までの遅延計算
+   * 4. setTimeoutでタイマー設定
+   * 5. タイマーIDをMapに保存
+   *
    * @param threadId - スレッドID
-   * @param rateLimitTimestamp - レートリミットが発生したUnixタイムスタンプ（秒）
+   * @param rateLimitTimestamp - レートリミットが発生したUnixタイムスタンプ（秒単位）
    */
   private scheduleAutoResume(
     threadId: string,
@@ -1120,8 +1141,17 @@ export class Admin implements IAdmin {
 
   /**
    * 自動再開を実行する
+   *
    * レートリミット情報をリセットし、キューに溜まったメッセージを処理します。
    * キューが空の場合は「続けて」というメッセージを送信します。
+   *
+   * 実行フロー：
+   * 1. スレッド情報の読み込みとautoResumeAfterRateLimitの確認
+   * 2. 監査ログに"auto_resume_executed"を記録
+   * 3. レートリミット情報のリセット
+   * 4. キューのメッセージを取得してクリア
+   * 5. キューにメッセージがある場合：最初のメッセージを処理
+   * 6. キューが空の場合："続けて"を送信
    *
    * @param threadId - 自動再開するスレッドのID
    * @returns 自動再開処理の完了を待つPromise
@@ -1192,7 +1222,10 @@ export class Admin implements IAdmin {
 
   /**
    * スレッド終了時に自動再開タイマーをクリアする
+   *
    * 設定されている自動再開タイマーをクリアし、メモリから削除します。
+   * このメソッドは`terminateThread`から呼び出され、スレッドの
+   * クリーンアップ処理の一部として実行されます。
    *
    * @param threadId - タイマーをクリアするスレッドのID
    */
@@ -1207,8 +1240,17 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット自動継続タイマーを復旧する
+   *
    * アプリケーション再起動時に、レートリミット中で自動再開が有効なスレッドの
    * タイマーを再設定します。
+   *
+   * 復旧処理のフロー：
+   * 1. すべてのスレッド情報を取得
+   * 2. 以下の条件を満たすスレッドをフィルタリング：
+   *    - statusが"active"
+   *    - autoResumeAfterRateLimitがtrue
+   *    - rateLimitTimestampが存在
+   * 3. 各スレッドのタイマーを復旧
    *
    * @returns タイマー復旧処理の完了を待つPromise
    */
@@ -1260,8 +1302,14 @@ export class Admin implements IAdmin {
 
   /**
    * 単一スレッドのレートリミットタイマーを復旧する
+   *
    * 既に時間が過ぎている場合は即座に自動再開を実行し、
    * まだ時間が残っている場合はタイマーを再設定します。
+   *
+   * 復旧ロジック：
+   * - 現在時刻と再開予定時刻を比較
+   * - 再開予定時刻を過ぎている場合：即座に自動再開を実行
+   * - 再開予定時刻が未来の場合：残り時間でタイマーを再設定
    *
    * @param threadInfo - タイマーを復旧するスレッドの情報
    * @returns タイマー復旧処理の完了を待つPromise
@@ -1322,6 +1370,7 @@ export class Admin implements IAdmin {
 
   /**
    * スレッド開始時の初期メッセージを作成する
+   *
    * /startコマンドの使用方法と実行環境の設定フローを説明するメッセージを生成します。
    *
    * @param _threadId - スレッドID（現在未使用）
@@ -1337,6 +1386,7 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドを終了する
+   *
    * Workerの削除、worktreeの削除、自動再開タイマーのクリア、
    * スレッド情報のアーカイブ化、Discordスレッドのクローズを行います。
    *
@@ -1407,8 +1457,19 @@ export class Admin implements IAdmin {
 
   /**
    * リポジトリにdevcontainer.jsonが存在するかチェックし、存在する場合は起動確認を行う
+   *
    * devcontainer CLIの有無やanthropics featureの設定状況に応じて、
    * 適切な選択肢を提示します。
+   *
+   * 処理フロー：
+   * 1. devcontainer.jsonの存在確認
+   * 2. devcontainer.jsonが存在しない場合：
+   *    - devcontainer CLIがない：ローカル実行の確認
+   *    - devcontainer CLIがある：fallback devcontainerの選択肢を提供
+   * 3. devcontainer.jsonが存在する場合：
+   *    - devcontainer CLIの確認
+   *    - anthropics featureの確認
+   *    - 使用確認の選択肢を提示
    *
    * @param threadId - スレッドID
    * @param repositoryPath - リポジトリのパス
@@ -1614,7 +1675,18 @@ export class Admin implements IAdmin {
 
   /**
    * devcontainerの起動を処理する
+   *
    * 指定されたWorkerのdevcontainerを起動し、起動状態を保存します。
+   *
+   * 処理フロー：
+   * 1. Workerの存在確認
+   * 2. WorkerにuseDevcontainerフラグを設定
+   * 3. Workerにdevcontainer起動を委譲
+   * 4. 起動成功時：
+   *    - devcontainer設定情報を更新（containerId、isStarted）
+   *    - 監査ログに"devcontainer_started"を記録
+   * 5. 起動失敗時：
+   *    - 監査ログに"devcontainer_start_failed"を記録
    *
    * @param threadId - スレッドID
    * @param onProgress - 進捗通知用コールバック関数（オプション）
@@ -1707,7 +1779,10 @@ export class Admin implements IAdmin {
 
   /**
    * devcontainer使用ボタンの処理
+   *
    * Workerにdevcontainer使用フラグを設定し、設定情報を保存します。
+   * このメソッドは"devcontainer_start_with_progress"を返し、
+   * 呼び出し元（main.ts）でdevcontainer起動処理が実行されます。
    *
    * @param threadId - スレッドID
    * @returns 処理結果のメッセージ（"devcontainer_start_with_progress"を返す）
@@ -1738,7 +1813,9 @@ export class Admin implements IAdmin {
 
   /**
    * ローカル環境使用ボタンの処理
+   *
    * Workerにローカル環境使用フラグを設定し、設定情報を保存します。
+   * devcontainerを使用せずにローカル環境でClaudeを実行する設定を行います。
    *
    * @param threadId - スレッドID
    * @returns 処理結果のメッセージ
@@ -1768,7 +1845,10 @@ export class Admin implements IAdmin {
 
   /**
    * ローカル環境選択ボタンの処理
+   *
    * devcontainer.jsonが存在しない場合のローカル環境選択を処理します。
+   * WorkerにuseDevcontainerをfalseに設定し、権限チェックオプションの
+   * 選択を促すメッセージを返します。
    *
    * @param threadId - スレッドID
    * @returns 権限チェックオプションの選択を促すメッセージ
@@ -1796,7 +1876,10 @@ export class Admin implements IAdmin {
 
   /**
    * fallback devcontainer選択ボタンの処理
+   *
    * 標準的な開発環境を提供するfallback devcontainerの使用を設定します。
+   * fallback devcontainerはClaude Codeの提供するデフォルトの開発環境で、
+   * anthropics featureが含まれているためClaude CLIが利用可能です。
    *
    * @param threadId - スレッドID
    * @returns 処理結果のメッセージ（"fallback_devcontainer_start_with_progress"を返す）
@@ -1829,7 +1912,18 @@ export class Admin implements IAdmin {
 
   /**
    * 指定されたWorkerのfallback devcontainerを起動する
+   *
    * リポジトリにfallback devcontainerをコピーしてから起動します。
+   *
+   * 処理フロー：
+   * 1. Workerとリポジトリの存在確認
+   * 2. リポジトリパスの取得
+   * 3. fallback devcontainerの起動処理を呼び出し
+   * 4. 起動成功時：
+   *    - devcontainer設定情報を更新（containerId、isStarted）
+   *    - 監査ログに"fallback_devcontainer_started"を記録
+   * 5. 起動失敗時：
+   *    - 監査ログに"fallback_devcontainer_start_failed"を記録
    *
    * @param threadId - スレッドID
    * @param onProgress - 進捗通知用コールバック関数（オプション）
@@ -1930,7 +2024,9 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドのdevcontainer設定を保存する
+   *
    * スレッド情報にdevcontainer設定を追加し、永続化します。
+   * この設定はアプリケーション再起動時の復旧に使用されます。
    *
    * @param threadId - スレッドID
    * @param config - devcontainer設定
@@ -1963,6 +2059,10 @@ export class Admin implements IAdmin {
   /**
    * スレッドのdevcontainer設定を取得する
    *
+   * 保存されたスレッド情報からdevcontainer設定を取得します。
+   * この設定はdevcontainerの使用状況、設定ファイルの存在、
+   * 起動状態などの情報を含んでいます。
+   *
    * @param threadId - スレッドID
    * @returns devcontainer設定オブジェクト、存在しない場合はnull
    * @returns returns.useDevcontainer - devcontainerを使用するか
@@ -1986,7 +2086,18 @@ export class Admin implements IAdmin {
 
   /**
    * 監査ログエントリを記録する
+   *
    * システムの重要なアクションを監査ログに記録します。
+   * 監査ログはJSONL形式で保存され、システムの動作履歴の
+   * 追跡や問題の調査に使用されます。
+   *
+   * 記録される主なアクション：
+   * - worker_created: Workerの新規作成
+   * - thread_terminated: スレッドの終了
+   * - message_received: メッセージの受信
+   * - rate_limit_detected: レートリミットの検出
+   * - devcontainer_started: devcontainerの起動
+   * - thread_restored: スレッドの復旧
    *
    * @param threadId - スレッドID
    * @param action - アクション名（例: "worker_created", "thread_terminated"）
