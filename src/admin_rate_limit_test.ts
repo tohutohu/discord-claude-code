@@ -96,8 +96,13 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
     await workspaceManager.saveWorkerState({
       workerName: "test-worker",
       threadId,
-      useDevcontainer: false,
-      useFallbackDevcontainer: false,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
       status: "active",
       rateLimitTimestamp: Math.floor(Date.now() / 1000), // レートリミット中
       createdAt: new Date().toISOString(),
@@ -122,14 +127,14 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
     // キューに追加されていることを確認
     const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
     assertExists(updatedWorkerState);
-    assertExists(updatedWorkerState!.queuedMessages);
-    assertEquals(updatedWorkerState!.queuedMessages!.length, 1);
-    assertEquals(updatedWorkerState!.queuedMessages![0].messageId, "msg-123");
+    assertExists(updatedWorkerState?.queuedMessages);
+    assertEquals(updatedWorkerState?.queuedMessages?.length || 0, 1);
+    assertEquals(updatedWorkerState?.queuedMessages?.[0].messageId, "msg-123");
     assertEquals(
-      updatedWorkerState!.queuedMessages![0].content,
+      updatedWorkerState?.queuedMessages?.[0].content,
       "テストメッセージ",
     );
-    assertEquals(updatedWorkerState!.queuedMessages![0].authorId, "user-123");
+    assertEquals(updatedWorkerState?.queuedMessages?.[0].authorId, "user-123");
   } finally {
     await Deno.remove(testDir, { recursive: true });
   }
@@ -167,8 +172,13 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     await workspaceManager.saveWorkerState({
       workerName: "test-worker",
       threadId,
-      useDevcontainer: false,
-      useFallbackDevcontainer: false,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
       status: "active",
       createdAt: new Date().toISOString(),
       lastActiveAt: new Date().toISOString(),
@@ -184,8 +194,8 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     // Worker状態が更新されていることを確認
     const workerState = await workspaceManager.loadWorkerState(threadId);
     assertExists(workerState);
-    assertExists(workerState!.rateLimitTimestamp);
-    assertEquals(workerState!.autoResumeAfterRateLimit, true);
+    assertExists(workerState?.rateLimitTimestamp);
+    assertEquals(workerState?.autoResumeAfterRateLimit, true);
 
     // タイマーが設定されていることを確認
     const testableAdmin2 = admin as unknown as TestableAdmin;
@@ -243,8 +253,13 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
     await workspaceManager.saveWorkerState({
       workerName: "test-worker",
       threadId,
-      useDevcontainer: false,
-      useFallbackDevcontainer: false,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
       status: "active",
       rateLimitTimestamp: Math.floor(Date.now() / 1000),
       autoResumeAfterRateLimit: true,
@@ -272,9 +287,9 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
     // キューがクリアされていることを確認
     const workerState = await workspaceManager.loadWorkerState(threadId);
     assertExists(workerState);
-    assertEquals(workerState!.queuedMessages?.length || 0, 0);
-    assertEquals(workerState!.rateLimitTimestamp, undefined);
-    assertEquals(workerState!.autoResumeAfterRateLimit, undefined);
+    assertEquals(workerState?.queuedMessages?.length || 0, 0);
+    assertEquals(workerState?.rateLimitTimestamp, undefined);
+    assertEquals(workerState?.autoResumeAfterRateLimit, undefined);
   } finally {
     await Deno.remove(testDir, { recursive: true });
   }
@@ -304,8 +319,13 @@ Deno.test("Admin - キューが空の場合は「続けて」を送信", async (
     await workspaceManager.saveWorkerState({
       workerName: "test-worker",
       threadId,
-      useDevcontainer: false,
-      useFallbackDevcontainer: false,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
       status: "active",
       rateLimitTimestamp: Math.floor(Date.now() / 1000),
       autoResumeAfterRateLimit: true,

@@ -67,11 +67,9 @@ export interface WorkerState {
   };
   repositoryLocalPath?: string;
   worktreePath?: string | null;
-  useDevcontainer: boolean;
-  useFallbackDevcontainer: boolean;
-  containerId?: string;
-  devcontainerConfig?: {
+  devcontainerConfig: {
     useDevcontainer: boolean;
+    useFallbackDevcontainer: boolean;
     hasDevcontainerFile: boolean;
     hasAnthropicsFeature: boolean;
     containerId?: string;

@@ -860,7 +860,18 @@ export class Worker implements IWorker {
   setThreadId(threadId: string): void {
     this.threadId = threadId;
     // 非同期でWorker状態を保存
+    this.saveStateAsync();
+  }
+
+  /**
+   * 非同期で状態を保存し、エラーをログに記録する
+   */
+  private saveStateAsync(): void {
     this.saveState().catch((error) => {
+      this.logVerbose("Worker状態の保存に失敗", {
+        error: (error as Error).message,
+        threadId: this.threadId,
+      });
       console.error("Worker状態の保存に失敗しました:", error);
     });
   }
@@ -886,9 +897,7 @@ export class Worker implements IWorker {
     }
 
     // 非同期でWorker状態を保存
-    this.saveState().catch((error) => {
-      console.error("Worker状態の保存に失敗しました:", error);
-    });
+    this.saveStateAsync();
   }
 
   /**
@@ -915,9 +924,7 @@ export class Worker implements IWorker {
     });
 
     // 非同期でWorker状態を保存
-    this.saveState().catch((error) => {
-      console.error("Worker状態の保存に失敗しました:", error);
-    });
+    this.saveStateAsync();
   }
 
   /**
@@ -1503,7 +1510,7 @@ export class Worker implements IWorker {
   private extractRateLimitTimestamp(result: string): number | null {
     const match = result.match(/Claude AI usage limit reached\|(\d+)/);
     if (match) {
-      return parseInt(match[1], 10);
+      return Number.parseInt(match[1], 10);
     }
     return null;
   }
@@ -1595,12 +1602,14 @@ export class Worker implements IWorker {
         ? this.workspaceManager.getRepositoriesDir()
         : undefined,
       worktreePath: this.worktreePath,
-      useDevcontainer: this.useDevcontainer,
-      useFallbackDevcontainer: this.useFallbackDevcontainer,
-      devcontainerConfig: existingState?.devcontainerConfig || {
+      devcontainerConfig: {
         useDevcontainer: this.useDevcontainer,
-        hasDevcontainerFile: false,
-        hasAnthropicsFeature: false,
+        useFallbackDevcontainer: this.useFallbackDevcontainer,
+        hasDevcontainerFile:
+          existingState?.devcontainerConfig?.hasDevcontainerFile || false,
+        hasAnthropicsFeature:
+          existingState?.devcontainerConfig?.hasAnthropicsFeature || false,
+        containerId: existingState?.devcontainerConfig?.containerId,
         isStarted: this.devcontainerStarted,
       },
       sessionId: this.sessionId,
@@ -1637,8 +1646,9 @@ export class Worker implements IWorker {
     this.threadId = workerState.threadId;
     this.worktreePath = workerState.worktreePath || null;
     this.sessionId = workerState.sessionId || null;
-    this.useDevcontainer = workerState.useDevcontainer;
-    this.useFallbackDevcontainer = workerState.useFallbackDevcontainer;
+    this.useDevcontainer = workerState.devcontainerConfig.useDevcontainer;
+    this.useFallbackDevcontainer =
+      workerState.devcontainerConfig.useFallbackDevcontainer;
 
     // リポジトリ情報の復元
     if (workerState.repository) {
@@ -1651,32 +1661,30 @@ export class Worker implements IWorker {
     }
 
     // devcontainer設定の復元
-    if (workerState.devcontainerConfig) {
-      this.devcontainerStarted = workerState.devcontainerConfig.isStarted;
-      this.devcontainerChoiceMade = true; // 設定が保存されているということは選択済み
+    this.devcontainerStarted = workerState.devcontainerConfig.isStarted;
+    this.devcontainerChoiceMade = true; // 設定が保存されているということは選択済み
 
-      // devcontainerが使用されている場合はExecutorを切り替え
-      if (
-        this.useDevcontainer && this.worktreePath && this.devcontainerStarted
-      ) {
-        // リポジトリのPATを取得
-        let ghToken: string | undefined;
-        if (this.repository?.fullName) {
-          const patInfo = await this.workspaceManager.loadRepositoryPat(
-            this.repository.fullName,
-          );
-          if (patInfo) {
-            ghToken = patInfo.token;
-          }
-        }
-
-        this.logVerbose("DevcontainerClaudeExecutorに切り替え（状態復元時）");
-        this.claudeExecutor = new DevcontainerClaudeExecutor(
-          this.worktreePath,
-          this.verbose,
-          ghToken,
+    // devcontainerが使用されている場合はExecutorを切り替え
+    if (
+      this.useDevcontainer && this.worktreePath && this.devcontainerStarted
+    ) {
+      // リポジトリのPATを取得
+      let ghToken: string | undefined;
+      if (this.repository?.fullName) {
+        const patInfo = await this.workspaceManager.loadRepositoryPat(
+          this.repository.fullName,
         );
+        if (patInfo) {
+          ghToken = patInfo.token;
+        }
       }
+
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え（状態復元時）");
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.worktreePath,
+        this.verbose,
+        ghToken,
+      );
     }
 
     this.logVerbose("Worker状態復元完了", {

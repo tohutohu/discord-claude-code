@@ -118,15 +118,29 @@ export class Admin implements IAdmin {
           );
           if (!threadInfo) {
             this.logVerbose("スレッド情報が見つからない", { threadId });
-            // アクティブリストから削除
-            await this.workspaceManager.removeActiveThread(threadId);
+            // アクティブリストから削除（失敗しても復旧ループを止めない）
+            try {
+              await this.workspaceManager.removeActiveThread(threadId);
+            } catch (error) {
+              this.logVerbose("アクティブリストからの削除に失敗", {
+                threadId,
+                error: (error as Error).message,
+              });
+            }
             continue;
           }
 
           // アーカイブ済みの場合はスキップ
           if (threadInfo.status === "archived") {
             this.logVerbose("アーカイブ済みスレッドをスキップ", { threadId });
-            await this.workspaceManager.removeActiveThread(threadId);
+            try {
+              await this.workspaceManager.removeActiveThread(threadId);
+            } catch (error) {
+              this.logVerbose("アクティブリストからの削除に失敗", {
+                threadId,
+                error: (error as Error).message,
+              });
+            }
             continue;
           }
 
@@ -380,7 +394,14 @@ export class Admin implements IAdmin {
     }
 
     // アクティブスレッドリストからも削除
-    await this.workspaceManager.removeActiveThread(threadId);
+    try {
+      await this.workspaceManager.removeActiveThread(threadId);
+    } catch (error) {
+      this.logVerbose("アクティブリストからの削除に失敗", {
+        threadId,
+        error: (error as Error).message,
+      });
+    }
   }
 
   /**
@@ -1586,7 +1607,12 @@ export class Admin implements IAdmin {
   ): Promise<void> {
     const workerState = await this.workspaceManager.loadWorkerState(threadId);
     if (workerState) {
-      workerState.devcontainerConfig = config;
+      // 新しい構造に合わせて更新
+      workerState.devcontainerConfig = {
+        ...config,
+        useFallbackDevcontainer:
+          workerState.devcontainerConfig.useFallbackDevcontainer || false,
+      };
       workerState.lastActiveAt = new Date().toISOString();
       await this.workspaceManager.saveWorkerState(workerState);
       this.logVerbose("devcontainer設定保存完了", { threadId, config });
