@@ -51,6 +51,7 @@ const admin = new Admin(
   workspaceManager,
   env.VERBOSE,
   env.CLAUDE_APPEND_SYSTEM_PROMPT,
+  env.PLAMO_TRANSLATOR_URL,
 );
 
 if (env.VERBOSE) {

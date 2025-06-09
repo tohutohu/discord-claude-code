@@ -351,6 +351,8 @@ export class Admin implements IAdmin {
   private verbose: boolean;
   /** Claude実行時に追加するシステムプロンプト */
   private appendSystemPrompt?: string;
+  /** PLaMo-2-translate APIのURL */
+  private translatorUrl?: string;
   /** レートリミット自動再開タイマーのマッピング */
   private autoResumeTimers: Map<string, number> = new Map();
   /** レートリミット解除後の自動再開コールバック */
@@ -373,17 +375,20 @@ export class Admin implements IAdmin {
     workspaceManager: WorkspaceManager,
     verbose: boolean = false,
     appendSystemPrompt?: string,
+    translatorUrl?: string,
   ) {
     this.workers = new Map();
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
     this.appendSystemPrompt = appendSystemPrompt;
+    this.translatorUrl = translatorUrl;
 
     if (this.verbose) {
       this.logVerbose("Admin初期化完了", {
         verboseMode: this.verbose,
         workspaceBaseDir: workspaceManager.getBaseDir(),
         hasAppendSystemPrompt: !!this.appendSystemPrompt,
+        hasTranslatorUrl: !!this.translatorUrl,
       });
     }
   }
@@ -526,6 +531,7 @@ export class Admin implements IAdmin {
       undefined,
       this.verbose,
       this.appendSystemPrompt,
+      this.translatorUrl,
     );
     worker.setThreadId(threadId);
 
@@ -750,6 +756,7 @@ export class Admin implements IAdmin {
       undefined,
       this.verbose,
       this.appendSystemPrompt,
+      this.translatorUrl,
     );
     worker.setThreadId(threadId);
     this.workers.set(threadId, worker);
