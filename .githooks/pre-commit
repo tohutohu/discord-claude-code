@@ -34,7 +34,7 @@ fi
 
 # Run tests with quiet output
 echo "🧪 Running tests..."
-if ! deno run --allow-run --allow-env scripts/deno-test-quiet.ts --allow-read --allow-write --allow-env --allow-run; then
+if ! deno run --allow-run --allow-env scripts/deno-test-quiet.ts --allow-read --allow-write --allow-env --allow-net --allow-run; then
     echo "❌ Tests failed! Fix the failing tests before committing."
     exit 1
 fi
