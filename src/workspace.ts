@@ -117,21 +117,60 @@ export interface RepositoryPatInfo {
   description?: string;
 }
 
+/**
+ * キューに格納されたメッセージのインターフェース
+ * Worker処理中に受信したメッセージを一時的に保存します。
+ * queued_messages/{thread_id}.jsonに永続化されます。
+ */
 export interface QueuedMessage {
+  /** DiscordメッセージID */
   messageId: string;
+  /** メッセージ内容 */
   content: string;
+  /** メッセージ受信時刻（Unixタイムスタンプ、ミリ秒） */
   timestamp: number;
+  /** メッセージ送信者のDiscordユーザーID */
   authorId: string;
 }
 
+/**
+ * スレッドごとのメッセージキューのインターフェース
+ * 特定のスレッドに関連するキューメッセージを管理します。
+ */
 export interface ThreadQueue {
+  /** DiscordスレッドID */
   threadId: string;
+  /** キューに格納されたメッセージの配列 */
   messages: QueuedMessage[];
 }
 
+/**
+ * 作業ディレクトリとデータ永続化を管理するクラス
+ *
+ * Discord Botの全データを構造化されたディレクトリで管理し、
+ * スレッド情報、セッションログ、監査ログなどを永続化します。
+ * 再起動後もデータの継続性を保証します。
+ *
+ * @example
+ * ```typescript
+ * const workspaceManager = new WorkspaceManager("/path/to/work");
+ * await workspaceManager.initialize();
+ *
+ * // スレッド情報の保存
+ * await workspaceManager.saveThreadInfo(threadInfo);
+ *
+ * // セッションログの記録
+ * await workspaceManager.saveSessionLog(sessionLog);
+ * ```
+ */
 export class WorkspaceManager {
   private config: WorkspaceConfig;
 
+  /**
+   * WorkspaceManagerのインスタンスを作成します
+   *
+   * @param baseDir - 作業ディレクトリのベースパス
+   */
   constructor(baseDir: string) {
     this.config = {
       baseDir,
@@ -145,6 +184,20 @@ export class WorkspaceManager {
     };
   }
 
+  /**
+   * 必要なディレクトリ構造を初期化します
+   *
+   * 以下のディレクトリを作成します：
+   * - repositories/: Gitリポジトリの格納
+   * - threads/: スレッド情報JSON
+   * - sessions/: Claudeセッションログ
+   * - audit/: 監査ログ
+   * - worktrees/: Git worktree
+   * - pats/: GitHub Personal Access Token
+   * - queued_messages/: キューメッセージ
+   *
+   * @throws {Deno.errors.PermissionDenied} ディレクトリ作成権限がない場合
+   */
   async initialize(): Promise<void> {
     await ensureDir(this.config.repositoriesDir);
     await ensureDir(this.config.threadsDir);
@@ -155,18 +208,47 @@ export class WorkspaceManager {
     await ensureDir(this.config.queuedMessagesDir);
   }
 
+  /**
+   * リポジトリディレクトリのパスを取得します
+   *
+   * @returns repositories/ディレクトリの絶対パス
+   */
   getRepositoriesDir(): string {
     return this.config.repositoriesDir;
   }
 
+  /**
+   * ベースディレクトリのパスを取得します
+   *
+   * @returns 作業ディレクトリのベースパス
+   */
   getBaseDir(): string {
     return this.config.baseDir;
   }
 
+  /**
+   * 特定のリポジトリのローカルパスを取得します
+   *
+   * @param org - GitHubのorganization名
+   * @param repo - リポジトリ名
+   * @returns repositories/{org}/{repo}の絶対パス
+   *
+   * @example
+   * ```typescript
+   * const path = workspaceManager.getRepositoryPath("facebook", "react");
+   * // => "/work/repositories/facebook/react"
+   * ```
+   */
   getRepositoryPath(org: string, repo: string): string {
     return join(this.config.repositoriesDir, org, repo);
   }
 
+  /**
+   * 特定のスレッドのworktreeパスを取得します
+   *
+   * @param threadId - DiscordスレッドID
+   * @returns worktrees/{threadId}の絶対パス
+   */
   getWorktreePath(threadId: string): string {
     return join(this.config.worktreesDir, threadId);
   }
@@ -202,11 +284,34 @@ export class WorkspaceManager {
     return join(this.config.auditDir, date, "activity.jsonl");
   }
 
+  /**
+   * スレッド情報をJSONファイルに保存します
+   *
+   * @param threadInfo - 保存するスレッド情報
+   * @throws {Deno.errors.PermissionDenied} ファイル書き込み権限がない場合
+   *
+   * @example
+   * ```typescript
+   * const threadInfo: ThreadInfo = {
+   *   threadId: "123456789",
+   *   repositoryFullName: "facebook/react",
+   *   // ...
+   * };
+   * await workspaceManager.saveThreadInfo(threadInfo);
+   * ```
+   */
   async saveThreadInfo(threadInfo: ThreadInfo): Promise<void> {
     const filePath = this.getThreadFilePath(threadInfo.threadId);
     await Deno.writeTextFile(filePath, JSON.stringify(threadInfo, null, 2));
   }
 
+  /**
+   * 指定されたスレッドIDの情報を読み込みます
+   *
+   * @param threadId - DiscordスレッドID
+   * @returns スレッド情報、存在しない場合はnull
+   * @throws {Error} ファイル読み込みエラー（NotFound以外）
+   */
   async loadThreadInfo(threadId: string): Promise<ThreadInfo | null> {
     try {
       const filePath = this.getThreadFilePath(threadId);
@@ -220,6 +325,12 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * スレッドの最終アクティブ時刻を現在時刻に更新します
+   *
+   * @param threadId - DiscordスレッドID
+   * @throws {Error} スレッド情報の読み込みまたは保存エラー
+   */
   async updateThreadLastActive(threadId: string): Promise<void> {
     const threadInfo = await this.loadThreadInfo(threadId);
     if (threadInfo) {
@@ -228,6 +339,15 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * Claudeセッションログを保存します
+   *
+   * セッションログはsessions/{thread_id}/{session_id}.jsonに保存されます。
+   * ディレクトリが存在しない場合は自動的に作成されます。
+   *
+   * @param sessionLog - 保存するセッションログ
+   * @throws {Deno.errors.PermissionDenied} ファイル書き込み権限がない場合
+   */
   async saveSessionLog(sessionLog: SessionLog): Promise<void> {
     const sessionDirPath = this.getSessionDirPath(sessionLog.threadId);
     await ensureDir(sessionDirPath);
@@ -239,6 +359,13 @@ export class WorkspaceManager {
     await Deno.writeTextFile(filePath, JSON.stringify(sessionLog, null, 2));
   }
 
+  /**
+   * 指定されたスレッドの全セッションログを読み込みます
+   *
+   * @param threadId - DiscordスレッドID
+   * @returns セッションログの配列（タイムスタンプ順でソート済み）
+   * @throws {Error} ファイル読み込みエラー（NotFound以外）
+   */
   async loadSessionLogs(threadId: string): Promise<SessionLog[]> {
     try {
       const sessionDirPath = this.getSessionDirPath(threadId);
@@ -261,6 +388,25 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * 監査ログエントリを追記します
+   *
+   * 監査ログはaudit/{date}/activity.jsonlにJSONL形式で保存されます。
+   * 日付ごとにファイルが分割され、追記モードで書き込まれます。
+   *
+   * @param auditEntry - 記録する監査ログエントリ
+   * @throws {Error} ファイル書き込みエラー
+   *
+   * @example
+   * ```typescript
+   * await workspaceManager.appendAuditLog({
+   *   timestamp: new Date().toISOString(),
+   *   threadId: "123456789",
+   *   action: "worker_created",
+   *   details: { workerName: "worker-123" }
+   * });
+   * ```
+   */
   async appendAuditLog(auditEntry: AuditEntry): Promise<void> {
     const date = new Date().toISOString().split("T")[0];
     const auditDir = join(this.config.auditDir, date);
@@ -280,6 +426,18 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * Claude実行の生のJSONL出力を保存します
+   *
+   * セッションIDが既存の場合は同じファイルに追記し、
+   * 新規の場合は新しいファイルを作成します。
+   * ファイル名フォーマット: {timestamp}_{session_id}.jsonl
+   *
+   * @param repositoryFullName - リポジトリのフルネーム（org/repo形式）
+   * @param sessionId - ClaudeセッションID
+   * @param rawJsonlContent - 保存するJSONL形式のコンテンツ
+   * @throws {Error} ファイル書き込みエラー
+   */
   async saveRawSessionJsonl(
     repositoryFullName: string,
     sessionId: string,
@@ -324,6 +482,12 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * 全てのスレッド情報を取得します
+   *
+   * @returns 全スレッド情報の配列（最終アクティブ時刻の降順でソート済み）
+   * @throws {Error} ディレクトリ読み込みエラー（NotFound以外）
+   */
   async getAllThreadInfos(): Promise<ThreadInfo[]> {
     try {
       const threadInfos: ThreadInfo[] = [];
@@ -349,6 +513,17 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * スレッド用のGit worktreeを確保します
+   *
+   * 既にworktreeが存在する場合はそのパスを返し、
+   * 存在しない場合は新規作成します。
+   *
+   * @param threadId - DiscordスレッドID
+   * @param repositoryPath - 元となるリポジトリのパス
+   * @returns worktreeのパス
+   * @throws {Error} worktree作成エラー
+   */
   async ensureWorktree(
     threadId: string,
     repositoryPath: string,
@@ -369,6 +544,14 @@ export class WorkspaceManager {
     return worktreePath;
   }
 
+  /**
+   * 指定されたスレッドのworktreeを削除します
+   *
+   * worktreeが存在しない場合は何もしません。
+   * 削除に失敗した場合は警告をログに出力しますが、エラーは投げません。
+   *
+   * @param threadId - DiscordスレッドID
+   */
   async removeWorktree(threadId: string): Promise<void> {
     const worktreePath = this.getWorktreePath(threadId);
 
@@ -394,6 +577,14 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * 指定されたスレッドのworktreeをクリーンアップします
+   *
+   * removeWorktreeと同様の動作ですが、エラー処理が若干異なります。
+   * 主にテストやクリーンアップ処理で使用されます。
+   *
+   * @param threadId - DiscordスレッドID
+   */
   async cleanupWorktree(threadId: string): Promise<void> {
     const worktreePath = this.getWorktreePath(threadId);
 
@@ -409,6 +600,21 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * ローカルに存在する全リポジトリのリストを取得します
+   *
+   * repositories/ディレクトリをスキャンして、
+   * org/repo形式のリポジトリ名のリストを返します。
+   *
+   * @returns リポジトリ名の配列（アルファベット順でソート済み）
+   * @throws {Error} ディレクトリ読み込みエラー（NotFound以外）
+   *
+   * @example
+   * ```typescript
+   * const repos = await workspaceManager.getLocalRepositories();
+   * // => ["facebook/react", "microsoft/vscode", ...]
+   * ```
+   */
   async getLocalRepositories(): Promise<string[]> {
     try {
       const repositories: string[] = [];
@@ -447,6 +653,16 @@ export class WorkspaceManager {
     return join(this.config.patsDir, `${safeName}.json`);
   }
 
+  /**
+   * リポジトリのPersonal Access Token情報を保存します
+   *
+   * PATはpats/{org}_{repo}.jsonに保存され、
+   * 更新日時が自動的に設定されます。
+   * 保存時に監査ログも記録されます。
+   *
+   * @param patInfo - 保存するPAT情報
+   * @throws {Deno.errors.PermissionDenied} ファイル書き込み権限がない場合
+   */
   async saveRepositoryPat(patInfo: RepositoryPatInfo): Promise<void> {
     const filePath = this.getPatFilePath(patInfo.repositoryFullName);
     patInfo.updatedAt = new Date().toISOString();
@@ -464,6 +680,13 @@ export class WorkspaceManager {
     });
   }
 
+  /**
+   * 指定されたリポジトリのPAT情報を読み込みます
+   *
+   * @param repositoryFullName - リポジトリのフルネーム（org/repo形式）
+   * @returns PAT情報、存在しない場合はnull
+   * @throws {Error} ファイル読み込みエラー（NotFound以外）
+   */
   async loadRepositoryPat(
     repositoryFullName: string,
   ): Promise<RepositoryPatInfo | null> {
@@ -479,6 +702,15 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * 指定されたリポジトリのPAT情報を削除します
+   *
+   * 削除時に監査ログも記録されます。
+   * PATが存在しない場合はエラーを投げません。
+   *
+   * @param repositoryFullName - リポジトリのフルネーム（org/repo形式）
+   * @throws {Error} ファイル削除エラー（NotFound以外）
+   */
   async deleteRepositoryPat(repositoryFullName: string): Promise<void> {
     const filePath = this.getPatFilePath(repositoryFullName);
     try {
@@ -500,6 +732,12 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * 保存されている全てのPAT情報のリストを取得します
+   *
+   * @returns PAT情報の配列（リポジトリ名のアルファベット順でソート済み）
+   * @throws {Error} ディレクトリ読み込みエラー（NotFound以外）
+   */
   async listRepositoryPats(): Promise<RepositoryPatInfo[]> {
     try {
       const pats: RepositoryPatInfo[] = [];
@@ -527,11 +765,24 @@ export class WorkspaceManager {
     return join(this.config.queuedMessagesDir, `${threadId}.json`);
   }
 
+  /**
+   * スレッドのメッセージキューを保存します
+   *
+   * @param threadQueue - 保存するメッセージキュー
+   * @throws {Deno.errors.PermissionDenied} ファイル書き込み権限がない場合
+   */
   async saveMessageQueue(threadQueue: ThreadQueue): Promise<void> {
     const filePath = this.getQueueFilePath(threadQueue.threadId);
     await Deno.writeTextFile(filePath, JSON.stringify(threadQueue, null, 2));
   }
 
+  /**
+   * 指定されたスレッドのメッセージキューを読み込みます
+   *
+   * @param threadId - DiscordスレッドID
+   * @returns メッセージキュー、存在しない場合はnull
+   * @throws {Error} ファイル読み込みエラー（NotFound以外）
+   */
   async loadMessageQueue(threadId: string): Promise<ThreadQueue | null> {
     try {
       const filePath = this.getQueueFilePath(threadId);
@@ -545,6 +796,27 @@ export class WorkspaceManager {
     }
   }
 
+  /**
+   * メッセージをキューに追加します
+   *
+   * Worker処理中に受信したメッセージを一時的に保存し、
+   * 後で処理できるようにします。
+   * 追加時に監査ログも記録されます。
+   *
+   * @param threadId - DiscordスレッドID
+   * @param message - キューに追加するメッセージ
+   * @throws {Error} ファイル操作エラー
+   *
+   * @example
+   * ```typescript
+   * await workspaceManager.addMessageToQueue("123456789", {
+   *   messageId: "987654321",
+   *   content: "Hello, Claude!",
+   *   timestamp: Date.now(),
+   *   authorId: "111222333"
+   * });
+   * ```
+   */
   async addMessageToQueue(
     threadId: string,
     message: QueuedMessage,
@@ -572,6 +844,17 @@ export class WorkspaceManager {
     });
   }
 
+  /**
+   * メッセージキューを取得してクリアします
+   *
+   * キューに格納されている全メッセージを取得し、
+   * その後キューを削除します。
+   * 操作は原子的で、取得とクリアが同時に行われます。
+   *
+   * @param threadId - DiscordスレッドID
+   * @returns キューに格納されていたメッセージの配列
+   * @throws {Error} ファイル操作エラー
+   */
   async getAndClearMessageQueue(threadId: string): Promise<QueuedMessage[]> {
     const queue = await this.loadMessageQueue(threadId);
     if (!queue || queue.messages.length === 0) {
@@ -596,6 +879,14 @@ export class WorkspaceManager {
     return messages;
   }
 
+  /**
+   * 指定されたスレッドのメッセージキューを削除します
+   *
+   * キューが存在しない場合はエラーを投げません。
+   *
+   * @param threadId - DiscordスレッドID
+   * @throws {Error} ファイル削除エラー（NotFound以外）
+   */
   async deleteMessageQueue(threadId: string): Promise<void> {
     const filePath = this.getQueueFilePath(threadId);
     try {

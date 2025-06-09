@@ -23,14 +23,29 @@ export class ClaudeCodeRateLimitError extends Error {
 
 /**
  * stdoutとstderrストリームを並行して処理する
- * stdoutデータはonDataコールバックに渡し、stderrは蓄積して返します。
- * Claude Codeレートリミットエラーは特別に処理してそのまま投げます。
+ *
+ * プロセスの標準出力と標準エラー出力を同時に読み取ります。
+ * stdoutデータはリアルタイムでonDataコールバックに渡され、
+ * stderrは全て蓄積されて最後に返されます。
+ *
+ * Claude Codeレートリミットエラーは特別に処理してそのまま再スローします。
+ * その他のエラーはログに記録して処理を継続します。
  *
  * @param stdout - 標準出力ストリーム
  * @param stderr - 標準エラー出力ストリーム
- * @param onData - stdoutデータの処理コールバック
- * @returns stderrの全内容
- * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+ * @param onData - stdoutデータをリアルタイムで処理するコールバック関数
+ * @returns stderrの全内容をUint8Arrayとして返す
+ * @throws {ClaudeCodeRateLimitError} Claude Codeの利用制限に達した場合
+ *
+ * @example
+ * ```typescript
+ * const { stdout, stderr } = process;
+ * const stderrContent = await processStreams(
+ *   stdout,
+ *   stderr,
+ *   (data) => console.log(new TextDecoder().decode(data))
+ * );
+ * ```
  */
 async function processStreams(
   stdout: ReadableStream<Uint8Array>,
@@ -95,7 +110,17 @@ async function processStreams(
   return stderrOutput;
 }
 
-// Claude Code SDK message schema based on https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
+/**
+ * Claude Codeのストリーミングメッセージ型定義
+ * Claude Code SDKのメッセージスキーマに基づいています。
+ * @see https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
+ *
+ * assistantメッセージ: Claude AIからの応答
+ * userメッセージ: ツール実行結果などのユーザー側メッセージ
+ * resultメッセージ: セッションの最終結果
+ * systemメッセージ: システム初期化情報
+ * errorメッセージ: エラー情報
+ */
 type ClaudeStreamMessage =
   | {
     type: "assistant";
@@ -1043,9 +1068,22 @@ export class Worker implements IWorker {
 
   /**
    * devcontainerの使用を設定する
-   * devcontainerの有効/無効を切り替え、必要に応じてClaude実行戦略を変更します。
+   *
+   * devcontainerの有効/無効を切り替えます。
+   * 設定変更時には、現在のworktreePathに基づいて適切なClaude実行戦略
+   * （DevcontainerClaudeExecutorまたはDefaultClaudeCommandExecutor）に切り替えます。
+   * この設定により、devcontainerChoiceMadeフラグもtrueに設定されます。
    *
    * @param useDevcontainer - devcontainerを使用するかどうか
+   *
+   * @example
+   * ```typescript
+   * // devcontainerを有効にする
+   * worker.setUseDevcontainer(true);
+   *
+   * // devcontainerを無効にする（ホスト環境で実行）
+   * worker.setUseDevcontainer(false);
+   * ```
    */
   setUseDevcontainer(useDevcontainer: boolean): void {
     this.useDevcontainer = useDevcontainer;
@@ -1066,16 +1104,43 @@ export class Worker implements IWorker {
   }
 
   /**
-   * devcontainerが使用されているかを取得
-   * @returns devcontainer使用フラグ
+   * devcontainerが使用されているかを取得する
+   *
+   * 現在のWorkerがdevcontainer環境で実行されるように設定されているかを返します。
+   * この設定は`setUseDevcontainer()`メソッドで変更できます。
+   *
+   * @returns devcontainerを使用する設定になっている場合はtrue、そうでない場合はfalse
+   *
+   * @example
+   * ```typescript
+   * if (worker.isUsingDevcontainer()) {
+   *   console.log("devcontainer環境で実行中");
+   * } else {
+   *   console.log("ホスト環境で実行中");
+   * }
+   * ```
    */
   isUsingDevcontainer(): boolean {
     return this.useDevcontainer;
   }
 
   /**
-   * devcontainerが起動済みかを取得
-   * @returns devcontainer起動済みフラグ
+   * devcontainerが起動済みかを取得する
+   *
+   * devcontainerが実際に起動されているかどうかを返します。
+   * `setUseDevcontainer(true)`で設定しても、実際にコンテナが起動されるまでは
+   * このメソッドはfalseを返します。
+   *
+   * @returns devcontainerが起動済みの場合はtrue、そうでない場合はfalse
+   *
+   * @example
+   * ```typescript
+   * if (worker.isDevcontainerStarted()) {
+   *   console.log("devcontainerは起動済み");
+   * } else {
+   *   console.log("devcontainerは未起動");
+   * }
+   * ```
    */
   isDevcontainerStarted(): boolean {
     return this.devcontainerStarted;
@@ -1084,7 +1149,17 @@ export class Worker implements IWorker {
   /**
    * fallback devcontainerの使用を設定する
    *
+   * プロジェクトに.devcontainer設定がない場合に使用する
+   * フォールバック用のdevcontainer設定の使用を切り替えます。
+   * これにより、どのプロジェクトでもdevcontainer環境を利用できます。
+   *
    * @param useFallback - fallback devcontainerを使用するかどうか
+   *
+   * @example
+   * ```typescript
+   * // .devcontainer設定がないプロジェクトでfallbackを使用
+   * worker.setUseFallbackDevcontainer(true);
+   * ```
    */
   setUseFallbackDevcontainer(useFallback: boolean): void {
     this.useFallbackDevcontainer = useFallback;
@@ -1094,8 +1169,19 @@ export class Worker implements IWorker {
   }
 
   /**
-   * fallback devcontainerが使用されているかを取得
-   * @returns fallback devcontainer使用フラグ
+   * fallback devcontainerが使用されているかを取得する
+   *
+   * 現在のWorkerがfallback devcontainer設定を使用するように
+   * 設定されているかを返します。
+   *
+   * @returns fallback devcontainerを使用する設定の場合はtrue、そうでない場合はfalse
+   *
+   * @example
+   * ```typescript
+   * if (worker.isUsingFallbackDevcontainer()) {
+   *   console.log("fallback devcontainer設定を使用中");
+   * }
+   * ```
    */
   isUsingFallbackDevcontainer(): boolean {
     return this.useFallbackDevcontainer;
@@ -1104,34 +1190,87 @@ export class Worker implements IWorker {
   /**
    * verboseモードを設定する
    *
+   * 詳細なデバッグログの出力を有効/無効にします。
+   * verboseモードが有効な場合、Claudeコマンドの実行詳細、
+   * ストリーミング処理の進捗、エラーの詳細などが出力されます。
+   *
    * @param verbose - 詳細ログを出力するかどうか
+   *
+   * @example
+   * ```typescript
+   * // デバッグ情報を出力する
+   * worker.setVerbose(true);
+   *
+   * // 通常モードに戻す
+   * worker.setVerbose(false);
+   * ```
    */
   setVerbose(verbose: boolean): void {
     this.verbose = verbose;
   }
 
   /**
-   * verboseモードが有効かを取得
-   * @returns verboseモードフラグ
+   * verboseモードが有効かを取得する
+   *
+   * 現在のWorkerが詳細ログを出力するように設定されているかを返します。
+   *
+   * @returns verboseモードが有効な場合はtrue、無効な場合はfalse
+   *
+   * @example
+   * ```typescript
+   * if (worker.isVerbose()) {
+   *   console.log("詳細ログモードが有効");
+   * }
+   * ```
    */
   isVerbose(): boolean {
     return this.verbose;
   }
 
   /**
-   * 設定が完了しているかを確認
-   * devcontainerの使用方法が決定されているかを確認します。
-   * @returns 設定完了フラグ
+   * 設定が完了しているかを確認する
+   *
+   * devcontainerの使用に関する設定が完了しているかを確認します。
+   * ユーザーが`/config devcontainer on/off`コマンドで選択を行うまでは
+   * falseを返し、Claude Codeの実行はブロックされます。
+   *
+   * @returns devcontainerの設定が完了している場合はtrue、未完了の場合はfalse
+   *
+   * @example
+   * ```typescript
+   * if (!worker.isConfigurationComplete()) {
+   *   return "設定が必要です: /config devcontainer on または off";
+   * }
+   * ```
    */
   isConfigurationComplete(): boolean {
     return this.devcontainerChoiceMade;
   }
 
   /**
-   * 現在の設定状態を取得
-   * @returns 設定状態オブジェクト
+   * 現在の設定状態を取得する
+   *
+   * Workerの現在のdevcontainer設定状態を取得します。
+   * 設定が完了しているか、devcontainerを使用する設定になっているかを
+   * 一度に確認できます。
+   *
+   * @returns 設定状態を表すオブジェクト
    * @returns returns.devcontainerChoiceMade - devcontainerの選択が完了しているか
-   * @returns returns.useDevcontainer - devcontainerを使用するか
+   * @returns returns.useDevcontainer - devcontainerを使用する設定になっているか
+   *
+   * @example
+   * ```typescript
+   * const status = worker.getConfigurationStatus();
+   * if (status.devcontainerChoiceMade) {
+   *   if (status.useDevcontainer) {
+   *     console.log("devcontainer環境を使用");
+   *   } else {
+   *     console.log("ホスト環境を使用");
+   *   }
+   * } else {
+   *   console.log("設定が未完了");
+   * }
+   * ```
    */
   getConfigurationStatus(): {
     devcontainerChoiceMade: boolean;
@@ -1515,7 +1654,23 @@ export class Worker implements IWorker {
   }
 
   /**
-   * ファイルパスから作業ディレクトリを除外した相対パスを取得
+   * ファイルパスから作業ディレクトリを除外した相対パスを取得する
+   *
+   * フルパスから作業ディレクトリ部分を除去し、プロジェクト内の相対パスを返します。
+   * worktreePath、リポジトリパス、threadsディレクトリのパターンを順に試します。
+   *
+   * @param filePath - 変換対象のフルパス
+   * @returns プロジェクト内の相対パス。変換できない場合は元のパスをそのまま返す
+   *
+   * @example
+   * ```typescript
+   * // worktreePath = "/workspaces/123/repo"
+   * getRelativePath("/workspaces/123/repo/src/index.ts") // "src/index.ts"
+   * getRelativePath("/repositories/org/repo/src/index.ts") // "src/index.ts"
+   * getRelativePath("/threads/123/worktree/src/index.ts") // "src/index.ts"
+   * ```
+   *
+   * @private
    */
   private getRelativePath(filePath: string): string {
     if (!filePath) return "";
@@ -1783,13 +1938,29 @@ export class Worker implements IWorker {
 
   /**
    * devcontainerを起動する
-   * devcontainer CLIを使用してコンテナを起動し、成功時にClaude実行戦略を切り替えます。
    *
-   * @param onProgress - 進捗通知コールバック（オプション）
-   * @returns devcontainer起動結果
-   * @returns returns.success - 起動に成功したか
-   * @returns returns.containerId - コンテナID（成功時）
-   * @returns returns.error - エラーメッセージ（失敗時）
+   * devcontainer CLIを使用してコンテナを起動します。
+   * 起動に成功した場合は、Claude実行戦略をDevcontainerClaudeExecutorに切り替えます。
+   * GitHub PATが設定されている場合は、コンテナ内でも利用可能にします。
+   *
+   * @param onProgress - 進捗状況を通知するためのコールバック関数（オプション）
+   * @returns devcontainer起動結果オブジェクト
+   * @returns returns.success - 起動に成功したかどうか
+   * @returns returns.containerId - 起動したコンテナのID（成功時のみ）
+   * @returns returns.error - エラーメッセージ（失敗時のみ）
+   *
+   * @example
+   * ```typescript
+   * const result = await worker.startDevcontainer(async (msg) => {
+   *   console.log(`進捗: ${msg}`);
+   * });
+   *
+   * if (result.success) {
+   *   console.log(`コンテナID: ${result.containerId}`);
+   * } else {
+   *   console.error(`エラー: ${result.error}`);
+   * }
+   * ```
    */
   async startDevcontainer(
     onProgress?: (message: string) => Promise<void>,

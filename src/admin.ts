@@ -62,32 +62,86 @@ export interface DiscordMessage {
 export interface IAdmin {
   /**
    * 指定されたスレッドIDに対してWorkerを作成または取得する
+   *
    * 既にWorkerが存在する場合はそれを返し、存在しない場合は新規作成します。
+   * 新規作成時は以下の処理を行います：
+   * - ワーカー名の生成
+   * - Workerインスタンスの作成と管理Mapへの追加
+   * - スレッド情報の永続化（作成日時、最終アクティブ日時、ステータス）
+   * - 監査ログへの記録
+   *
    * @param threadId - Worker作成対象のスレッドID
    * @returns 作成または取得したWorkerインスタンス
    * @throws {Error} WorkspaceManagerの初期化エラーなど
+   *
+   * @example
+   * ```typescript
+   * const worker = await admin.createWorker("thread_123");
+   * // workerを使用してメッセージ処理やリポジトリ設定を行う
+   * ```
    */
   createWorker(threadId: string): Promise<IWorker>;
 
   /**
    * 指定されたスレッドIDのWorkerを取得する
+   *
+   * 管理しているWorkerのMapから指定されたスレッドIDに対応するWorkerを検索します。
+   * Workerが存在しない場合はnullを返すため、呼び出し側でnullチェックが必要です。
+   *
    * @param threadId - 取得するWorkerのスレッドID
    * @returns Workerインスタンス、存在しない場合はnull
+   *
+   * @example
+   * ```typescript
+   * const worker = admin.getWorker("thread_123");
+   * if (worker) {
+   *   // workerが存在する場合の処理
+   * } else {
+   *   // workerが存在しない場合の処理
+   * }
+   * ```
    */
   getWorker(threadId: string): IWorker | null;
 
   /**
    * スレッドIDに基づいてメッセージを適切なWorkerにルーティングする
-   * レートリミット中の場合はメッセージをキューに追加し、通常時はWorkerに処理を委譲します。
+   *
+   * この関数はDiscordから受信したメッセージを処理する中核的な機能です。
+   * 以下の処理フローを実行します：
+   *
+   * 1. メッセージ受信確認のリアクション（👀）を追加
+   * 2. レートリミット状態の確認
+   *    - レートリミット中の場合：メッセージをキューに追加して待機メッセージを返す
+   *    - 通常時：Workerに処理を委譲
+   * 3. スレッドの最終アクティブ時刻を更新
+   * 4. 監査ログに記録
+   * 5. Workerによるメッセージ処理（Claude実行など）
+   * 6. レートリミットエラーの処理（発生時）
+   *
    * @param threadId - メッセージの宛先スレッドID
    * @param message - 処理するメッセージ内容
-   * @param onProgress - 進捗通知用コールバック関数（オプション）
-   * @param onReaction - リアクション追加用コールバック関数（オプション）
-   * @param messageId - DiscordメッセージID（レートリミット時のキュー管理用、オプション）
-   * @param authorId - メッセージ送信者のID（レートリミット時のキュー管理用、オプション）
-   * @returns 処理結果のメッセージまたはDiscordメッセージオブジェクト
+   * @param onProgress - 進捗通知用コールバック関数（Claude実行中の中間結果を通知）
+   * @param onReaction - リアクション追加用コールバック関数（処理状態を絵文字で通知）
+   * @param messageId - DiscordメッセージID（レートリミット時のキュー管理用）
+   * @param authorId - メッセージ送信者のID（レートリミット時のキュー管理用）
+   * @returns 処理結果のメッセージまたはDiscordメッセージオブジェクト（ボタン付き）
    * @throws {Error} Workerが見つからない場合
    * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+   *
+   * @example
+   * ```typescript
+   * try {
+   *   const result = await admin.routeMessage(
+   *     "thread_123",
+   *     "Claudeに質問したい内容",
+   *     async (progress) => console.log(progress),
+   *     async (emoji) => console.log(`リアクション: ${emoji}`)
+   *   );
+   *   console.log(result);
+   * } catch (error) {
+   *   console.error("メッセージ処理エラー:", error);
+   * }
+   * ```
    */
   routeMessage(
     threadId: string,
@@ -100,53 +154,147 @@ export interface IAdmin {
 
   /**
    * Discordボタンのインタラクションを処理する
+   *
    * customIdに基づいて適切なハンドラーを呼び出します。
+   * 以下のボタンタイプをサポートしています：
+   *
+   * - `devcontainer_yes_${threadId}`: devcontainerを使用する
+   * - `devcontainer_no_${threadId}`: ローカル環境を使用する
+   * - `rate_limit_auto_yes_${threadId}`: レートリミット後の自動再開を有効化
+   * - `rate_limit_auto_no_${threadId}`: レートリミット後の手動再開を選択
+   * - `local_env_${threadId}`: ローカル環境を選択（devcontainer.jsonなし）
+   * - `fallback_devcontainer_${threadId}`: fallback devcontainerを使用
+   *
    * @param threadId - ボタンが押されたスレッドのID
-   * @param customId - ボタンのカスタムID
+   * @param customId - ボタンのカスタムID（ボタンタイプとスレッドIDを含む）
    * @returns ボタン処理結果のメッセージ
+   *
+   * @example
+   * ```typescript
+   * const message = await admin.handleButtonInteraction(
+   *   "thread_123",
+   *   "devcontainer_yes_thread_123"
+   * );
+   * // "devcontainer_start_with_progress" などの特殊な戻り値の場合、
+   * // 呼び出し側で追加の処理が必要
+   * ```
    */
   handleButtonInteraction(threadId: string, customId: string): Promise<string>;
 
   /**
    * スレッド開始時の初期メッセージを作成する
-   * /startコマンドの使用方法と実行環境の設定フローを説明するメッセージを生成します。
-   * @param threadId - スレッドID
-   * @returns 初期メッセージのDiscordメッセージオブジェクト
+   *
+   * 新しいスレッドが作成された際に表示する初期メッセージを生成します。
+   * メッセージには以下の内容が含まれます：
+   * - Claude Code Botスレッドの開始通知
+   * - `/start`コマンドの使用方法
+   * - リポジトリ設定後の処理フロー説明
+   *
+   * @param threadId - スレッドID（現在は使用されていないが、将来の拡張のため保持）
+   * @returns 初期メッセージのDiscordメッセージオブジェクト（ボタンなし）
+   *
+   * @example
+   * ```typescript
+   * const initialMessage = admin.createInitialMessage("thread_123");
+   * // Discord APIを使用してメッセージを送信
+   * await sendMessage(initialMessage);
+   * ```
    */
   createInitialMessage(threadId: string): DiscordMessage;
 
   /**
    * レートリミットメッセージを作成する
-   * レートリミットが発生した際に表示するメッセージを生成します。
-   * 制限解除予定時刻を含む日本語メッセージを返します。
-   * @param threadId - スレッドID
-   * @param timestamp - レートリミットが発生したUnixタイムスタンプ（秒）
-   * @returns レートリミットメッセージ
+   *
+   * Claude Codeのレートリミットが発生した際に表示するメッセージを生成します。
+   * メッセージには以下の情報が含まれます：
+   * - レートリミット発生の通知
+   * - 制限解除予定時刻（日本時間、5分後）
+   * - 自動処理の説明
+   *
+   * @param threadId - スレッドID（現在は使用されていないが、将来の拡張のため保持）
+   * @param timestamp - レートリミットが発生したUnixタイムスタンプ（秒単位）
+   * @returns レートリミットメッセージ（日本語）
+   *
+   * @example
+   * ```typescript
+   * const rateLimitMessage = admin.createRateLimitMessage(
+   *   "thread_123",
+   *   Math.floor(Date.now() / 1000)
+   * );
+   * // "Claude Codeのレートリミットに達しました...制限解除予定時刻：2024/01/01 12:34頃"
+   * ```
    */
   createRateLimitMessage(threadId: string, timestamp: number): string;
 
   /**
    * スレッドを終了し、関連リソースをクリーンアップする
-   * Workerの削除、worktreeの削除、自動再開タイマーのクリア、
-   * スレッド情報のアーカイブ化、Discordスレッドのクローズを行います。
+   *
+   * スレッドの完全な終了処理を行います。以下の処理を順次実行します：
+   * 1. Workerインスタンスの削除
+   * 2. Git worktreeの削除（作業ディレクトリのクリーンアップ）
+   * 3. レートリミット自動再開タイマーのクリア
+   * 4. スレッド情報のステータスを"archived"に更新
+   * 5. 監査ログへの記録
+   * 6. Discordスレッドのクローズ（コールバックが設定されている場合）
+   *
    * @param threadId - 終了するスレッドのID
    * @returns 終了処理の完了を待つPromise
+   *
+   * @example
+   * ```typescript
+   * // スレッドを終了
+   * await admin.terminateThread("thread_123");
+   * // すべてのリソースがクリーンアップされ、スレッドがアーカイブされる
+   * ```
    */
   terminateThread(threadId: string): Promise<void>;
 
   /**
    * アプリケーション再起動時に既存のアクティブなスレッドを復旧する
-   * 以前アクティブだったスレッドのWorkerを再作成し、
-   * devcontainer設定やリポジトリ情報を復元します。
+   *
+   * アプリケーションが再起動された際に、以前アクティブだったスレッドの状態を復元します。
+   * 以下の処理を実行します：
+   *
+   * 1. 永続化されたスレッド情報から"active"ステータスのスレッドを検索
+   * 2. 各アクティブスレッドに対して：
+   *    - Git worktreeの有効性を確認（無効な場合はアーカイブ化）
+   *    - Workerインスタンスを再作成
+   *    - devcontainer設定を復元
+   *    - リポジトリ情報を復元
+   * 3. レートリミット自動再開タイマーを復旧
+   *
    * @returns 復旧処理の完了を待つPromise
    * @throws {Error} スレッド情報の読み込みでエラーが発生した場合
+   *
+   * @example
+   * ```typescript
+   * const admin = new Admin(workspaceManager);
+   * // アプリケーション起動時に実行
+   * await admin.restoreActiveThreads();
+   * // すべてのアクティブスレッドが復旧される
+   * ```
    */
   restoreActiveThreads(): Promise<void>;
 
   /**
    * レートリミット解除後の自動再開コールバックを設定する
-   * レートリミット解除後に自動的にメッセージを送信するためのコールバック関数を設定します。
+   *
+   * Claude Codeのレートリミットが解除された後に、自動的にメッセージを送信するための
+   * コールバック関数を設定します。このコールバックは以下の場面で呼び出されます：
+   * - レートリミット解除後、キューに溜まったメッセージを処理する場合
+   * - キューが空の場合、"続けて"というメッセージを送信する場合
+   *
    * @param callback - 自動再開時に呼び出されるコールバック関数
+   *                   第1引数: threadId（スレッドID）
+   *                   第2引数: message（送信するメッセージ内容）
+   *
+   * @example
+   * ```typescript
+   * admin.setAutoResumeCallback(async (threadId, message) => {
+   *   // Discord APIを使用してメッセージを送信
+   *   await sendMessageToThread(threadId, message);
+   * });
+   * ```
    */
   setAutoResumeCallback(
     callback: (threadId: string, message: string) => Promise<void>,
@@ -154,8 +302,21 @@ export interface IAdmin {
 
   /**
    * スレッドクローズ時のコールバックを設定する
+   *
    * スレッド終了時にDiscordスレッドをクローズするためのコールバック関数を設定します。
+   * このコールバックは`terminateThread`メソッドの最後に呼び出され、
+   * Discord APIを使用してスレッドを閉じる処理を実装できます。
+   *
    * @param callback - スレッドクローズ時に呼び出されるコールバック関数
+   *                   引数: threadId（クローズするスレッドのID）
+   *
+   * @example
+   * ```typescript
+   * admin.setThreadCloseCallback(async (threadId) => {
+   *   // Discord APIを使用してスレッドをクローズ
+   *   await discordClient.closeThread(threadId);
+   * });
+   * ```
    */
   setThreadCloseCallback(
     callback: (threadId: string) => Promise<void>,
