@@ -582,7 +582,30 @@ export async function prepareFallbackDevcontainer(
 }
 
 /**
- * fallback devcontainerを起動する
+ * フォールバックDev Container設定を使用してコンテナを起動する
+ *
+ * @description
+ * リポジトリにDev Container設定が存在しない場合に、事前定義された
+ * フォールバック設定をコピーしてからDev Containerを起動する。
+ * この関数は、prepareFallbackDevcontainer()とstartDevcontainer()を
+ * 順次実行するラッパー関数として機能する。
+ *
+ * @param repositoryPath - Dev Containerを起動するリポジトリのパス
+ * @param onProgress - 起動プロセスの進捗を通知するコールバック関数（オプション）
+ * @param ghToken - GitHub Personal Access Token（プライベートリポジトリやFeatureアクセス用、オプション）
+ * @returns 起動結果（成功/失敗、コンテナID、エラー情報）
+ *
+ * @example
+ * ```typescript
+ * const result = await startFallbackDevcontainer(
+ *   "/path/to/repo",
+ *   async (message) => console.log(message),
+ *   "ghp_xxxx"
+ * );
+ * if (result.success) {
+ *   console.log("フォールバックコンテナ起動成功");
+ * }
+ * ```
  */
 export async function startFallbackDevcontainer(
   repositoryPath: string,
