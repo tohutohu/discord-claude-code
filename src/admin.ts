@@ -370,6 +370,7 @@ export class Admin implements IAdmin {
    * @param workspaceManager - 作業ディレクトリとデータ永続化を管理するマネージャー
    * @param verbose - 詳細ログを出力するかどうか（デフォルト: false）
    * @param appendSystemPrompt - Claude実行時に追加するシステムプロンプト（オプション）
+   * @param translatorUrl - PLaMo-2-translate APIのURL（オプション）
    */
   constructor(
     workspaceManager: WorkspaceManager,

@@ -253,6 +253,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
  *
  * @throws {Error} インタラクション処理中にエラーが発生した場合
  */
+/**
+ * Discordボタンインタラクションを処理する
+ *
+ * ボタンクリック時のハンドラー関数で、以下のボタンタイプを処理します：
+ * - devcontainer関連: 使用確認、fallback選択
+ * - ローカル環境選択
+ * - 権限チェックオプション
+ *
+ * @param interaction - Discordのボタンインタラクションオブジェクト
+ * @returns 処理完了を待つPromise
+ * @throws {Error} スレッドIDが取得できない場合やボタン処理でエラーが発生した場合
+ *
+ * @example
+ * // Discord.jsのイベントハンドラー内で使用
+ * client.on('interactionCreate', async (interaction) => {
+ *   if (interaction.isButton()) {
+ *     await handleButtonInteraction(interaction);
+ *   }
+ * });
+ */
 async function handleButtonInteraction(interaction: ButtonInteraction) {
   try {
     const threadId = interaction.channel?.id;
@@ -526,6 +546,27 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
  *
  * @throws {Error} オートコンプリート処理中にエラーが発生した場合（エラー時は空の選択肢を返す）
  */
+/**
+ * Discord オートコンプリート機能を処理する
+ *
+ * スラッシュコマンドの入力時に、リアルタイムで候補を提示する機能を実装します。
+ * 以下のコマンドでオートコンプリートをサポート：
+ * - /start: リポジトリ名の候補
+ * - /set-pat: リポジトリ名の候補
+ * - /delete-pat: リポジトリ名の候補
+ *
+ * @param interaction - Discordのオートコンプリートインタラクションオブジェクト
+ * @returns 処理完了を待つPromise
+ * @throws {Error} インタラクション処理中にエラーが発生した場合
+ *
+ * @example
+ * // Discord.jsのイベントハンドラー内で使用
+ * client.on('interactionCreate', async (interaction) => {
+ *   if (interaction.isAutocomplete()) {
+ *     await handleAutocomplete(interaction);
+ *   }
+ * });
+ */
 async function handleAutocomplete(interaction: AutocompleteInteraction) {
   try {
     const supportedCommands = ["start", "set-pat", "delete-pat"];
@@ -583,6 +624,28 @@ async function handleAutocomplete(interaction: AutocompleteInteraction) {
  *   指定したリポジトリのPATを削除。
  *
  * @throws {Error} コマンド処理中にエラーが発生した場合
+ */
+/**
+ * Discord スラッシュコマンドを処理する
+ *
+ * Discord Botのメインコマンドハンドラーで、以下のコマンドを処理します：
+ * - /start: 新しいチャットスレッドを作成
+ * - /update: Botのコードを更新
+ * - /set-pat: GitHub Personal Access Tokenを設定
+ * - /list-pats: 登録済みPAT一覧を表示
+ * - /delete-pat: PATを削除
+ *
+ * @param interaction - Discordのチャット入力コマンドインタラクションオブジェクト
+ * @returns 処理完了を待つPromise
+ * @throws {Error} コマンド処理中にエラーが発生した場合
+ *
+ * @example
+ * // Discord.jsのイベントハンドラー内で使用
+ * client.on('interactionCreate', async (interaction) => {
+ *   if (interaction.isChatInputCommand()) {
+ *     await handleSlashCommand(interaction);
+ *   }
+ * });
  */
 async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.isChatInputCommand()) return;
