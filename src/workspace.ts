@@ -1,57 +1,119 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 
+/**
+ * ワークスペース設定のインターフェース
+ * 作業ディレクトリ構造のパス情報を管理します。
+ */
 export interface WorkspaceConfig {
+  /** ベースディレクトリ */
   baseDir: string;
+  /** リポジトリディレクトリ（repositories/） */
   repositoriesDir: string;
+  /** スレッド情報ディレクトリ（threads/） */
   threadsDir: string;
+  /** セッションログディレクトリ（sessions/） */
   sessionsDir: string;
+  /** 監査ログディレクトリ（audit/） */
   auditDir: string;
+  /** worktreeディレクトリ（threads/{thread_id}/worktree/） */
   worktreesDir: string;
+  /** PAT情報ディレクトリ（pats/） */
   patsDir: string;
+  /** キューメッセージディレクトリ（queued_messages/） */
   queuedMessagesDir: string;
 }
 
+/**
+ * スレッド情報のインターフェース
+ * Discordスレッドの状態や関連情報を管理します。
+ * threads/{thread_id}.jsonに永続化されます。
+ */
 export interface ThreadInfo {
+  /** DiscordスレッドID */
   threadId: string;
+  /** リポジトリのフルネーム（org/repo形式） */
   repositoryFullName: string | null;
+  /** リポジトリのローカルパス */
   repositoryLocalPath: string | null;
+  /** worktreeのパス */
   worktreePath: string | null;
+  /** スレッド作成日時（ISO 8601形式） */
   createdAt: string;
+  /** 最終アクティブ日時（ISO 8601形式） */
   lastActiveAt: string;
+  /** スレッドの状態 */
   status: "active" | "inactive" | "archived";
+  /** devcontainer設定情報 */
   devcontainerConfig: {
+    /** devcontainerを使用するか */
     useDevcontainer: boolean;
+    /** devcontainer.jsonが存在するか */
     hasDevcontainerFile: boolean;
+    /** anthropics featureが設定されているか */
     hasAnthropicsFeature: boolean;
+    /** 起動済みコンテナID */
     containerId?: string;
+    /** devcontainerが起動済みか */
     isStarted: boolean;
   } | null;
+  /** レートリミット発生タイムスタンプ（Unixタイムスタンプ、秒） */
   rateLimitTimestamp?: number;
+  /** レートリミット後の自動再開を有効にするか */
   autoResumeAfterRateLimit?: boolean;
 }
 
+/**
+ * セッションログのインターフェース
+ * Claudeとのやり取りを記録します。
+ * sessions/{thread_id}/{session_id}.jsonに永続化されます。
+ */
 export interface SessionLog {
+  /** ClaudeセッションID */
   sessionId: string;
+  /** DiscordスレッドID */
   threadId: string;
+  /** ログタイムスタンプ（ISO 8601形式） */
   timestamp: string;
+  /** ログタイプ */
   type: "command" | "response" | "error";
+  /** ログ内容 */
   content: string;
+  /** 追加のメタデータ */
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * 監査ログエントリのインターフェース
+ * システムの重要なアクションを記録します。
+ * audit/{date}/activity.jsonlにJSONL形式で永続化されます。
+ */
 export interface AuditEntry {
+  /** エントリタイムスタンプ（ISO 8601形式） */
   timestamp: string;
+  /** DiscordスレッドID */
   threadId: string;
+  /** アクション名（例: worker_created, message_received） */
   action: string;
+  /** アクションの詳細情報 */
   details: Record<string, unknown>;
 }
 
+/**
+ * リポジトリPAT情報のインターフェース
+ * GitHub Personal Access Tokenの情報を管理します。
+ * pats/{org}_{repo}.jsonに永続化されます。
+ */
 export interface RepositoryPatInfo {
+  /** リポジトリのフルネーム（org/repo形式） */
   repositoryFullName: string;
+  /** GitHub Personal Access Token */
   token: string;
+  /** 作成日時（ISO 8601形式） */
   createdAt: string;
+  /** 更新日時（ISO 8601形式） */
   updatedAt: string;
+  /** PATの説明（オプション） */
   description?: string;
 }
 

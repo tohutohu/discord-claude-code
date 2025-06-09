@@ -1,9 +1,19 @@
 import { GitRepository } from "./git-utils.ts";
 import { SessionLog, WorkspaceManager } from "./workspace.ts";
 
+/**
+ * Claude Codeのレートリミットエラーを表すカスタムエラークラス
+ * Claude Codeが利用制限に達した際にスローされます。
+ * タイムスタンプ情報を保持し、レートリミットの処理に使用されます。
+ */
 export class ClaudeCodeRateLimitError extends Error {
+  /** レートリミットが発生したUnixタイムスタンプ（秒） */
   public readonly timestamp: number;
 
+  /**
+   * ClaudeCodeRateLimitErrorのインスタンスを作成する
+   * @param timestamp - レートリミットが発生したUnixタイムスタンプ（秒）
+   */
   constructor(timestamp: number) {
     super(`Claude AI usage limit reached|${timestamp}`);
     this.name = "ClaudeCodeRateLimitError";
@@ -11,6 +21,17 @@ export class ClaudeCodeRateLimitError extends Error {
   }
 }
 
+/**
+ * stdoutとstderrストリームを並行して処理する
+ * stdoutデータはonDataコールバックに渡し、stderrは蓄積して返します。
+ * Claude Codeレートリミットエラーは特別に処理してそのまま投げます。
+ *
+ * @param stdout - 標準出力ストリーム
+ * @param stderr - 標準エラー出力ストリーム
+ * @param onData - stdoutデータの処理コールバック
+ * @returns stderrの全内容
+ * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+ */
 async function processStreams(
   stdout: ReadableStream<Uint8Array>,
   stderr: ReadableStream<Uint8Array>,
@@ -148,7 +169,19 @@ type ClaudeStreamMessage =
     session_id?: string;
   };
 
+/**
+ * Claudeコマンド実行戦略のインターフェース
+ * Claude CLIの実行方法を抽象化し、異なる実行環境（ローカル、devcontainer等）を
+ * サポートできるようにします。
+ */
 export interface ClaudeCommandExecutor {
+  /**
+   * Claudeコマンドをストリーミング形式で実行する
+   * @param args - Claudeコマンドの引数配列
+   * @param cwd - 作業ディレクトリ
+   * @param onData - stdoutデータを受け取るコールバック関数
+   * @returns 実行結果（終了コードとstderr内容）
+   */
   executeStreaming(
     args: string[],
     cwd: string,
@@ -156,9 +189,18 @@ export interface ClaudeCommandExecutor {
   ): Promise<{ code: number; stderr: Uint8Array }>;
 }
 
+/**
+ * デフォルトのClaudeコマンド実行戦略
+ * ローカル環境でClaude CLIを直接実行します。
+ */
 class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
+  /** 詳細ログ出力フラグ */
   private readonly verbose: boolean;
 
+  /**
+   * DefaultClaudeCommandExecutorのインスタンスを作成する
+   * @param verbose - 詳細ログを出力するかどうか（デフォルト: false）
+   */
   constructor(verbose: boolean = false) {
     this.verbose = verbose;
   }
@@ -209,11 +251,25 @@ class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
   }
 }
 
+/**
+ * Devcontainer環境でのClaudeコマンド実行戦略
+ * devcontainer内でClaude CLIを実行します。
+ * GitHubトークンが設定されている場合は、コンテナ内に渡します。
+ */
 export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
+  /** リポジトリのパス */
   private readonly repositoryPath: string;
+  /** 詳細ログ出力フラグ */
   private readonly verbose: boolean;
+  /** GitHubトークン（オプション） */
   private readonly ghToken?: string;
 
+  /**
+   * DevcontainerClaudeExecutorのインスタンスを作成する
+   * @param repositoryPath - リポジトリのパス
+   * @param verbose - 詳細ログを出力するかどうか（デフォルト: false）
+   * @param ghToken - GitHubトークン（オプション）
+   */
   constructor(
     repositoryPath: string,
     verbose: boolean = false,
@@ -289,35 +345,106 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
   }
 }
 
+/**
+ * Workerのインターフェース
+ * 1つのDiscordスレッドを担当し、Claude Codeを実行して応答を生成する
+ * Workerの公開インターフェースを定義します。
+ */
 export interface IWorker {
+  /**
+   * ユーザーからのメッセージを処理する
+   * @param message - 処理するメッセージ内容
+   * @param onProgress - 進捗通知コールバック（オプション）
+   * @param onReaction - リアクション追加コールバック（オプション）
+   * @returns Claude Codeの実行結果または設定エラーメッセージ
+   * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+   */
   processMessage(
     message: string,
     onProgress?: (content: string) => Promise<void>,
     onReaction?: (emoji: string) => Promise<void>,
   ): Promise<string>;
+
+  /**
+   * Workerの名前を取得する
+   * @returns Worker名
+   */
   getName(): string;
+
+  /**
+   * 設定されているリポジトリ情報を取得する
+   * @returns リポジトリ情報、未設定の場合はnull
+   */
   getRepository(): GitRepository | null;
+
+  /**
+   * リポジトリ情報を設定する
+   * @param repository - リポジトリ情報
+   * @param localPath - ローカルパス
+   * @returns 設定処理の完了を待つPromise
+   */
   setRepository(repository: GitRepository, localPath: string): Promise<void>;
+
+  /**
+   * スレッドIDを設定する
+   * @param threadId - DiscordスレッドID
+   */
   setThreadId(threadId: string): void;
+
+  /**
+   * devcontainerを使用しているかどうかを取得する
+   * @returns devcontainer使用フラグ
+   */
   isUsingDevcontainer(): boolean;
 }
 
+/**
+ * Workerクラス - Discordスレッドを担当し、Claude Codeを実行する
+ *
+ * 主な責務:
+ * - 1つのDiscordスレッドのメッセージを処理
+ * - リポジトリのworktree管理
+ * - Claude Codeの実行とストリーミング処理
+ * - devcontainer環境の起動と管理
+ * - セッションログの記録
+ * - レートリミットエラーの検出と伝搬
+ */
 export class Worker implements IWorker {
+  /** Workerの名前 */
   private readonly name: string;
+  /** 担当しているリポジトリ情報 */
   private repository: GitRepository | null = null;
+  /** worktreeのパス */
   private worktreePath: string | null = null;
+  /** 現在のClaudeセッションID */
   private sessionId: string | null = null;
+  /** 担当しているDiscordスレッドID */
   private threadId: string | null = null;
+  /** Claudeコマンド実行戦略 */
   private claudeExecutor: ClaudeCommandExecutor;
+  /** 作業ディレクトリとデータ永続化を管理するマネージャー */
   private readonly workspaceManager: WorkspaceManager;
+  /** devcontainer使用フラグ */
   private useDevcontainer: boolean = false;
+  /** devcontainer起動済みフラグ */
   private devcontainerStarted: boolean = false;
+  /** 詳細ログ出力フラグ */
   private verbose: boolean = false;
-  // 設定完了状態の管理
+  /** devcontainer選択完了フラグ */
   private devcontainerChoiceMade: boolean = false;
+  /** Claude実行時に追加するシステムプロンプト */
   private appendSystemPrompt?: string;
+  /** fallback devcontainer使用フラグ */
   private useFallbackDevcontainer: boolean = false;
 
+  /**
+   * Workerのインスタンスを作成する
+   * @param name - Workerの名前
+   * @param workspaceManager - 作業ディレクトリとデータ永続化を管理するマネージャー
+   * @param claudeExecutor - Claudeコマンド実行戦略（オプション）
+   * @param verbose - 詳細ログを出力するかどうか（オプション）
+   * @param appendSystemPrompt - Claude実行時に追加するシステムプロンプト（オプション）
+   */
   constructor(
     name: string,
     workspaceManager: WorkspaceManager,
@@ -333,6 +460,17 @@ export class Worker implements IWorker {
     this.appendSystemPrompt = appendSystemPrompt;
   }
 
+  /**
+   * ユーザーからのメッセージを処理する
+   * リポジトリとdevcontainerの設定確認後、Claude Codeを実行してレスポンスを生成します。
+   * 進捗通知とリアクションのコールバックをサポートします。
+   *
+   * @param message - 処理するメッセージ内容
+   * @param onProgress - 進捗通知コールバック（デフォルト: 空関数）
+   * @param onReaction - リアクション追加コールバック（オプション）
+   * @returns Claude Codeの実行結果または設定エラーメッセージ
+   * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+   */
   async processMessage(
     message: string,
     onProgress: (content: string) => Promise<void> = async () => {},
@@ -445,6 +583,15 @@ export class Worker implements IWorker {
     }
   }
 
+  /**
+   * Claude Codeコマンドを実行する
+   * プロンプトを渡してClaude Codeを実行し、ストリーミング形式で結果を取得します。
+   *
+   * @param prompt - Claude Codeに渡すプロンプト
+   * @param onProgress - 進捗通知コールバック
+   * @returns Claude Codeの実行結果
+   * @private
+   */
   private async executeClaude(
     prompt: string,
     onProgress: (content: string) => Promise<void>,
@@ -489,6 +636,18 @@ export class Worker implements IWorker {
     return await this.executeClaudeStreaming(args, onProgress);
   }
 
+  /**
+   * Claude Codeをストリーミング形式で実行する
+   * JSON形式の出力を1行ずつ処理し、進捗をリアルタイムで通知します。
+   * セッションIDの管理、レートリミット検出、生JSONLの保存も行います。
+   *
+   * @param args - Claude Codeコマンドの引数
+   * @param onProgress - 進捗通知コールバック
+   * @returns Claude Codeの最終実行結果
+   * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+   * @throws {Error} Claude実行失敗エラー
+   * @private
+   */
   private async executeClaudeStreaming(
     args: string[],
     onProgress: (content: string) => Promise<void>,
@@ -703,6 +862,14 @@ export class Worker implements IWorker {
     return finalResult;
   }
 
+  /**
+   * Claude Codeの生のJSONL出力を保存する
+   * デバッグや監査目的で、セッションの全出力を保存します。
+   *
+   * @param output - 保存するJSONL形式の出力
+   * @returns 保存処理の完了を待つPromise
+   * @private
+   */
   private async saveRawJsonlOutput(output: string): Promise<void> {
     if (!this.repository?.fullName || !this.sessionId) return;
 
@@ -717,6 +884,14 @@ export class Worker implements IWorker {
     }
   }
 
+  /**
+   * Claude Codeのレスポンスをフォーマットする
+   * Discordの文字数制限（2000文字）に収まるように調整し、ANSIエスケープコードを除去します。
+   *
+   * @param response - フォーマット対象のレスポンス
+   * @returns フォーマット済みのレスポンス
+   * @private
+   */
   private formatResponse(response: string): string {
     // Discordの文字数制限（2000文字）を考慮
     const maxLength = 1900; // 余裕を持って少し短く
@@ -739,20 +914,44 @@ export class Worker implements IWorker {
       "\n\n*（応答が長いため、一部のみ表示しています）*";
   }
 
+  /**
+   * ANSIエスケープコードを除去する
+   * ターミナル制御用のANSIエスケープシーケンスをテキストから除去します。
+   *
+   * @param text - 処理対象のテキスト
+   * @returns ANSIコードを除去したテキスト
+   * @private
+   */
   private stripAnsiCodes(text: string): string {
     // ANSIエスケープシーケンスを除去する正規表現
     // deno-lint-ignore no-control-regex
     return text.replace(/\x1b\[[0-9;]*[mGKHF]/g, "");
   }
 
+  /**
+   * Workerの名前を取得する
+   * @returns Worker名
+   */
   getName(): string {
     return this.name;
   }
 
+  /**
+   * 設定されているリポジトリ情報を取得する
+   * @returns リポジトリ情報、未設定の場合はnull
+   */
   getRepository(): GitRepository | null {
     return this.repository;
   }
 
+  /**
+   * リポジトリ情報を設定する
+   * worktreeの作成とスレッド情報の更新も行います。
+   *
+   * @param repository - リポジトリ情報
+   * @param localPath - ローカルパス
+   * @returns 設定処理の完了を待つPromise
+   */
   async setRepository(
     repository: GitRepository,
     localPath: string,
@@ -834,12 +1033,19 @@ export class Worker implements IWorker {
     });
   }
 
+  /**
+   * スレッドIDを設定する
+   * @param threadId - DiscordスレッドID
+   */
   setThreadId(threadId: string): void {
     this.threadId = threadId;
   }
 
   /**
    * devcontainerの使用を設定する
+   * devcontainerの有効/無効を切り替え、必要に応じてClaude実行戦略を変更します。
+   *
+   * @param useDevcontainer - devcontainerを使用するかどうか
    */
   setUseDevcontainer(useDevcontainer: boolean): void {
     this.useDevcontainer = useDevcontainer;
@@ -861,6 +1067,7 @@ export class Worker implements IWorker {
 
   /**
    * devcontainerが使用されているかを取得
+   * @returns devcontainer使用フラグ
    */
   isUsingDevcontainer(): boolean {
     return this.useDevcontainer;
@@ -868,6 +1075,7 @@ export class Worker implements IWorker {
 
   /**
    * devcontainerが起動済みかを取得
+   * @returns devcontainer起動済みフラグ
    */
   isDevcontainerStarted(): boolean {
     return this.devcontainerStarted;
@@ -875,6 +1083,8 @@ export class Worker implements IWorker {
 
   /**
    * fallback devcontainerの使用を設定する
+   *
+   * @param useFallback - fallback devcontainerを使用するかどうか
    */
   setUseFallbackDevcontainer(useFallback: boolean): void {
     this.useFallbackDevcontainer = useFallback;
@@ -885,6 +1095,7 @@ export class Worker implements IWorker {
 
   /**
    * fallback devcontainerが使用されているかを取得
+   * @returns fallback devcontainer使用フラグ
    */
   isUsingFallbackDevcontainer(): boolean {
     return this.useFallbackDevcontainer;
@@ -892,6 +1103,8 @@ export class Worker implements IWorker {
 
   /**
    * verboseモードを設定する
+   *
+   * @param verbose - 詳細ログを出力するかどうか
    */
   setVerbose(verbose: boolean): void {
     this.verbose = verbose;
@@ -899,6 +1112,7 @@ export class Worker implements IWorker {
 
   /**
    * verboseモードが有効かを取得
+   * @returns verboseモードフラグ
    */
   isVerbose(): boolean {
     return this.verbose;
@@ -906,6 +1120,8 @@ export class Worker implements IWorker {
 
   /**
    * 設定が完了しているかを確認
+   * devcontainerの使用方法が決定されているかを確認します。
+   * @returns 設定完了フラグ
    */
   isConfigurationComplete(): boolean {
     return this.devcontainerChoiceMade;
@@ -913,6 +1129,9 @@ export class Worker implements IWorker {
 
   /**
    * 現在の設定状態を取得
+   * @returns 設定状態オブジェクト
+   * @returns returns.devcontainerChoiceMade - devcontainerの選択が完了しているか
+   * @returns returns.useDevcontainer - devcontainerを使用するか
    */
   getConfigurationStatus(): {
     devcontainerChoiceMade: boolean;
@@ -926,6 +1145,11 @@ export class Worker implements IWorker {
 
   /**
    * JSONL行からClaude Codeの実際の出力メッセージを抽出する
+   * assistant、user、system、resultメッセージから適切な内容を抽出します。
+   *
+   * @param parsed - パースされたClaudeストリームメッセージ
+   * @returns 抽出されたメッセージ、またはnull
+   * @private
    */
   private extractOutputMessage(parsed: ClaudeStreamMessage): string | null {
     // assistantメッセージの場合
@@ -967,6 +1191,11 @@ export class Worker implements IWorker {
 
   /**
    * assistantメッセージのcontentを処理する
+   * テキストやツール使用情報を抽出し、適切にフォーマットします。
+   *
+   * @param content - assistantメッセージのcontent配列
+   * @returns 抽出・フォーマットされたメッセージ、またはnull
+   * @private
    */
   private extractAssistantMessage(
     content: Array<{
@@ -1002,6 +1231,12 @@ export class Worker implements IWorker {
 
   /**
    * userメッセージのcontentを処理する（tool_result等）
+   * ツール実行結果を抽出し、適切にフォーマットします。
+   * TodoWrite成功メッセージはスキップします。
+   *
+   * @param content - userメッセージのcontent配列
+   * @returns 抽出・フォーマットされたメッセージ、またはnull
+   * @private
    */
   private extractUserMessage(
     content: Array<{
@@ -1052,6 +1287,15 @@ export class Worker implements IWorker {
 
   /**
    * ツール実行結果を長さと内容に応じてフォーマットする
+   * 500文字未満: 全文表示
+   * 500-2000文字: 先頭・末尾表示
+   * 2000文字以上: スマート要約
+   * エラー結果は error/fatal 行を優先表示
+   *
+   * @param content - フォーマット対象のツール結果
+   * @param isError - エラー結果かどうか
+   * @returns フォーマットされた結果文字列
+   * @private
    */
   private formatToolResult(content: string, isError: boolean): string {
     if (!content.trim()) {
@@ -1081,6 +1325,12 @@ export class Worker implements IWorker {
 
   /**
    * エラー結果をフォーマットする
+   * error/failed/exception/fatalを含む行を優先的に抽出して表示します。
+   *
+   * @param content - エラー結果の内容
+   * @param maxLength - 最大文字数
+   * @returns フォーマットされたエラー結果
+   * @private
    */
   private formatErrorResult(content: string, maxLength: number): string {
     const lines = content.split("\n");
@@ -1118,6 +1368,12 @@ export class Worker implements IWorker {
 
   /**
    * 中程度の長さの結果をフォーマットする
+   * 先頭10行と末尾5行を表示し、中間を省略します。
+   *
+   * @param content - ツール結果の内容
+   * @param maxLength - 最大文字数
+   * @returns フォーマットされた結果
+   * @private
    */
   private formatMediumResult(content: string, maxLength: number): string {
     const lines = content.split("\n");
@@ -1137,6 +1393,12 @@ export class Worker implements IWorker {
 
   /**
    * 長い結果をスマート要約する
+   * 結果の種類を判定し、重要な情報を抽出して要約します。
+   *
+   * @param content - 長い結果の内容
+   * @param maxLength - 最大文字数
+   * @returns スマート要約された結果
+   * @private
    */
   private formatLongResult(content: string, maxLength: number): string {
     const lines = content.split("\n");
@@ -1174,6 +1436,11 @@ export class Worker implements IWorker {
 
   /**
    * 内容から要約情報を抽出する
+   * gitコミット、テスト結果、ファイル操作などの重要情報を抽出します。
+   *
+   * @param content - 要約対象の内容
+   * @returns 抽出された要約情報、またはnull
+   * @private
    */
   private extractSummaryInfo(content: string): string | null {
     // gitコミット結果
@@ -1212,6 +1479,11 @@ export class Worker implements IWorker {
 
   /**
    * ツール使用を進捗メッセージとしてフォーマットする
+   * ツール名に応じて適切なアイコンを付与し、TodoWriteは特別にフォーマットします。
+   *
+   * @param item - ツール使用情報
+   * @returns フォーマットされたツール使用メッセージ、またはnull
+   * @private
    */
   private formatToolUse(item: {
     type: string;
@@ -1274,6 +1546,10 @@ export class Worker implements IWorker {
 
   /**
    * ツール名に対応するアイコンを取得
+   *
+   * @param toolName - ツール名
+   * @returns 対応する絵文字アイコン
+   * @private
    */
   private getToolIcon(toolName: string): string {
     const iconMap: Record<string, string> = {
@@ -1298,6 +1574,12 @@ export class Worker implements IWorker {
 
   /**
    * ツールの説明を生成
+   * ツール名と入力パラメータに基づいて、ユーザーに表示する説明文を生成します。
+   *
+   * @param toolName - ツール名
+   * @param input - ツールの入力パラメータ
+   * @returns ツールの説明文
+   * @private
    */
   private getToolDescription(
     toolName: string,
@@ -1365,6 +1647,11 @@ export class Worker implements IWorker {
 
   /**
    * TODOリストをチェックマーク付きリスト形式でフォーマットする
+   * ✅ 完了、⬜ 未完了、🔄 進行中のアイコンを使用します。
+   *
+   * @param todos - TODOアイテムの配列
+   * @returns フォーマットされたTODOリスト
+   * @private
    */
   private formatTodoList(
     todos: Array<{
@@ -1386,6 +1673,11 @@ export class Worker implements IWorker {
 
   /**
    * TODOリストの更新ログから変更後の状態をチェックマーク付きリスト形式で抽出する
+   * TodoWriteツールの使用を検出し、JSONからTODOリストを抽出してフォーマットします。
+   *
+   * @param textContent - テキストコンテンツ
+   * @returns フォーマットされたTODOリスト、またはnull
+   * @private
    */
   private extractTodoListUpdate(textContent: string): string | null {
     try {
@@ -1417,6 +1709,11 @@ export class Worker implements IWorker {
 
   /**
    * TodoWrite成功メッセージかどうかを判定する
+   * TodoWrite成功時の定型文パターンを検出します。
+   *
+   * @param content - チェック対象のコンテンツ
+   * @returns TodoWrite成功メッセージかどうか
+   * @private
    */
   private isTodoWriteSuccessMessage(content: string): boolean {
     // TodoWrite成功時の定型文パターン
@@ -1434,6 +1731,11 @@ export class Worker implements IWorker {
 
   /**
    * verboseログを出力する
+   * verboseモードが有効な場合のみ、タイムスタンプ付きの詳細ログを出力します。
+   *
+   * @param message - ログメッセージ
+   * @param metadata - 追加のメタデータ（オプション）
+   * @private
    */
   private logVerbose(
     message: string,
@@ -1455,6 +1757,10 @@ export class Worker implements IWorker {
 
   /**
    * Claude Codeのレートリミットメッセージかを判定する
+   *
+   * @param result - チェック対象の結果文字列
+   * @returns レートリミットメッセージかどうか
+   * @private
    */
   private isClaudeCodeRateLimit(result: string): boolean {
     return result.includes("Claude AI usage limit reached|");
@@ -1462,6 +1768,10 @@ export class Worker implements IWorker {
 
   /**
    * レートリミットメッセージからタイムスタンプを抽出する
+   *
+   * @param result - レートリミットメッセージ
+   * @returns Unixタイムスタンプ（秒）、またはnull
+   * @private
    */
   private extractRateLimitTimestamp(result: string): number | null {
     const match = result.match(/Claude AI usage limit reached\|(\d+)/);
@@ -1473,6 +1783,13 @@ export class Worker implements IWorker {
 
   /**
    * devcontainerを起動する
+   * devcontainer CLIを使用してコンテナを起動し、成功時にClaude実行戦略を切り替えます。
+   *
+   * @param onProgress - 進捗通知コールバック（オプション）
+   * @returns devcontainer起動結果
+   * @returns returns.success - 起動に成功したか
+   * @returns returns.containerId - コンテナID（成功時）
+   * @returns returns.error - エラーメッセージ（失敗時）
    */
   async startDevcontainer(
     onProgress?: (message: string) => Promise<void>,
@@ -1527,6 +1844,16 @@ export class Worker implements IWorker {
     return result;
   }
 
+  /**
+   * セッションアクティビティをログに記録する
+   * Claudeとのやり取りをWorkspaceManager経由で永続化します。
+   *
+   * @param type - アクティビティの種類（command/response/error）
+   * @param content - ログ内容
+   * @param metadata - 追加のメタデータ（オプション）
+   * @returns ログ記録の完了を待つPromise
+   * @private
+   */
   private async logSessionActivity(
     type: "command" | "response" | "error",
     content: string,

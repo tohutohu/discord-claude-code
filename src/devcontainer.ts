@@ -1,33 +1,85 @@
 import { join } from "std/path/mod.ts";
 
+/**
+ * Dev Container設定ファイル（devcontainer.json）の構造を表すインターフェース
+ *
+ * @description
+ * Dev Containerの設定を定義するための標準的な構造体。
+ * コンテナイメージ、ビルド設定、機能拡張、カスタマイゼーション、
+ * ライフサイクルコマンドなどを含む。
+ *
+ * @see https://containers.dev/implementors/json_reference/
+ */
 export interface DevcontainerConfig {
+  /** Dev Containerの表示名 */
   name?: string;
+  /** 使用するDockerイメージ名 */
   image?: string;
+  /** Dockerfileのパス（非推奨、buildを使用） */
   dockerFile?: string;
+  /** ビルド設定 */
   build?: {
+    /** Dockerfileのパス */
     dockerfile?: string;
+    /** ビルドコンテキストのパス */
     context?: string;
   };
+  /** Dev Container Featuresの設定（キー: Feature ID、値: Feature設定） */
   features?: Record<string, unknown>;
+  /** 各種ツールのカスタマイゼーション設定 */
   customizations?: {
+    /** VS Code固有の設定 */
     vscode?: {
+      /** インストールする拡張機能のID一覧 */
       extensions?: string[];
     };
   };
+  /** コンテナ作成後に実行するコマンド */
   postCreateCommand?: string | string[];
+  /** コンテナ開始後に実行するコマンド */
   postStartCommand?: string | string[];
+  /** コンテナにアタッチ後に実行するコマンド */
   postAttachCommand?: string | string[];
 }
 
+/**
+ * Dev Container設定の確認結果を表すインターフェース
+ *
+ * @description
+ * リポジトリ内のdevcontainer.json設定の存在有無、パス、内容、
+ * およびAnthropics Dev Container Featureの使用状況を含む情報を提供する。
+ */
 export interface DevcontainerInfo {
+  /** devcontainer.jsonファイルが存在するかどうか */
   configExists: boolean;
+  /** devcontainer.jsonファイルのフルパス（存在する場合） */
   configPath?: string;
+  /** パースされたDev Container設定（存在する場合） */
   config?: DevcontainerConfig;
+  /** Anthropics Dev Container Featureが含まれているかどうか */
   hasAnthropicsFeature?: boolean;
 }
 
 /**
- * 指定されたパスでdevcontainer.jsonの存在と設定を確認する
+ * 指定されたリポジトリパスでdevcontainer.jsonの存在と設定を確認する
+ *
+ * @description
+ * リポジトリ内の標準的な場所（.devcontainer/devcontainer.jsonまたは
+ * .devcontainer.json）でDev Container設定ファイルを検索し、
+ * 存在する場合はその内容をパースして返す。
+ * また、Anthropics Dev Container Featureの使用有無も確認する。
+ *
+ * @param repositoryPath - チェック対象のリポジトリのルートパス
+ * @returns Dev Container設定の確認結果を含む情報
+ *
+ * @example
+ * ```typescript
+ * const info = await checkDevcontainerConfig("/path/to/repo");
+ * if (info.configExists) {
+ *   console.log(`設定ファイル: ${info.configPath}`);
+ *   console.log(`Anthropics Feature: ${info.hasAnthropicsFeature}`);
+ * }
+ * ```
  */
 export async function checkDevcontainerConfig(
   repositoryPath: string,
@@ -63,7 +115,25 @@ export async function checkDevcontainerConfig(
 }
 
 /**
- * devcontainer設定にanthropics/devcontainer-featuresが含まれているかチェック
+ * Dev Container設定にAnthropics Dev Container Featureが含まれているかチェックする
+ *
+ * @description
+ * 設定のfeaturesセクションを検査し、Anthropics公式のDev Container Feature
+ * （ghcr.io/anthropics/devcontainer-features/またはanthropics/devcontainer-features/）
+ * が使用されているかを判定する。
+ *
+ * @param config - チェック対象のDev Container設定
+ * @returns Anthropics Featureが含まれている場合true、それ以外はfalse
+ *
+ * @example
+ * ```typescript
+ * const config = {
+ *   features: {
+ *     "ghcr.io/anthropics/devcontainer-features/claude": {}
+ *   }
+ * };
+ * const hasFeature = checkAnthropicsFeature(config); // true
+ * ```
  */
 function checkAnthropicsFeature(config: DevcontainerConfig): boolean {
   if (!config.features) {
@@ -84,7 +154,23 @@ function checkAnthropicsFeature(config: DevcontainerConfig): boolean {
 }
 
 /**
- * devcontainer CLIが利用可能かチェック
+ * システムにDev Container CLIがインストールされており利用可能かチェックする
+ *
+ * @description
+ * `devcontainer --version`コマンドを実行して、Dev Container CLIが
+ * システムにインストールされており、正常に動作するかを確認する。
+ * Docker Platformはlinux/amd64に固定される。
+ *
+ * @returns CLIが利用可能な場合true、それ以外はfalse
+ *
+ * @example
+ * ```typescript
+ * const isAvailable = await checkDevcontainerCli();
+ * if (!isAvailable) {
+ *   console.log("Dev Container CLIをインストールしてください");
+ *   console.log("npm install -g @devcontainers/cli");
+ * }
+ * ```
  */
 export async function checkDevcontainerCli(): Promise<boolean> {
   try {
@@ -106,7 +192,33 @@ export async function checkDevcontainerCli(): Promise<boolean> {
 }
 
 /**
- * devcontainerを起動する
+ * 指定されたリポジトリのDev Containerを起動する
+ *
+ * @description
+ * `devcontainer up`コマンドを実行して、リポジトリのDev Container設定に基づいて
+ * Dockerコンテナを起動する。起動プロセスの進捗はonProgressコールバックで
+ * リアルタイムに通知される。JSONログフォーマットを使用して詳細な
+ * デバッグ情報を取得し、重要なイベント（イメージのダウンロード、ビルド、
+ * コンテナの作成など）を適切なアイコン付きで通知する。
+ *
+ * @param repositoryPath - Dev Containerを起動するリポジトリのパス
+ * @param onProgress - 起動プロセスの進捗を通知するコールバック関数（オプション）
+ * @param ghToken - GitHub Personal Access Token（プライベートリポジトリやFeatureアクセス用、オプション）
+ * @returns 起動結果（成功/失敗、コンテナID、エラー情報）
+ *
+ * @example
+ * ```typescript
+ * const result = await startDevcontainer(
+ *   "/path/to/repo",
+ *   async (message) => console.log(message),
+ *   "ghp_xxxx"
+ * );
+ * if (result.success) {
+ *   console.log(`コンテナ起動成功: ${result.containerId}`);
+ * } else {
+ *   console.error(`起動失敗: ${result.error}`);
+ * }
+ * ```
  */
 export async function startDevcontainer(
   repositoryPath: string,
@@ -341,7 +453,33 @@ export async function startDevcontainer(
 }
 
 /**
- * devcontainer内でコマンドを実行する
+ * 起動済みのDev Container内でコマンドを実行する
+ *
+ * @description
+ * `devcontainer exec`コマンドを使用して、既に起動されているDev Container内で
+ * 任意のコマンドを実行する。コマンドの標準出力と標準エラー出力を
+ * キャプチャして返す。GitHub PATが提供されている場合は、
+ * コンテナ内でもGitHub認証が利用可能になる。
+ *
+ * @param repositoryPath - Dev Containerが起動されているリポジトリのパス
+ * @param command - 実行するコマンドとその引数の配列
+ * @param ghToken - GitHub Personal Access Token（コンテナ内でのGitHub認証用、オプション）
+ * @returns コマンドの実行結果（終了コード、標準出力、標準エラー出力）
+ *
+ * @example
+ * ```typescript
+ * // Dev Container内でnpm installを実行
+ * const result = await execInDevcontainer(
+ *   "/path/to/repo",
+ *   ["npm", "install"],
+ *   "ghp_xxxx"
+ * );
+ * if (result.code === 0) {
+ *   console.log("インストール成功");
+ * } else {
+ *   console.error("エラー:", new TextDecoder().decode(result.stderr));
+ * }
+ * ```
  */
 export async function execInDevcontainer(
   repositoryPath: string,
@@ -372,7 +510,26 @@ export async function execInDevcontainer(
 }
 
 /**
- * fallback devcontainerをコピーして準備する
+ * フォールバックDev Container設定をリポジトリにコピーして準備する
+ *
+ * @description
+ * リポジトリにDev Container設定が存在しない場合に使用する、
+ * 事前定義されたフォールバック設定（fallback_devcontainerディレクトリ）を
+ * リポジトリの.devcontainerディレクトリにコピーする。
+ * 既に.devcontainerディレクトリが存在する場合はエラーを返す。
+ *
+ * @param repositoryPath - フォールバック設定をコピーする対象のリポジトリパス
+ * @returns 準備の成功/失敗とエラー情報
+ *
+ * @example
+ * ```typescript
+ * const result = await prepareFallbackDevcontainer("/path/to/repo");
+ * if (result.success) {
+ *   console.log("フォールバック設定の準備完了");
+ * } else {
+ *   console.error(`準備失敗: ${result.error}`);
+ * }
+ * ```
  */
 export async function prepareFallbackDevcontainer(
   repositoryPath: string,

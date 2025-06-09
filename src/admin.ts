@@ -11,27 +11,84 @@ import {
   checkDevcontainerConfig,
 } from "./devcontainer.ts";
 
+/**
+ * Discordボタンコンポーネントのインターフェース
+ * Discord APIで使用されるインタラクティブボタンを表現します。
+ * @see https://discord.com/developers/docs/interactions/message-components#button-object
+ */
 export interface DiscordButtonComponent {
+  /** コンポーネントタイプ（2 = ボタン） */
   type: 2;
+  /** ボタンスタイル（1: Primary, 2: Secondary, 3: Success, 4: Danger, 5: Link） */
   style: 1 | 2 | 3 | 4 | 5;
+  /** ボタンに表示されるテキスト */
   label: string;
+  /** ボタンクリック時に送信されるカスタムID */
   custom_id: string;
+  /** ボタンが無効化されているかどうか */
   disabled?: boolean;
 }
 
+/**
+ * Discordアクションロウのインターフェース
+ * ボタンなどのコンポーネントを横一列に配置するコンテナです。
+ * 1つのアクションロウには最大5つのボタンを配置できます。
+ * @see https://discord.com/developers/docs/interactions/message-components#action-rows
+ */
 export interface DiscordActionRow {
+  /** コンポーネントタイプ（1 = アクションロウ） */
   type: 1;
+  /** 行内に配置されるボタンコンポーネントの配列（最大5個） */
   components: DiscordButtonComponent[];
 }
 
+/**
+ * Discordメッセージのインターフェース
+ * Discord APIで送信するメッセージの構造を定義します。
+ * インタラクティブなボタンを含むメッセージを作成する際に使用されます。
+ */
 export interface DiscordMessage {
+  /** メッセージの本文（最大2000文字） */
   content: string;
+  /** メッセージに含まれるインタラクティブコンポーネント（ボタンなど） */
   components?: DiscordActionRow[];
 }
 
+/**
+ * Adminモジュールのインターフェース
+ * Worker管理とDiscordメッセージルーティングを担当する主要コンポーネントのインターフェースです。
+ * 1つのAdminインスタンスが複数のWorker（1スレッド1Worker）を管理します。
+ */
 export interface IAdmin {
+  /**
+   * 指定されたスレッドIDに対してWorkerを作成または取得する
+   * 既にWorkerが存在する場合はそれを返し、存在しない場合は新規作成します。
+   * @param threadId - Worker作成対象のスレッドID
+   * @returns 作成または取得したWorkerインスタンス
+   * @throws {Error} WorkspaceManagerの初期化エラーなど
+   */
   createWorker(threadId: string): Promise<IWorker>;
+
+  /**
+   * 指定されたスレッドIDのWorkerを取得する
+   * @param threadId - 取得するWorkerのスレッドID
+   * @returns Workerインスタンス、存在しない場合はnull
+   */
   getWorker(threadId: string): IWorker | null;
+
+  /**
+   * スレッドIDに基づいてメッセージを適切なWorkerにルーティングする
+   * レートリミット中の場合はメッセージをキューに追加し、通常時はWorkerに処理を委譲します。
+   * @param threadId - メッセージの宛先スレッドID
+   * @param message - 処理するメッセージ内容
+   * @param onProgress - 進捗通知用コールバック関数（オプション）
+   * @param onReaction - リアクション追加用コールバック関数（オプション）
+   * @param messageId - DiscordメッセージID（レートリミット時のキュー管理用、オプション）
+   * @param authorId - メッセージ送信者のID（レートリミット時のキュー管理用、オプション）
+   * @returns 処理結果のメッセージまたはDiscordメッセージオブジェクト
+   * @throws {Error} Workerが見つからない場合
+   * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+   */
   routeMessage(
     threadId: string,
     message: string,
@@ -40,33 +97,117 @@ export interface IAdmin {
     messageId?: string,
     authorId?: string,
   ): Promise<string | DiscordMessage>;
+
+  /**
+   * Discordボタンのインタラクションを処理する
+   * customIdに基づいて適切なハンドラーを呼び出します。
+   * @param threadId - ボタンが押されたスレッドのID
+   * @param customId - ボタンのカスタムID
+   * @returns ボタン処理結果のメッセージ
+   */
   handleButtonInteraction(threadId: string, customId: string): Promise<string>;
+
+  /**
+   * スレッド開始時の初期メッセージを作成する
+   * /startコマンドの使用方法と実行環境の設定フローを説明するメッセージを生成します。
+   * @param threadId - スレッドID
+   * @returns 初期メッセージのDiscordメッセージオブジェクト
+   */
   createInitialMessage(threadId: string): DiscordMessage;
+
+  /**
+   * レートリミットメッセージを作成する
+   * レートリミットが発生した際に表示するメッセージを生成します。
+   * 制限解除予定時刻を含む日本語メッセージを返します。
+   * @param threadId - スレッドID
+   * @param timestamp - レートリミットが発生したUnixタイムスタンプ（秒）
+   * @returns レートリミットメッセージ
+   */
   createRateLimitMessage(threadId: string, timestamp: number): string;
+
+  /**
+   * スレッドを終了し、関連リソースをクリーンアップする
+   * Workerの削除、worktreeの削除、自動再開タイマーのクリア、
+   * スレッド情報のアーカイブ化、Discordスレッドのクローズを行います。
+   * @param threadId - 終了するスレッドのID
+   * @returns 終了処理の完了を待つPromise
+   */
   terminateThread(threadId: string): Promise<void>;
+
+  /**
+   * アプリケーション再起動時に既存のアクティブなスレッドを復旧する
+   * 以前アクティブだったスレッドのWorkerを再作成し、
+   * devcontainer設定やリポジトリ情報を復元します。
+   * @returns 復旧処理の完了を待つPromise
+   * @throws {Error} スレッド情報の読み込みでエラーが発生した場合
+   */
   restoreActiveThreads(): Promise<void>;
+
+  /**
+   * レートリミット解除後の自動再開コールバックを設定する
+   * レートリミット解除後に自動的にメッセージを送信するためのコールバック関数を設定します。
+   * @param callback - 自動再開時に呼び出されるコールバック関数
+   */
   setAutoResumeCallback(
     callback: (threadId: string, message: string) => Promise<void>,
   ): void;
+
+  /**
+   * スレッドクローズ時のコールバックを設定する
+   * スレッド終了時にDiscordスレッドをクローズするためのコールバック関数を設定します。
+   * @param callback - スレッドクローズ時に呼び出されるコールバック関数
+   */
   setThreadCloseCallback(
     callback: (threadId: string) => Promise<void>,
   ): void;
 }
 
+/**
+ * Adminクラス - Discord BotのWorker管理とメッセージルーティングを担当
+ *
+ * 主な責務:
+ * - Worker（1スレッド1Worker）の作成・管理
+ * - Discordからのメッセージを適切なWorkerへルーティング
+ * - devcontainer設定の管理と起動制御
+ * - レートリミット時の自動再開処理
+ * - アプリケーション再起動時のスレッド復旧
+ * - 監査ログとスレッド情報の永続化
+ *
+ * @example
+ * ```typescript
+ * const workspaceManager = new WorkspaceManager("/work");
+ * await workspaceManager.initialize();
+ * const admin = new Admin(workspaceManager, true);
+ * await admin.restoreActiveThreads();
+ * ```
+ */
 export class Admin implements IAdmin {
+  /** スレッドIDとWorkerインスタンスのマッピング */
   private workers: Map<string, IWorker>;
+  /** 作業ディレクトリとデータ永続化を管理するマネージャー */
   private workspaceManager: WorkspaceManager;
+  /** 詳細ログ出力フラグ */
   private verbose: boolean;
+  /** Claude実行時に追加するシステムプロンプト */
   private appendSystemPrompt?: string;
+  /** レートリミット自動再開タイマーのマッピング */
   private autoResumeTimers: Map<string, number> = new Map();
+  /** レートリミット解除後の自動再開コールバック */
   private onAutoResumeMessage?: (
     threadId: string,
     message: string,
   ) => Promise<void>;
+  /** スレッドクローズ時のコールバック */
   private onThreadClose?: (
     threadId: string,
   ) => Promise<void>;
 
+  /**
+   * Adminインスタンスを作成する
+   * @param workspaceManager - 作業ディレクトリとデータ永続化を管理するマネージャー
+   * @param verbose - 詳細ログを出力するかどうか（デフォルト: false）
+   * @param appendSystemPrompt - Claude実行時に追加するシステムプロンプト（オプション）
+   */
   constructor(
     workspaceManager: WorkspaceManager,
     verbose: boolean = false,
@@ -88,6 +229,10 @@ export class Admin implements IAdmin {
 
   /**
    * 既存のアクティブなスレッドを復旧する
+   * アプリケーション再起動時に、以前アクティブだったスレッドのWorkerを再作成し、
+   * devcontainer設定やリポジトリ情報を復元します。
+   * @returns 復旧処理の完了を待つPromise
+   * @throws {Error} スレッド情報の読み込みでエラーが発生した場合
    */
   async restoreActiveThreads(): Promise<void> {
     this.logVerbose("アクティブスレッド復旧開始");
@@ -134,6 +279,12 @@ export class Admin implements IAdmin {
 
   /**
    * 単一のスレッドを復旧する
+   * worktreeとgitの有効性を確認し、無効な場合はアーカイブ状態に変更します。
+   * 有効な場合はWorkerを作成してdevcontainer設定とリポジトリ情報を復元します。
+   *
+   * @param threadInfo - 復旧するスレッドの情報
+   * @returns 復旧処理の完了を待つPromise
+   * @throws {Error} worktreeやリポジトリ情報の復旧でエラーが発生した場合
    */
   private async restoreThread(threadInfo: ThreadInfo): Promise<void> {
     const { threadId } = threadInfo;
@@ -286,6 +437,11 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドをアーカイブ状態にする
+   * worktreeが見つからないなどの理由でスレッドを無効化する際に使用します。
+   * statusをarchivedに変更し、監査ログに記録します。
+   *
+   * @param threadInfo - アーカイブするスレッドの情報
+   * @returns アーカイブ処理の完了を待つPromise
    */
   private async archiveThread(threadInfo: ThreadInfo): Promise<void> {
     threadInfo.status = "archived";
@@ -310,6 +466,11 @@ export class Admin implements IAdmin {
 
   /**
    * verboseログを出力する
+   * verboseモードが有効な場合のみ、タイムスタンプ付きの詳細ログを出力します。
+   * メタデータが提供された場合は、それも併せて出力します。
+   *
+   * @param message - ログメッセージ
+   * @param metadata - 追加のメタデータ（オプション）
    */
   private logVerbose(
     message: string,
@@ -328,6 +489,12 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット情報をスレッド情報に保存する
+   * Claude Codeのレートリミットが発生した際に、タイムスタンプを保存し、
+   * 自動再開タイマーを設定します。
+   *
+   * @param threadId - スレッドID
+   * @param timestamp - レートリミットが発生したUnixタイムスタンプ（秒）
+   * @returns 保存処理の完了を待つPromise
    */
   private async saveRateLimitInfo(
     threadId: string,
@@ -357,6 +524,12 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミットメッセージを作成する（ボタンなし）
+   * レートリミットが発生した際に表示するメッセージを生成します。
+   * 制限解除予定時刻を含む日本語メッセージを返します。
+   *
+   * @param _threadId - スレッドID（現在未使用）
+   * @param timestamp - レートリミットが発生したUnixタイムスタンプ（秒）
+   * @returns レートリミットメッセージ
    */
   createRateLimitMessage(_threadId: string, timestamp: number): string {
     const resumeTime = new Date(timestamp * 1000 + 5 * 60 * 1000);
@@ -376,6 +549,14 @@ export class Admin implements IAdmin {
 この時間までに送信されたメッセージは、制限解除後に自動的に処理されます。`;
   }
 
+  /**
+   * 指定されたスレッドIDに対してWorkerを作成する
+   * 既にWorkerが存在する場合はそれを返し、存在しない場合は新規作成します。
+   * 作成時にはスレッド情報を永続化し、監査ログに記録します。
+   *
+   * @param threadId - Worker作成対象のスレッドID
+   * @returns 作成または取得したWorkerインスタンス
+   */
   async createWorker(threadId: string): Promise<IWorker> {
     this.logVerbose("Worker作成要求", {
       threadId,
@@ -448,10 +629,31 @@ export class Admin implements IAdmin {
     return worker;
   }
 
+  /**
+   * 指定されたスレッドIDのWorkerを取得する
+   *
+   * @param threadId - 取得するWorkerのスレッドID
+   * @returns Workerインスタンス、存在しない場合はnull
+   */
   getWorker(threadId: string): IWorker | null {
     return this.workers.get(threadId) || null;
   }
 
+  /**
+   * スレッドIDに基づいてメッセージを適切なWorkerにルーティングする
+   * レートリミット中の場合はメッセージをキューに追加し、
+   * 通常時はWorkerに処理を委譲します。
+   *
+   * @param threadId - メッセージの宛先スレッドID
+   * @param message - 処理するメッセージ内容
+   * @param onProgress - 進捗通知用コールバック関数（オプション）
+   * @param onReaction - リアクション追加用コールバック関数（オプション）
+   * @param messageId - DiscordメッセージID（レートリミット時のキュー管理用、オプション）
+   * @param authorId - メッセージ送信者のID（レートリミット時のキュー管理用、オプション）
+   * @returns 処理結果のメッセージまたはDiscordメッセージオブジェクト
+   * @throws {Error} Workerが見つからない場合
+   * @throws {ClaudeCodeRateLimitError} Claude Codeのレートリミットエラー
+   */
   async routeMessage(
     threadId: string,
     message: string,
@@ -577,6 +779,14 @@ export class Admin implements IAdmin {
     }
   }
 
+  /**
+   * Discordボタンのインタラクションを処理する
+   * customIdに基づいて適切なハンドラーを呼び出します。
+   *
+   * @param threadId - ボタンが押されたスレッドのID
+   * @param customId - ボタンのカスタムID
+   * @returns ボタン処理結果のメッセージ
+   */
   async handleButtonInteraction(
     threadId: string,
     customId: string,
@@ -614,6 +824,11 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット自動継続ボタンのハンドラー
+   * ユーザーが自動継続または手動再開を選択した際の処理を行います。
+   *
+   * @param threadId - スレッドID
+   * @param autoResume - true: 自動継続を有効化、false: 手動再開を選択
+   * @returns 処理結果のメッセージ
    */
   private async handleRateLimitAutoButton(
     threadId: string,
@@ -673,6 +888,9 @@ export class Admin implements IAdmin {
 
   /**
    * 自動再開コールバックを設定する
+   * レートリミット解除後に自動的にメッセージを送信するためのコールバック関数を設定します。
+   *
+   * @param callback - 自動再開時に呼び出されるコールバック関数
    */
   setAutoResumeCallback(
     callback: (threadId: string, message: string) => Promise<void>,
@@ -682,6 +900,9 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドクローズコールバックを設定する
+   * スレッド終了時にDiscordスレッドをクローズするためのコールバック関数を設定します。
+   *
+   * @param callback - スレッドクローズ時に呼び出されるコールバック関数
    */
   setThreadCloseCallback(
     callback: (threadId: string) => Promise<void>,
@@ -691,6 +912,11 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット後の自動再開をスケジュールする
+   * 5分後に自動的にセッションを再開するタイマーを設定します。
+   * 既存のタイマーがある場合はクリアしてから新規設定します。
+   *
+   * @param threadId - スレッドID
+   * @param rateLimitTimestamp - レートリミットが発生したUnixタイムスタンプ（秒）
    */
   private scheduleAutoResume(
     threadId: string,
@@ -733,6 +959,12 @@ export class Admin implements IAdmin {
 
   /**
    * 自動再開を実行する
+   * レートリミット情報をリセットし、キューに溜まったメッセージを処理します。
+   * キューが空の場合は「続けて」というメッセージを送信します。
+   *
+   * @param threadId - 自動再開するスレッドのID
+   * @returns 自動再開処理の完了を待つPromise
+   * @throws {Error} スレッド情報の読み込みやメッセージ処理でエラーが発生した場合
    */
   private async executeAutoResume(threadId: string): Promise<void> {
     try {
@@ -799,6 +1031,9 @@ export class Admin implements IAdmin {
 
   /**
    * スレッド終了時に自動再開タイマーをクリアする
+   * 設定されている自動再開タイマーをクリアし、メモリから削除します。
+   *
+   * @param threadId - タイマーをクリアするスレッドのID
    */
   private clearAutoResumeTimer(threadId: string): void {
     const timerId = this.autoResumeTimers.get(threadId);
@@ -811,6 +1046,10 @@ export class Admin implements IAdmin {
 
   /**
    * レートリミット自動継続タイマーを復旧する
+   * アプリケーション再起動時に、レートリミット中で自動再開が有効なスレッドの
+   * タイマーを再設定します。
+   *
+   * @returns タイマー復旧処理の完了を待つPromise
    */
   private async restoreRateLimitTimers(): Promise<void> {
     this.logVerbose("レートリミットタイマー復旧開始");
@@ -860,6 +1099,11 @@ export class Admin implements IAdmin {
 
   /**
    * 単一スレッドのレートリミットタイマーを復旧する
+   * 既に時間が過ぎている場合は即座に自動再開を実行し、
+   * まだ時間が残っている場合はタイマーを再設定します。
+   *
+   * @param threadInfo - タイマーを復旧するスレッドの情報
+   * @returns タイマー復旧処理の完了を待つPromise
    */
   private async restoreRateLimitTimer(threadInfo: ThreadInfo): Promise<void> {
     if (!threadInfo.rateLimitTimestamp) {
@@ -915,6 +1159,13 @@ export class Admin implements IAdmin {
     }
   }
 
+  /**
+   * スレッド開始時の初期メッセージを作成する
+   * /startコマンドの使用方法と実行環境の設定フローを説明するメッセージを生成します。
+   *
+   * @param _threadId - スレッドID（現在未使用）
+   * @returns 初期メッセージのDiscordメッセージオブジェクト
+   */
   createInitialMessage(_threadId: string): DiscordMessage {
     return {
       content:
@@ -923,6 +1174,14 @@ export class Admin implements IAdmin {
     };
   }
 
+  /**
+   * スレッドを終了する
+   * Workerの削除、worktreeの削除、自動再開タイマーのクリア、
+   * スレッド情報のアーカイブ化、Discordスレッドのクローズを行います。
+   *
+   * @param threadId - 終了するスレッドのID
+   * @returns 終了処理の完了を待つPromise
+   */
   async terminateThread(threadId: string): Promise<void> {
     this.logVerbose("スレッド終了処理開始", {
       threadId,
@@ -987,6 +1246,17 @@ export class Admin implements IAdmin {
 
   /**
    * リポジトリにdevcontainer.jsonが存在するかチェックし、存在する場合は起動確認を行う
+   * devcontainer CLIの有無やanthropics featureの設定状況に応じて、
+   * 適切な選択肢を提示します。
+   *
+   * @param threadId - スレッドID
+   * @param repositoryPath - リポジトリのパス
+   * @returns devcontainerチェック結果
+   * @returns returns.hasDevcontainer - devcontainer.jsonが存在するか
+   * @returns returns.message - ユーザーに表示するメッセージ
+   * @returns returns.components - 選択ボタン（オプション）
+   * @returns returns.useDevcontainer - devcontainerを使用するか（オプション）
+   * @returns returns.warning - 警告メッセージ（オプション）
    */
   async checkAndSetupDevcontainer(
     threadId: string,
@@ -1183,6 +1453,13 @@ export class Admin implements IAdmin {
 
   /**
    * devcontainerの起動を処理する
+   * 指定されたWorkerのdevcontainerを起動し、起動状態を保存します。
+   *
+   * @param threadId - スレッドID
+   * @param onProgress - 進捗通知用コールバック関数（オプション）
+   * @returns devcontainer起動結果
+   * @returns returns.success - 起動に成功したか
+   * @returns returns.message - 結果メッセージ
    */
   async startDevcontainerForWorker(
     threadId: string,
@@ -1269,6 +1546,10 @@ export class Admin implements IAdmin {
 
   /**
    * devcontainer使用ボタンの処理
+   * Workerにdevcontainer使用フラグを設定し、設定情報を保存します。
+   *
+   * @param threadId - スレッドID
+   * @returns 処理結果のメッセージ（"devcontainer_start_with_progress"を返す）
    */
   private async handleDevcontainerYesButton(threadId: string): Promise<string> {
     const worker = this.workers.get(threadId);
@@ -1296,6 +1577,10 @@ export class Admin implements IAdmin {
 
   /**
    * ローカル環境使用ボタンの処理
+   * Workerにローカル環境使用フラグを設定し、設定情報を保存します。
+   *
+   * @param threadId - スレッドID
+   * @returns 処理結果のメッセージ
    */
   private async handleDevcontainerNoButton(threadId: string): Promise<string> {
     const worker = this.workers.get(threadId);
@@ -1322,6 +1607,10 @@ export class Admin implements IAdmin {
 
   /**
    * ローカル環境選択ボタンの処理
+   * devcontainer.jsonが存在しない場合のローカル環境選択を処理します。
+   *
+   * @param threadId - スレッドID
+   * @returns 権限チェックオプションの選択を促すメッセージ
    */
   private async handleLocalEnvButton(threadId: string): Promise<string> {
     const worker = this.workers.get(threadId);
@@ -1346,6 +1635,10 @@ export class Admin implements IAdmin {
 
   /**
    * fallback devcontainer選択ボタンの処理
+   * 標準的な開発環境を提供するfallback devcontainerの使用を設定します。
+   *
+   * @param threadId - スレッドID
+   * @returns 処理結果のメッセージ（"fallback_devcontainer_start_with_progress"を返す）
    */
   private async handleFallbackDevcontainerButton(
     threadId: string,
@@ -1375,6 +1668,13 @@ export class Admin implements IAdmin {
 
   /**
    * 指定されたWorkerのfallback devcontainerを起動する
+   * リポジトリにfallback devcontainerをコピーしてから起動します。
+   *
+   * @param threadId - スレッドID
+   * @param onProgress - 進捗通知用コールバック関数（オプション）
+   * @returns fallback devcontainer起動結果
+   * @returns returns.success - 起動に成功したか
+   * @returns returns.message - 結果メッセージ
    */
   async startFallbackDevcontainerForWorker(
     threadId: string,
@@ -1469,6 +1769,16 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドのdevcontainer設定を保存する
+   * スレッド情報にdevcontainer設定を追加し、永続化します。
+   *
+   * @param threadId - スレッドID
+   * @param config - devcontainer設定
+   * @param config.useDevcontainer - devcontainerを使用するか
+   * @param config.hasDevcontainerFile - devcontainer.jsonが存在するか
+   * @param config.hasAnthropicsFeature - anthropics featureが設定されているか
+   * @param config.containerId - 起動済みコンテナのID（オプション）
+   * @param config.isStarted - devcontainerが起動済みか
+   * @returns 保存処理の完了を待つPromise
    */
   async saveDevcontainerConfig(
     threadId: string,
@@ -1491,6 +1801,14 @@ export class Admin implements IAdmin {
 
   /**
    * スレッドのdevcontainer設定を取得する
+   *
+   * @param threadId - スレッドID
+   * @returns devcontainer設定オブジェクト、存在しない場合はnull
+   * @returns returns.useDevcontainer - devcontainerを使用するか
+   * @returns returns.hasDevcontainerFile - devcontainer.jsonが存在するか
+   * @returns returns.hasAnthropicsFeature - anthropics featureが設定されているか
+   * @returns returns.containerId - 起動済みコンテナのID（オプション）
+   * @returns returns.isStarted - devcontainerが起動済みか
    */
   async getDevcontainerConfig(threadId: string): Promise<
     {
@@ -1505,6 +1823,15 @@ export class Admin implements IAdmin {
     return threadInfo?.devcontainerConfig || null;
   }
 
+  /**
+   * 監査ログエントリを記録する
+   * システムの重要なアクションを監査ログに記録します。
+   *
+   * @param threadId - スレッドID
+   * @param action - アクション名（例: "worker_created", "thread_terminated"）
+   * @param details - アクションの詳細情報
+   * @returns ログ記録の完了を待つPromise
+   */
   private async logAuditEntry(
     threadId: string,
     action: string,

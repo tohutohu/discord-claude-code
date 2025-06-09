@@ -237,6 +237,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+/**
+ * ボタンインタラクションを処理する関数
+ *
+ * @param interaction - Discordのボタンインタラクション
+ * @description
+ * - 「再開」ボタン: レート制限後の会話再開
+ * - 「devcontainer起動」ボタン: devcontainer環境の起動（プログレス表示付き）
+ * - 「fallback devcontainer起動」ボタン: fallback devcontainer環境の起動（プログレス表示付き）
+ * - 「終了」ボタン: スレッドの終了処理
+ *
+ * devcontainer起動時は、リアルタイムでプログレスメッセージを更新し、
+ * 起動ログを表示します。最大20行のログを保持し、1秒ごとに更新されます。
+ *
+ * @throws {Error} インタラクション処理中にエラーが発生した場合
+ */
 async function handleButtonInteraction(interaction: ButtonInteraction) {
   try {
     const threadId = interaction.channel?.id;
@@ -494,6 +509,22 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
   }
 }
 
+/**
+ * オートコンプリート機能を処理する関数
+ *
+ * @param interaction - Discordのオートコンプリートインタラクション
+ * @description
+ * スラッシュコマンドの入力補完を提供します。
+ * 対応コマンド:
+ * - /start: リポジトリ名の補完
+ * - /set-pat: リポジトリ名の補完
+ * - /delete-pat: リポジトリ名の補完
+ *
+ * ローカルに存在するリポジトリ一覧から、入力文字列に部分一致するものを
+ * 最大25件まで候補として表示します（Discord.jsの制限）。
+ *
+ * @throws {Error} オートコンプリート処理中にエラーが発生した場合（エラー時は空の選択肢を返す）
+ */
 async function handleAutocomplete(interaction: AutocompleteInteraction) {
   try {
     const supportedCommands = ["start", "set-pat", "delete-pat"];
@@ -525,6 +556,33 @@ async function handleAutocomplete(interaction: AutocompleteInteraction) {
   }
 }
 
+/**
+ * スラッシュコマンドを処理する関数
+ *
+ * @param interaction - Discordのスラッシュコマンドインタラクション
+ * @description
+ * 以下のコマンドを処理します：
+ *
+ * - /start repository:<リポジトリ名>
+ *   指定したGitHubリポジトリ用の新しいチャットスレッドを作成。
+ *   リポジトリのクローン/更新、Workerの作成、devcontainerの確認を行います。
+ *
+ * - /update
+ *   Discord Bot自体のコードを最新版に更新（git pull）。
+ *   HMRが有効な場合は自動的に反映されます。
+ *
+ * - /set-pat repository:<リポジトリ名> token:<PAT> [description:<説明>]
+ *   プライベートリポジトリ用のGitHub Fine-Grained PATを設定。
+ *   devcontainer使用時に自動的に環境変数として設定されます。
+ *
+ * - /list-pats
+ *   登録済みのGitHub PAT一覧を表示（トークンは部分マスク表示）。
+ *
+ * - /delete-pat repository:<リポジトリ名>
+ *   指定したリポジトリのPATを削除。
+ *
+ * @throws {Error} コマンド処理中にエラーが発生した場合
+ */
 async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.isChatInputCommand()) return;
 
