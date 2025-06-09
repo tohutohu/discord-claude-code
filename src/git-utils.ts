@@ -198,8 +198,8 @@ async function updateRepositoryWithGh(
 /**
  * 指定されたパスにworktreeコピーが存在するかを確認する
  *
- * @param {string} worktreePath - 確認するworktreeディレクトリのパス
- * @returns {Promise<boolean>} ディレクトリが存在する場合はtrue、存在しない場合はfalse
+ * @param worktreePath - 確認するworktreeディレクトリのパス
+ * @returns ディレクトリが存在する場合はtrue、存在しない場合はfalse
  *
  * @example
  * const exists = await isWorktreeCopyExists("/work/repositories/octocat/Hello-World/worker-123");
@@ -228,10 +228,9 @@ export async function isWorktreeCopyExists(
  * .gitディレクトリが存在しない場合（テスト環境など）は、
  * 新規にgit initして初期化を行う。
  *
- * @param {string} repositoryPath - コピー元のリポジトリパス
- * @param {string} workerName - Workerの識別名（ブランチ名に使用）
- * @param {string} worktreePath - コピー先のディレクトリパス
- * @returns {Promise<void>}
+ * @param repositoryPath - コピー元のリポジトリパス
+ * @param workerName - Workerの識別名（ブランチ名に使用）
+ * @param worktreePath - コピー先のディレクトリパス
  * @throws {Error} ディレクトリ作成、rsyncコピー、git操作のいずれかが失敗した場合
  *
  * @example

@@ -34,10 +34,9 @@ export interface UpdateResult {
  * 6. コンフリクトが発生した場合はマージを中止
  * 7. stashに保存した変更を復元（可能な場合）
  *
- * @param {Object} options - オプション設定
- * @param {boolean} [options.skipActualUpdate=false] - 実際のGit操作をスキップするかどうか（テスト用）
- * @returns {Promise<UpdateResult>} 更新結果を含むオブジェクト
- * @throws {Error} 予期しないエラーが発生した場合（catchされてresultに含まれる）
+ * @param options - オプション設定
+ * @param options.skipActualUpdate - 実際のGit操作をスキップするかどうか（テスト用）
+ * @returns 更新結果を含むオブジェクト
  *
  * @example
  * // 通常の使用例
@@ -197,7 +196,7 @@ export async function performGitUpdate(
  * 現在チェックアウトされているコミットの完全なSHA-1ハッシュ値を取得します。
  * この関数は`git rev-parse HEAD`コマンドを実行し、現在のHEADが指すコミットのハッシュを返します。
  *
- * @returns {Promise<string>} 現在のコミットの40文字のSHA-1ハッシュ値。取得に失敗した場合は空文字列
+ * @returns 現在のコミットの40文字のSHA-1ハッシュ値。取得に失敗した場合は空文字列
  *
  * @example
  * // 現在のコミットハッシュを取得
@@ -223,9 +222,9 @@ export async function getCurrentCommitHash(): Promise<string> {
  * 2つのコミット間で変更されたファイルのリストを取得します。
  * `git diff --name-only`コマンドを使用して、変更、追加、削除されたファイルのパスを取得します。
  *
- * @param {string} fromCommit - 比較の開始点となるコミット（コミットハッシュ、ブランチ名、タグなど）
- * @param {string} [toCommit="HEAD"] - 比較の終了点となるコミット（デフォルトは現在のHEAD）
- * @returns {Promise<string[]>} 変更されたファイルのパスの配列。取得に失敗した場合は空配列
+ * @param fromCommit - 比較の開始点となるコミット（コミットハッシュ、ブランチ名、タグなど）
+ * @param toCommit - 比較の終了点となるコミット（デフォルトは現在のHEAD）
+ * @returns 変更されたファイルのパスの配列。取得に失敗した場合は空配列
  *
  * @example
  * // 特定のコミットから現在のHEADまでの変更ファイルを取得

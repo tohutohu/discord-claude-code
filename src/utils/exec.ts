@@ -18,8 +18,8 @@ export interface ExecResult {
  * 指定されたコマンドをシェル（sh -c）経由で実行し、標準出力・標準エラー出力・終了コードを取得します。
  * コマンドはサブシェルで実行されるため、パイプやリダイレクトなどのシェル機能が使用可能です。
  *
- * @param {string} command - 実行するシェルコマンド文字列
- * @returns {Promise<ExecResult>} コマンド実行結果を含むオブジェクト
+ * @param command - 実行するシェルコマンド文字列
+ * @returns コマンド実行結果を含むオブジェクト
  *
  * @example
  * // 単純なコマンドの実行
@@ -34,11 +34,6 @@ export interface ExecResult {
  * // パイプを使った複雑なコマンド
  * const result = await exec("cat file.txt | grep pattern | wc -l");
  * const lineCount = parseInt(result.output.trim());
- *
- * @throws
- * コマンド実行時の例外（Deno.Commandの起動失敗など）は捕捉され、
- * ExecResultのerrorフィールドにエラーメッセージが格納されます。
- * この場合、successはfalse、outputは空文字列になります。
  */
 export async function exec(command: string): Promise<ExecResult> {
   const decoder = new TextDecoder();

@@ -19,10 +19,10 @@ export interface SummarizeResult {
  * この関数は、プログラミングに関する指示やタスクの説明文を、
  * Discordのスレッド名として適切な短い要約に変換します。
  *
- * @param {string} apiKey - Google Gemini APIの認証キー
- * @param {string} text - 要約対象のテキスト（通常はユーザーからの指示文）
- * @param {number} [maxLength=30] - 生成される要約の最大文字数（デフォルト: 30文字）
- * @returns {Promise<SummarizeResult>} 要約結果を含むオブジェクト
+ * @param apiKey - Google Gemini APIの認証キー
+ * @param text - 要約対象のテキスト（通常はユーザーからの指示文）
+ * @param maxLength - 生成される要約の最大文字数（デフォルト: 30文字）
+ * @returns 要約結果を含むオブジェクト
  *
  * @example
  * const result = await summarizeWithGemini(
@@ -33,9 +33,6 @@ export interface SummarizeResult {
  * if (result.success) {
  *   console.log(result.summary); // "README更新とTypo修正"
  * }
- *
- * @throws {Error} ネットワークエラーやAPI呼び出しの失敗時にエラーをキャッチして、
- *                 エラー情報を含むSummarizeResultオブジェクトを返します
  */
 export async function summarizeWithGemini(
   apiKey: string,
