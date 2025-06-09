@@ -1,5 +1,6 @@
 import { GitRepository } from "./git-utils.ts";
 import { SessionLog, WorkspaceManager } from "./workspace.ts";
+import { PLaMoTranslator } from "./plamo-translator.ts";
 
 export class ClaudeCodeRateLimitError extends Error {
   public readonly timestamp: number;
@@ -317,6 +318,7 @@ export class Worker implements IWorker {
   private devcontainerChoiceMade: boolean = false;
   private appendSystemPrompt?: string;
   private useFallbackDevcontainer: boolean = false;
+  private translator: PLaMoTranslator | null = null;
 
   constructor(
     name: string,
@@ -324,6 +326,7 @@ export class Worker implements IWorker {
     claudeExecutor?: ClaudeCommandExecutor,
     verbose?: boolean,
     appendSystemPrompt?: string,
+    translatorUrl?: string,
   ) {
     this.name = name;
     this.workspaceManager = workspaceManager;
@@ -331,6 +334,12 @@ export class Worker implements IWorker {
     this.claudeExecutor = claudeExecutor ||
       new DefaultClaudeCommandExecutor(this.verbose);
     this.appendSystemPrompt = appendSystemPrompt;
+
+    // 翻訳URLが設定されている場合は翻訳機能を初期化
+    if (translatorUrl) {
+      this.translator = new PLaMoTranslator(translatorUrl);
+      this.logVerbose("翻訳機能を初期化", { translatorUrl });
+    }
   }
 
   async processMessage(
@@ -383,6 +392,34 @@ export class Worker implements IWorker {
     }
 
     try {
+      // 翻訳処理（設定されている場合のみ）
+      let translatedMessage = message;
+      if (this.translator) {
+        try {
+          this.logVerbose("メッセージの翻訳を開始");
+          translatedMessage = await this.translator.translate(message);
+          this.logVerbose("メッセージの翻訳完了", {
+            originalLength: message.length,
+            translatedLength: translatedMessage.length,
+          });
+
+          // VERBOSEモードで翻訳結果を表示
+          if (this.verbose && message !== translatedMessage) {
+            console.log(
+              `[${new Date().toISOString()}] [Worker:${this.name}] 翻訳結果:`,
+            );
+            console.log(`  元のメッセージ: "${message}"`);
+            console.log(`  翻訳後: "${translatedMessage}"`);
+          }
+        } catch (error) {
+          this.logVerbose("翻訳エラー（元のメッセージを使用）", {
+            error: (error as Error).message,
+          });
+          // 翻訳に失敗した場合は元のメッセージを使用
+          translatedMessage = message;
+        }
+      }
+
       // セッションログの記録（コマンド）
       if (this.threadId) {
         this.logVerbose("セッションログにコマンドを記録");
@@ -406,7 +443,7 @@ export class Worker implements IWorker {
       }
 
       this.logVerbose("Claude実行開始");
-      const result = await this.executeClaude(message, onProgress);
+      const result = await this.executeClaude(translatedMessage, onProgress);
       this.logVerbose("Claude実行完了", { resultLength: result.length });
 
       const formattedResponse = this.formatResponse(result);
