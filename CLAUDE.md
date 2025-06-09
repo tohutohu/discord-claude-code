@@ -84,6 +84,11 @@ WORK_BASE_DIR/
   - 設定されている場合、最初のユーザーメッセージを要約してスレッド名を自動生成
   - スレッド名のフォーマット: `${指示の要約}(${リポジトリ名})`
   - Discordのスレッド一覧で見やすくなるよう最大30文字に制限
+- `PLAMO_TRANSLATOR_URL`: PLaMo-2-translate API URL（オプション）
+  - 設定されている場合、日本語の指示を英語に翻訳してからClaude Codeに渡す
+  - mlx_lm.serverで起動したPLaMo-2-translateのURLを指定（例:
+    http://localhost:8080）
+  - 翻訳エラーが発生した場合は元の日本語テキストをそのまま使用
 
 ## 主要モジュール
 
@@ -115,6 +120,13 @@ WORK_BASE_DIR/
 - summarizeWithGemini: Gemini APIを使用してテキストを要約
 - generateThreadName: 要約とリポジトリ名からスレッド名を生成
 - 最初のユーザーメッセージを基にDiscordスレッド名を自動生成
+
+### src/plamo-translator.ts
+
+- PLaMoTranslator: PLaMo-2-translate APIクライアント
+- translate: 日本語から英語への翻訳
+- isAvailable: APIサーバーの可用性チェック
+- コーディング指示に特化したシステムプロンプトを使用
 
 ## テストコマンド
 

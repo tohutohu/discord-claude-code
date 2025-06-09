@@ -28,7 +28,7 @@ fi
 
 # Run tests
 echo "🧪 Running tests..."
-if ! deno test --allow-read --allow-write --allow-env --allow-run; then
+if ! deno test --allow-read --allow-write --allow-env --allow-net --allow-run; then
     echo "❌ Tests failed! Fix the failing tests before pushing."
     exit 1
 fi

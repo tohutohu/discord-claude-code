@@ -17,6 +17,9 @@ Bot。GitHubリポジトリをクローンして、Claudeがコードを読み�
 - **Dev Container対応**:
   リポジトリにdevcontainer.jsonがある場合、その環境内でClaudeを実行
 - **レート制限対応**: Claude APIのレート制限に対応し、自動再開ボタンを提供
+- **日本語→英語翻訳機能**:
+  PLaMo-2-translateを使用して日本語の指示を英語に翻訳してからClaude
+  Codeに渡す（オプション）
 
 ## セットアップ
 
@@ -103,11 +106,13 @@ deno task start
 
 ### 環境変数
 
-| 変数名                        | 説明                                     | 必須 |
-| ----------------------------- | ---------------------------------------- | ---- |
-| `DISCORD_TOKEN`               | Discord Botのトークン                    | ✅   |
-| `WORK_BASE_DIR`               | 作業ディレクトリのベースパス             | ✅   |
-| `CLAUDE_APPEND_SYSTEM_PROMPT` | Claude実行時に追加するシステムプロンプト | ❌   |
+| 変数名                        | 説明                                      | 必須 |
+| ----------------------------- | ----------------------------------------- | ---- |
+| `DISCORD_TOKEN`               | Discord Botのトークン                     | ✅   |
+| `WORK_BASE_DIR`               | 作業ディレクトリのベースパス              | ✅   |
+| `CLAUDE_APPEND_SYSTEM_PROMPT` | Claude実行時に追加するシステムプロンプト  | ❌   |
+| `GEMINI_API_KEY`              | Google Gemini APIキー（スレッド名生成用） | ❌   |
+| `PLAMO_TRANSLATOR_URL`        | PLaMo-2-translate APIのURL                | ❌   |
 
 ### 作業ディレクトリ構造
 
