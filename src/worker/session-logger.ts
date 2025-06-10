@@ -14,11 +14,11 @@ export class SessionLogger {
    * 生のJSONL出力を保存
    */
   async saveRawJsonlOutput(
-    repositoryFullName: string | undefined,
-    sessionId: string | undefined,
-    output: string,
+    repositoryFullName?: string,
+    sessionId?: string,
+    output?: string,
   ): Promise<void> {
-    if (!repositoryFullName || !sessionId) return;
+    if (!repositoryFullName || !sessionId || !output) return;
 
     try {
       await this.workspaceManager.saveRawSessionJsonl(
