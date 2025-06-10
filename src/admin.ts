@@ -1725,13 +1725,13 @@ export class Admin implements IAdmin {
   /**
    * Admin状態を復元する（静的メソッド）
    */
-  static async fromState(
+  static fromState(
     adminState: AdminState | null,
     workspaceManager: WorkspaceManager,
     verbose?: boolean,
     appendSystemPrompt?: string,
     translatorUrl?: string,
-  ): Promise<Admin> {
+  ): Admin {
     const state = adminState || {
       activeThreadIds: [],
       lastUpdated: new Date().toISOString(),

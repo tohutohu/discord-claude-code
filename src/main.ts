@@ -49,7 +49,7 @@ const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
 // Admin状態を読み込む
 const adminState = await workspaceManager.loadAdminState();
-const admin = await Admin.fromState(
+const admin = Admin.fromState(
   adminState,
   workspaceManager,
   env.VERBOSE,
