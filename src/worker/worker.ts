@@ -4,6 +4,7 @@ import { PLaMoTranslator } from "../plamo-translator.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import {
   ClaudeCodeRateLimitError,
+  type ClaudeStreamMessage,
   ClaudeStreamProcessor,
 } from "./claude-stream-processor.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
@@ -227,104 +228,28 @@ export class Worker implements IWorker {
     const processLine = (line: string) => {
       if (!line.trim()) return;
       processedLines++;
-
-      try {
-        const parsed = JSON.parse(line);
-        this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
-          lineNumber: processedLines,
-          hasSessionId: !!parsed.session_id,
-        });
-
-        // 最終結果を取得
-        if (parsed.type === "result") {
-          if ("result" in parsed && parsed.result) {
-            result = parsed.result;
-            this.logVerbose("最終結果取得", {
-              resultLength: result.length,
-              subtype: parsed.subtype,
-              isError: parsed.is_error,
-            });
-
-            // Claude Codeレートリミットの検出
-            if (parsed.result.includes("Claude AI usage limit reached|")) {
-              const match = parsed.result.match(
-                /Claude AI usage limit reached\|(\d+)/,
-              );
-              if (match) {
-                throw new ClaudeCodeRateLimitError(
-                  Number.parseInt(match[1], 10),
-                );
-              }
-            }
-          }
-        }
-
-        // Claude Codeの実際の出力内容をDiscordに送信
-        if (onProgress) {
-          const outputMessage = streamProcessor.extractOutputMessage(parsed);
-          if (outputMessage) {
-            onProgress(this.formatter.formatResponse(outputMessage)).catch(
-              console.error,
-            );
-          }
-        }
-
-        // セッションIDを更新
-        if (parsed.session_id) {
-          newSessionId = parsed.session_id;
-          this.logVerbose("新しいセッションID取得", {
-            sessionId: newSessionId,
-          });
-        }
-
-        // アシスタントメッセージからテキストを抽出（結果の蓄積のみ）
-        if (parsed.type === "assistant" && parsed.message?.content) {
-          for (const content of parsed.message.content) {
-            if (content.type === "text" && content.text) {
-              result += content.text;
-            }
-          }
-        }
-      } catch (parseError) {
-        if (parseError instanceof ClaudeCodeRateLimitError) {
-          throw parseError;
-        }
-        this.logVerbose(`JSON解析エラー: ${parseError}`, {
-          line: line.substring(0, 100),
-        });
-        console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
-
-        // JSONとしてパースできなかった場合は全文を投稿
-        if (onProgress && line.trim()) {
-          onProgress(this.formatter.formatResponse(line)).catch(console.error);
-        }
-      }
+      this.processStreamLine(
+        line,
+        streamProcessor,
+        onProgress,
+        { result, newSessionId },
+        (updates) => {
+          result = updates.result || result;
+          newSessionId = updates.newSessionId || newSessionId;
+        },
+      );
     };
 
     const onData = (data: Uint8Array) => {
-      const chunk = decoder.decode(data, { stream: true });
-      allOutput += chunk;
-      buffer += chunk;
-
-      // VERBOSEモードでstdoutを詳細ログ出力
-      if (this.configuration.isVerbose() && chunk.trim()) {
-        console.log(
-          `[${
-            new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stdout:`,
-        );
-        console.log(
-          `  ${chunk.split("\n").map((line) => `  ${line}`).join("\n")}`,
-        );
-      }
-
-      // 改行で分割して処理
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        processLine(line);
-      }
+      const { updatedBuffer, updatedAllOutput } = this.handleStreamData(
+        data,
+        decoder,
+        buffer,
+        allOutput,
+        processLine,
+      );
+      buffer = updatedBuffer;
+      allOutput = updatedAllOutput;
     };
 
     if (!this.state.worktreePath) {
@@ -354,29 +279,7 @@ export class Worker implements IWorker {
     }
 
     if (code !== 0) {
-      const errorMessage = new TextDecoder().decode(stderr);
-
-      // VERBOSEモードでstderrを詳細ログ出力
-      if (this.configuration.isVerbose() && stderr.length > 0) {
-        console.log(
-          `[${
-            new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stderr:`,
-        );
-        console.log(`  終了コード: ${code}`);
-        console.log(`  エラー内容:`);
-        console.log(
-          `    ${
-            errorMessage.split("\n").map((line) => `    ${line}`).join("\n")
-          }`,
-        );
-      }
-
-      this.logVerbose("ストリーミング実行エラー", {
-        exitCode: code,
-        errorMessage,
-      });
-      throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+      this.handleErrorMessage(code, stderr);
     }
 
     // VERBOSEモードで成功時のstderrも出力（警告等の情報がある場合）
@@ -396,6 +299,148 @@ export class Worker implements IWorker {
       }
     }
 
+    return await this.finalizeStreamProcessing(
+      result,
+      newSessionId,
+      allOutput,
+    );
+  }
+
+  private processStreamLine(
+    line: string,
+    streamProcessor: ClaudeStreamProcessor,
+    onProgress: ((content: string) => Promise<void>) | undefined,
+    state: { result: string; newSessionId: string | null },
+    updateState: (updates: {
+      result?: string;
+      newSessionId?: string | null;
+    }) => void,
+  ): void {
+    try {
+      const parsed = JSON.parse(line);
+      this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
+        lineNumber: undefined,
+        hasSessionId: !!parsed.session_id,
+      });
+
+      // メッセージタイプごとの処理
+      switch (parsed.type) {
+        case "result":
+          this.handleResultMessage(parsed, updateState);
+          break;
+        case "assistant":
+          this.handleAssistantMessage(parsed, state, updateState);
+          break;
+      }
+
+      // Claude Codeの実際の出力内容をDiscordに送信
+      if (onProgress) {
+        const outputMessage = streamProcessor.extractOutputMessage(parsed);
+        if (outputMessage) {
+          onProgress(this.formatter.formatResponse(outputMessage)).catch(
+            console.error,
+          );
+        }
+      }
+
+      // セッションIDを更新
+      if (parsed.session_id) {
+        updateState({ newSessionId: parsed.session_id });
+        this.logVerbose("新しいセッションID取得", {
+          sessionId: parsed.session_id,
+        });
+      }
+    } catch (parseError) {
+      if (parseError instanceof ClaudeCodeRateLimitError) {
+        throw parseError;
+      }
+      this.logVerbose(`JSON解析エラー: ${parseError}`, {
+        line: line.substring(0, 100),
+      });
+      console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
+
+      // JSONとしてパースできなかった場合は全文を投稿
+      if (onProgress && line.trim()) {
+        onProgress(this.formatter.formatResponse(line)).catch(console.error);
+      }
+    }
+  }
+
+  private handleAssistantMessage(
+    parsed: ClaudeStreamMessage,
+    state: { result: string; newSessionId: string | null },
+    updateState: (updates: { result?: string }) => void,
+  ): void {
+    if (parsed.type === "assistant" && parsed.message?.content) {
+      let textResult = "";
+      for (const content of parsed.message.content) {
+        if (content.type === "text" && content.text) {
+          textResult += content.text;
+        }
+      }
+      if (textResult) {
+        // 既存の結果に追加する形で更新
+        updateState({ result: state.result + textResult });
+      }
+    }
+  }
+
+  private handleResultMessage(
+    parsed: ClaudeStreamMessage,
+    updateState: (updates: { result?: string }) => void,
+  ): void {
+    if (parsed.type === "result" && "result" in parsed && parsed.result) {
+      updateState({ result: parsed.result });
+      this.logVerbose("最終結果取得", {
+        resultLength: parsed.result.length,
+        subtype: parsed.subtype,
+        isError: parsed.is_error,
+      });
+
+      // Claude Codeレートリミットの検出
+      if (parsed.result.includes("Claude AI usage limit reached|")) {
+        const match = parsed.result.match(
+          /Claude AI usage limit reached\|(\d+)/,
+        );
+        if (match) {
+          throw new ClaudeCodeRateLimitError(
+            Number.parseInt(match[1], 10),
+          );
+        }
+      }
+    }
+  }
+
+  private handleErrorMessage(code: number, stderr: Uint8Array): void {
+    const errorMessage = new TextDecoder().decode(stderr);
+
+    // VERBOSEモードでstderrを詳細ログ出力
+    if (this.configuration.isVerbose() && stderr.length > 0) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [Worker:${this.state.workerName}] Claude stderr:`,
+      );
+      console.log(`  終了コード: ${code}`);
+      console.log(`  エラー内容:`);
+      console.log(
+        `    ${
+          errorMessage.split("\n").map((line) => `    ${line}`).join("\n")
+        }`,
+      );
+    }
+
+    this.logVerbose("ストリーミング実行エラー", {
+      exitCode: code,
+      errorMessage,
+    });
+    throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+  }
+
+  private async saveSessionData(
+    newSessionId: string | null,
+    allOutput: string,
+  ): Promise<void> {
     // セッションIDを更新
     if (newSessionId) {
       this.state.sessionId = newSessionId;
@@ -419,6 +464,48 @@ export class Worker implements IWorker {
         allOutput,
       );
     }
+  }
+
+  private handleStreamData(
+    data: Uint8Array,
+    decoder: TextDecoder,
+    buffer: string,
+    allOutput: string,
+    processLine: (line: string) => void,
+  ): { updatedBuffer: string; updatedAllOutput: string } {
+    const chunk = decoder.decode(data, { stream: true });
+    allOutput += chunk;
+    buffer += chunk;
+
+    // VERBOSEモードでstdoutを詳細ログ出力
+    if (this.configuration.isVerbose() && chunk.trim()) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [Worker:${this.state.workerName}] Claude stdout:`,
+      );
+      console.log(
+        `  ${chunk.split("\n").map((line) => `  ${line}`).join("\n")}`,
+      );
+    }
+
+    // 改行で分割して処理
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      processLine(line);
+    }
+
+    return { updatedBuffer: buffer, updatedAllOutput: allOutput };
+  }
+
+  private async finalizeStreamProcessing(
+    result: string,
+    newSessionId: string | null,
+    allOutput: string,
+  ): Promise<string> {
+    await this.saveSessionData(newSessionId, allOutput);
 
     const finalResult = result.trim() ||
       "Claude からの応答を取得できませんでした。";
