@@ -183,7 +183,11 @@ Deno.test("Admin - 未知のボタンIDの場合は適切なメッセージを�
 
 Deno.test("Admin - devcontainer.jsonが存在しない場合の設定確認", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   const threadId = "thread-devcontainer-1";
 
   // devcontainer.jsonが存在しないテンポラリディレクトリを作成
@@ -211,7 +215,11 @@ Deno.test("Admin - devcontainer.jsonが存在しない場合の設定確認", as
 
 Deno.test("Admin - devcontainer.jsonが存在する場合の設定確認", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   const threadId = "thread-devcontainer-2";
 
   // devcontainer.jsonが存在するテンポラリディレクトリを作成
@@ -244,7 +252,11 @@ Deno.test("Admin - devcontainer.jsonが存在する場合の設定確認", async
 
 Deno.test("Admin - anthropics featureを含むdevcontainer.jsonの設定確認", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   const threadId = "thread-devcontainer-3";
 
   // anthropics featureを含むdevcontainer.jsonを作成
@@ -294,7 +306,11 @@ Deno.test("Admin - anthropics featureを含むdevcontainer.jsonの設定確認",
 
 Deno.test("Admin - 初期メッセージにdevcontainer流れの説明が含まれる", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   const threadId = "thread-666";
 
   const initialMessage = admin.createInitialMessage(threadId);
@@ -314,11 +330,19 @@ Deno.test("Admin - verboseモードが正しく設定される", async () => {
   const workspace = await createTestWorkspaceManager();
 
   // verboseモード無効でAdminを作成
-  const adminQuiet = new Admin(workspace, false, undefined);
+  const adminStateQuiet = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const adminQuiet = new Admin(adminStateQuiet, workspace, false, undefined);
   assertEquals(typeof adminQuiet.getWorker, "function");
 
   // verboseモード有効でAdminを作成
-  const adminVerbose = new Admin(workspace, true, undefined);
+  const adminStateVerbose = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const adminVerbose = new Admin(adminStateVerbose, workspace, true, undefined);
   assertEquals(typeof adminVerbose.getWorker, "function");
 });
 
@@ -334,7 +358,11 @@ Deno.test("Admin - verboseモードでログが出力される", async () => {
 
   try {
     // verboseモード有効でAdminを作成
-    const admin = new Admin(workspace, true, undefined);
+    const adminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspace, true, undefined);
     const threadId = "verbose-test-thread";
 
     // Worker作成（ログが出力される）
@@ -369,7 +397,11 @@ Deno.test("Admin - verboseモード無効時はログが出力されない", asy
 
   try {
     // verboseモード無効でAdminを作成
-    const admin = new Admin(workspace, false, undefined);
+    const adminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspace, false, undefined);
     const threadId = "quiet-test-thread";
 
     // Worker作成
@@ -401,7 +433,11 @@ Deno.test("Admin - verboseモードでのメッセージルーティングログ
 
   try {
     // verboseモード有効でAdminを作成
-    const admin = new Admin(workspace, true, undefined);
+    const adminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspace, true, undefined);
     const threadId = "routing-test-thread";
 
     // Worker作成
@@ -434,7 +470,11 @@ Deno.test("Admin - verboseモードでのメッセージルーティングログ
 
 Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   const threadId = "devcontainer-config-test";
 
   // Worker作成
@@ -463,7 +503,11 @@ Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる"
 
 Deno.test("Admin - WorkerStateにdevcontainer設定が永続化される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   const threadId = "devcontainer-persist-test";
 
   // Worker作成
@@ -490,7 +534,11 @@ Deno.test("Admin - WorkerStateにdevcontainer設定が永続化される", async
 
 Deno.test("Admin - 存在しないスレッドのdevcontainer設定取得はnullを返す", async () => {
   const workspace = await createTestWorkspaceManager();
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
 
   const config = await admin.getDevcontainerConfig("non-existent-thread");
 
@@ -501,7 +549,11 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   const workspace = await createTestWorkspaceManager();
 
   // 最初のAdminでスレッドを作成・設定
-  const admin1 = new Admin(workspace);
+  const adminState1 = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin1 = new Admin(adminState1, workspace);
   const threadId = "restore-test-thread";
 
   // Worker作成
@@ -520,8 +572,15 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   // Workerが存在することを確認
   assertEquals(admin1.getWorker(threadId) !== null, true);
 
+  // Admin状態を保存
+  await admin1.save();
+
   // 新しいAdminを作成（再起動をシミュレート）
-  const admin2 = new Admin(workspace);
+  const adminState2 = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin2 = new Admin(adminState2, workspace);
 
   // 復旧前はWorkerが存在しない
   assertEquals(admin2.getWorker(threadId), null);
@@ -564,7 +623,11 @@ Deno.test("Admin - アーカイブされたスレッドは復旧されない", a
   await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   await admin.restoreActiveThreads();
 
   // アーカイブされたスレッドは復旧されない
@@ -592,7 +655,11 @@ Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
   await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
 
   // エラーハンドリングのため、コンソールエラーをキャプチャ
   const originalConsoleError = console.error;
@@ -648,7 +715,11 @@ Deno.test("Admin - worktreeが存在しないスレッドは復旧時にアー�
   await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   await admin.restoreActiveThreads();
 
   // Workerは作成されない
@@ -684,7 +755,11 @@ Deno.test("Admin - worktreeが存在するスレッドは正常に復旧され�
   await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   await admin.restoreActiveThreads();
 
   // Workerが作成される
@@ -749,7 +824,11 @@ Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", asyn
   await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   await admin.restoreActiveThreads();
 
   // Workerが作成される
@@ -795,7 +874,11 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
   await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
-  const admin = new Admin(workspace, undefined, undefined);
+  const adminState = await workspace.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspace, undefined, undefined);
   await admin.restoreActiveThreads();
 
   // Workerが作成される

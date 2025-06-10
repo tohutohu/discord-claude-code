@@ -3,6 +3,7 @@ import { Worker } from "../src/worker.ts";
 import {
   createMockStreamingClaudeCommandExecutor,
   createTestRepository,
+  createTestWorkerState,
   createTestWorkspaceManager,
 } from "./test-utils.ts";
 
@@ -25,8 +26,9 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
     const allData = streamData.join("");
     mockExecutor.setResponse("test", allData);
 
+    const state = createTestWorkerState("test-worker", "test-thread-1");
     const worker = new Worker(
-      "test-worker",
+      state,
       workspace,
       mockExecutor,
       undefined,
@@ -80,8 +82,9 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
     const allData = streamData.join("");
     mockExecutor.setResponse("error test", allData);
 
+    const state = createTestWorkerState("test-worker", "test-thread-1");
     const worker = new Worker(
-      "test-worker",
+      state,
       workspace,
       mockExecutor,
       undefined,
@@ -131,8 +134,9 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
     const allData = streamData.join("");
     mockExecutor.setResponse("no callback test", allData);
 
+    const state = createTestWorkerState("test-worker", "test-thread-1");
     const worker = new Worker(
-      "test-worker",
+      state,
       workspace,
       mockExecutor,
       undefined,

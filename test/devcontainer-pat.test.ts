@@ -1,7 +1,11 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
 import { DevcontainerClaudeExecutor, Worker } from "../src/worker.ts";
-import { RepositoryPatInfo, WorkspaceManager } from "../src/workspace.ts";
+import {
+  RepositoryPatInfo,
+  WorkerState,
+  WorkspaceManager,
+} from "../src/workspace.ts";
 import { GitRepository } from "../src/git-utils.ts";
 
 describe("Devcontainer PAT環境変数設定", () => {
@@ -49,14 +53,27 @@ describe("Devcontainer PAT環境変数設定", () => {
     await workspaceManager.saveRepositoryPat(patInfo);
 
     // Workerを作成
+    const state: WorkerState = {
+      workerName: "test-worker",
+      threadId: "test-thread-id",
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
     const worker = new Worker(
-      "test-worker",
+      state,
       workspaceManager,
       undefined,
       undefined,
       undefined,
     );
-    worker.setThreadId("test-thread-id");
     worker.setUseDevcontainer(true);
 
     // リポジトリを設定
@@ -83,14 +100,27 @@ describe("Devcontainer PAT環境変数設定", () => {
     // PATを保存しない
 
     // Workerを作成
+    const state: WorkerState = {
+      workerName: "test-worker",
+      threadId: "test-thread-id",
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
     const worker = new Worker(
-      "test-worker",
+      state,
       workspaceManager,
       undefined,
       undefined,
       undefined,
     );
-    worker.setThreadId("test-thread-id");
     worker.setUseDevcontainer(true);
 
     // リポジトリを設定

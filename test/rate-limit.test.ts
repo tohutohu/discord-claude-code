@@ -2,14 +2,21 @@ import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
 import { ClaudeCodeRateLimitError, Worker } from "../src/worker.ts";
 import { WorkspaceManager } from "../src/workspace.ts";
-import { createMockClaudeCommandExecutor } from "./test-utils.ts";
+import {
+  createMockClaudeCommandExecutor,
+  createTestWorkerState,
+} from "./test-utils.ts";
 
 Deno.test("レートリミット検出とメッセージ作成", async () => {
   const baseDir = await Deno.makeTempDir({ prefix: "test_rate_limit_" });
   const workspaceManager = new WorkspaceManager(baseDir);
   await workspaceManager.initialize();
 
-  const admin = new Admin(workspaceManager, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, undefined, undefined);
   const threadId = "test-thread-123";
   const timestamp = Math.floor(Date.now() / 1000);
 
@@ -43,8 +50,9 @@ Deno.test("Worker でのレートリミット検出", () => {
   const baseDir = "/tmp/test";
   const workspaceManager = new WorkspaceManager(baseDir);
   const mockExecutor = createMockClaudeCommandExecutor();
+  const state = createTestWorkerState("test-worker", "test-thread-id");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     mockExecutor,
     undefined,
@@ -79,7 +87,11 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
   const workspaceManager = new WorkspaceManager(baseDir);
   await workspaceManager.initialize();
 
-  const admin = new Admin(workspaceManager, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, undefined, undefined);
   const threadId = "test-thread-456";
   const timestamp = Math.floor(Date.now() / 1000);
 
@@ -128,7 +140,11 @@ Deno.test("レートリミットタイマーの復旧 - 時間が残っている
   const workspaceManager = new WorkspaceManager(baseDir);
   await workspaceManager.initialize();
 
-  const admin = new Admin(workspaceManager, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, undefined, undefined);
   const threadId = "test-thread-restore-1";
 
   // 未来のタイムスタンプ（30秒後）
@@ -146,7 +162,14 @@ Deno.test("レートリミットタイマーの復旧 - 時間が残っている
   }
 
   // 新しいAdminインスタンスで復旧をテスト
-  const admin2 = new Admin(workspaceManager, undefined, undefined);
+  // Admin状態を保存してから再読み込み
+  await admin.save();
+
+  const adminState2 = await workspaceManager.loadAdminState() || {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin2 = new Admin(adminState2, workspaceManager, undefined, undefined);
   await admin2.restoreActiveThreads();
 
   // タイマーが設定されていることを確認（実際にはprivateなのでMapのサイズで確認）
@@ -172,7 +195,11 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   const workspaceManager = new WorkspaceManager(baseDir);
   await workspaceManager.initialize();
 
-  const admin = new Admin(workspaceManager, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, undefined, undefined);
   const threadId = "test-thread-restore-2";
 
   // 過去のタイムスタンプ（10分前）
@@ -225,7 +252,11 @@ Deno.test("レートリミットタイマーの復旧 - 自動継続が無効の
   const workspaceManager = new WorkspaceManager(baseDir);
   await workspaceManager.initialize();
 
-  const admin = new Admin(workspaceManager, undefined, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, undefined, undefined);
   const threadId = "test-thread-restore-3";
 
   // 未来のタイムスタンプ
@@ -243,7 +274,11 @@ Deno.test("レートリミットタイマーの復旧 - 自動継続が無効の
   }
 
   // 新しいAdminインスタンスで復旧をテスト
-  const admin2 = new Admin(workspaceManager, undefined, undefined);
+  const adminState2 = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin2 = new Admin(adminState2, workspaceManager, undefined, undefined);
   await admin2.restoreActiveThreads();
 
   // タイマーが設定されていないことを確認

@@ -29,7 +29,11 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
 
   try {
     // Phase 1: 初回起動とスレッド作成
-    const admin1 = new Admin(workspace, undefined, undefined);
+    const adminState1 = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin1 = new Admin(adminState1, workspace, undefined, undefined);
     const threadId = "integration-test-thread";
 
     // Worker作成
@@ -46,8 +50,15 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     };
     await admin1.saveDevcontainerConfig(threadId, devcontainerConfig);
 
+    // Admin状態を保存
+    await admin1.save();
+
     // Phase 2: 再起動シミュレーション
-    const admin2 = new Admin(workspace, undefined, undefined);
+    const adminState2 = await workspace.loadAdminState() || {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin2 = new Admin(adminState2, workspace, undefined, undefined);
 
     // 復旧前はWorkerが存在しない
     assertEquals(admin2.getWorker(threadId), null);
@@ -82,7 +93,11 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     assertEquals(terminatedThreadInfo?.status, "archived");
 
     // Phase 5: 再度復旧を試行（アーカイブされたスレッドは復旧されない）
-    const admin3 = new Admin(workspace, undefined, undefined);
+    const adminState3 = await workspace.loadAdminState() || {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin3 = new Admin(adminState3, workspace, undefined, undefined);
     await admin3.restoreActiveThreads();
     assertEquals(admin3.getWorker(threadId), null);
   } finally {
@@ -95,7 +110,11 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
 
   try {
     // Phase 1: 複数スレッドを作成
-    const admin1 = new Admin(workspace, undefined, undefined);
+    const adminState1 = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin1 = new Admin(adminState1, workspace, undefined, undefined);
     const threadIds = ["thread-1", "thread-2", "thread-3"];
 
     for (const threadId of threadIds) {
@@ -117,8 +136,15 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
     // 1つのスレッドを終了
     await admin1.terminateThread("thread-2");
 
+    // Admin状態を保存
+    await admin1.save();
+
     // Phase 2: 再起動と復旧
-    const admin2 = new Admin(workspace, undefined, undefined);
+    const adminState2 = await workspace.loadAdminState() || {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin2 = new Admin(adminState2, workspace, undefined, undefined);
     await admin2.restoreActiveThreads();
 
     // Phase 3: 復旧結果確認
@@ -146,7 +172,11 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
 
   try {
     // Phase 1: スレッド作成とセッションログ記録
-    const admin1 = new Admin(workspace, undefined, undefined);
+    const adminState1 = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin1 = new Admin(adminState1, workspace, undefined, undefined);
     const threadId = "session-log-thread";
 
     await admin1.createWorker(threadId);
@@ -167,7 +197,11 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
     assertEquals(targetThread.status, "active");
 
     // Phase 3: 再起動と復旧
-    const admin2 = new Admin(workspace, undefined, undefined);
+    const adminState2 = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin2 = new Admin(adminState2, workspace, undefined, undefined);
     await admin2.restoreActiveThreads();
 
     // 復旧後の設定確認
@@ -183,8 +217,15 @@ Deno.test("永続化統合テスト - セッションログとワークスペー
     };
     await admin2.saveDevcontainerConfig(threadId, updatedConfig);
 
+    // Admin状態を保存
+    await admin2.save();
+
     // Phase 5: 再度復旧して変更が永続化されているか確認
-    const admin3 = new Admin(workspace, undefined, undefined);
+    const adminState3 = await workspace.loadAdminState() || {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin3 = new Admin(adminState3, workspace, undefined, undefined);
     await admin3.restoreActiveThreads();
 
     const finalConfig = await admin3.getDevcontainerConfig(threadId);
@@ -201,7 +242,11 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
 
   try {
     // Phase 1: 正常なスレッドと問題のあるスレッドを混在させる
-    const admin1 = new Admin(workspace, undefined, undefined);
+    const adminState1 = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin1 = new Admin(adminState1, workspace, undefined, undefined);
 
     // 正常なスレッド
     const goodThreadId = "good-thread";
@@ -229,8 +274,18 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
     // アクティブスレッドリストに追加
     await workspace.addActiveThread(badThreadId);
 
+    // Admin状態を保存する前に、最新のAdminStateを取得して保存
+    const currentAdminState = await workspace.loadAdminState();
+    if (currentAdminState) {
+      await workspace.saveAdminState(currentAdminState);
+    }
+
     // Phase 2: 復旧処理（エラーハンドリング）
-    const admin2 = new Admin(workspace, undefined, undefined);
+    const adminState2 = await workspace.loadAdminState() || {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin2 = new Admin(adminState2, workspace, undefined, undefined);
 
     // エラーログをキャプチャ
     const originalConsoleError = console.error;

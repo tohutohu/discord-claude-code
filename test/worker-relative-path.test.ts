@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import { Worker } from "../src/worker.ts";
 import { WorkspaceManager } from "../src/workspace.ts";
+import { createTestWorkerState } from "./test-utils.ts";
 
 class TestWorker extends Worker {
   // テスト用にgetRelativePathをpublicにする
@@ -12,7 +13,7 @@ class TestWorker extends Worker {
   // テスト用にworktreePathを設定できるようにする
   public setWorktreePathForTest(path: string | null): void {
     // @ts-ignore - private プロパティにアクセス
-    this.worktreePath = path;
+    this.state.worktreePath = path;
   }
 }
 
@@ -20,7 +21,8 @@ Deno.test("Worker.getRelativePath - worktreePathが設定されている場合",
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);
-    const worker = new TestWorker("test-worker", workspaceManager);
+    const state = createTestWorkerState("test-worker", "test-thread-1");
+    const worker = new TestWorker(state, workspaceManager);
 
     // worktreePathを設定
     const worktreePath = "/Users/test/workspace/repositories/org/repo";
@@ -46,7 +48,8 @@ Deno.test("Worker.getRelativePath - リポジトリパターンの場合", async
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);
-    const worker = new TestWorker("test-worker", workspaceManager);
+    const state = createTestWorkerState("test-worker", "test-thread-1");
+    const worker = new TestWorker(state, workspaceManager);
 
     // worktreePathが未設定
     worker.setWorktreePathForTest(null);
@@ -73,7 +76,8 @@ Deno.test("Worker.getRelativePath - threadsパターンの場合", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);
-    const worker = new TestWorker("test-worker", workspaceManager);
+    const state = createTestWorkerState("test-worker", "test-thread-1");
+    const worker = new TestWorker(state, workspaceManager);
 
     // worktreePathが未設定
     worker.setWorktreePathForTest(null);
@@ -100,7 +104,8 @@ Deno.test("Worker.getRelativePath - 特殊なケース", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);
-    const worker = new TestWorker("test-worker", workspaceManager);
+    const state = createTestWorkerState("test-worker", "test-thread-1");
+    const worker = new TestWorker(state, workspaceManager);
 
     // 空文字列
     assertEquals(worker.testGetRelativePath(""), "");
@@ -126,7 +131,8 @@ Deno.test("Worker.getRelativePath - Discord表示時の実際の使用", async (
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);
-    const worker = new TestWorker("test-worker", workspaceManager);
+    const state = createTestWorkerState("test-worker", "test-thread-1");
+    const worker = new TestWorker(state, workspaceManager);
 
     // 実際のワークツリーパス例
     const worktreePath =

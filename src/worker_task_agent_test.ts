@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { Worker } from "./worker.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { WorkerState, WorkspaceManager } from "./workspace.ts";
 
 // テスト用のClaudeCommandExecutor
 class TestClaudeCommandExecutor {
@@ -18,8 +18,22 @@ Deno.test("extractOutputMessage - タスクエージェントの配列形式tool
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state: WorkerState = {
+    workerName: "test-worker",
+    threadId: "test-thread-1",
+    devcontainerConfig: {
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  };
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     new TestClaudeCommandExecutor(),
     undefined,
@@ -74,8 +88,22 @@ Deno.test("extractOutputMessage - 複数のテキスト要素を持つ配列形�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state: WorkerState = {
+    workerName: "test-worker",
+    threadId: "test-thread-1",
+    devcontainerConfig: {
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  };
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     new TestClaudeCommandExecutor(),
     undefined,
@@ -129,8 +157,22 @@ Deno.test("extractOutputMessage - エラー時の配列形式tool_resultを処�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state: WorkerState = {
+    workerName: "test-worker",
+    threadId: "test-thread-1",
+    devcontainerConfig: {
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  };
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     new TestClaudeCommandExecutor(),
     undefined,
@@ -174,8 +216,22 @@ Deno.test("extractOutputMessage - text以外の要素を含む配列は無視す
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state: WorkerState = {
+    workerName: "test-worker",
+    threadId: "test-thread-1",
+    devcontainerConfig: {
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  };
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     new TestClaudeCommandExecutor(),
     undefined,
@@ -230,8 +286,22 @@ Deno.test("extractOutputMessage - 空の配列形式contentを処理する", asy
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state: WorkerState = {
+    workerName: "test-worker",
+    threadId: "test-thread-1",
+    devcontainerConfig: {
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+    status: "active",
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
+  };
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     new TestClaudeCommandExecutor(),
     undefined,

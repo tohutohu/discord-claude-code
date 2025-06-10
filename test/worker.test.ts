@@ -8,6 +8,7 @@ import {
   createMockStreamingClaudeCommandExecutor,
   createTestRepository,
   createTestWorker,
+  createTestWorkerState,
   createTestWorkspaceManager,
   ERROR_MESSAGES,
 } from "./test-utils.ts";
@@ -80,7 +81,23 @@ Deno.test("Worker - 設定未完了時の定型メッセージ", async () => {
   const executor = createMockClaudeCommandExecutor();
 
   try {
-    const worker = await createTestWorker("test-worker", workspace, executor);
+    // devcontainer設定が未完了のWorkerStateを作成
+    const state = createTestWorkerState("test-worker", "test-thread-id", {
+      devcontainerConfig: {
+        useDevcontainer: undefined as unknown as boolean, // 未設定状態
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+    });
+    const worker = new Worker(
+      state,
+      workspace,
+      executor,
+      undefined,
+      undefined,
+    );
     const repository = createTestRepository("octocat", "Hello-World");
     await worker.setRepository(repository, "/test/repo");
 
@@ -156,8 +173,9 @@ Deno.test("Worker - verboseモードでログが出力される", async () => {
   };
 
   try {
+    const state = createTestWorkerState("verbose-worker", "test-thread-1");
     const worker = new Worker(
-      "verbose-worker",
+      state,
       workspace,
       executor,
       true,

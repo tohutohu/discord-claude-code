@@ -1,7 +1,7 @@
 import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { Admin } from "./admin.ts";
 import { ClaudeCodeRateLimitError, IWorker } from "./worker.ts";
-import { QueuedMessage, WorkspaceManager } from "./workspace.ts";
+import { AdminState, QueuedMessage, WorkspaceManager } from "./workspace.ts";
 import { GitRepository } from "./git-utils.ts";
 
 // テスト用の型定義
@@ -70,6 +70,8 @@ class MockWorker implements IWorker {
   isUsingDevcontainer(): boolean {
     return false;
   }
+
+  async save(): Promise<void> {}
 }
 
 Deno.test("Admin - レートリミット時のメッセージキュー追加", async () => {
@@ -78,7 +80,11 @@ Deno.test("Admin - レートリミット時のメッセージキュー追加", a
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager, undefined, undefined);
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspaceManager, undefined, undefined);
     const threadId = "test-thread-rate-limit";
 
     // スレッド情報を作成
@@ -146,7 +152,11 @@ Deno.test("Admin - レートリミットエラー時の自動タイマー設定"
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager, undefined, undefined);
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspaceManager, undefined, undefined);
     const threadId = "test-thread-auto-timer";
 
     // モックWorkerを作成
@@ -217,7 +227,11 @@ Deno.test("Admin - 自動再開時のキュー処理", async () => {
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager, undefined, undefined);
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspaceManager, undefined, undefined);
     const threadId = "test-thread-auto-resume";
 
     // キューにメッセージを追加
@@ -301,7 +315,11 @@ Deno.test("Admin - キューが空の場合は「続けて」を送信", async (
     const workspaceManager = new WorkspaceManager(testDir);
     await workspaceManager.initialize();
 
-    const admin = new Admin(workspaceManager, undefined, undefined);
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    const admin = new Admin(adminState, workspaceManager, undefined, undefined);
     const threadId = "test-thread-empty-queue";
 
     // スレッド情報を作成

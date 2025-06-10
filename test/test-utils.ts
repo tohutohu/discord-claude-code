@@ -1,4 +1,4 @@
-import { WorkspaceManager } from "../src/workspace.ts";
+import { WorkerState, WorkspaceManager } from "../src/workspace.ts";
 import { Admin } from "../src/admin.ts";
 import { IWorker, Worker } from "../src/worker.ts";
 import { ClaudeCommandExecutor } from "../src/worker.ts";
@@ -22,7 +22,11 @@ export async function createTestContext(
   const testDir = await Deno.makeTempDir({ prefix: "test_context_" });
   const workspaceManager = new WorkspaceManager(testDir);
   await workspaceManager.initialize();
-  const admin = new Admin(workspaceManager, verbose, undefined);
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, verbose, undefined);
 
   const cleanup = async () => {
     try {
@@ -51,6 +55,32 @@ export async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
 }
 
 /**
+ * テスト用のWorkerStateを作成
+ */
+export function createTestWorkerState(
+  workerName: string,
+  threadId: string,
+  options: Partial<WorkerState> = {},
+): WorkerState {
+  const now = new Date().toISOString();
+  return {
+    workerName,
+    threadId,
+    devcontainerConfig: {
+      useDevcontainer: false,
+      useFallbackDevcontainer: false,
+      hasDevcontainerFile: false,
+      hasAnthropicsFeature: false,
+      isStarted: false,
+    },
+    status: "active",
+    createdAt: now,
+    lastActiveAt: now,
+    ...options,
+  };
+}
+
+/**
  * テスト用のWorkerを作成
  */
 export async function createTestWorker(
@@ -58,9 +88,11 @@ export async function createTestWorker(
   workspaceManager: WorkspaceManager,
   executor?: ClaudeCommandExecutor,
   verbose = false,
+  threadId = "test-thread-id",
 ): Promise<Worker> {
+  const state = createTestWorkerState(name, threadId);
   const worker = new Worker(
-    name,
+    state,
     workspaceManager,
     executor || createMockClaudeCommandExecutor(),
     verbose,

@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Worker } from "./worker.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { WorkerState, WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 import { ClaudeCommandExecutor } from "./worker.ts";
 
@@ -139,16 +139,28 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
       }),
     ]);
 
+    const state: WorkerState = {
+      workerName: "test-worker",
+      threadId: "test-thread",
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
     const worker = new Worker(
-      "test-worker",
+      state,
       workspaceManager,
       mockExecutor,
       false,
       undefined,
       "http://localhost:8767", // 翻訳URLを設定
     );
-
-    worker.setThreadId("test-thread");
 
     // devcontainer設定を完了させる
     worker.setUseDevcontainer(false);
@@ -196,16 +208,28 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
       }),
     ]);
 
+    const state: WorkerState = {
+      workerName: "test-worker",
+      threadId: "test-thread",
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
     const worker = new Worker(
-      "test-worker",
+      state,
       workspaceManager,
       mockExecutor,
       false,
       undefined,
       undefined, // 翻訳URLなし
     );
-
-    worker.setThreadId("test-thread");
 
     // devcontainer設定を完了させる
     worker.setUseDevcontainer(false);
@@ -252,16 +276,28 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
       }),
     ]);
 
+    const state: WorkerState = {
+      workerName: "test-worker",
+      threadId: "test-thread",
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
     const worker = new Worker(
-      "test-worker",
+      state,
       workspaceManager,
       mockExecutor,
       false,
       undefined,
       "http://localhost:9999", // 存在しないサーバー
     );
-
-    worker.setThreadId("test-thread");
 
     // devcontainer設定を完了させる
     worker.setUseDevcontainer(false);
@@ -323,16 +359,28 @@ Deno.test("Worker - VERBOSEモードで翻訳結果がログに出力される",
     };
 
     try {
+      const state: WorkerState = {
+        workerName: "test-worker",
+        threadId: "test-thread",
+        devcontainerConfig: {
+          useDevcontainer: false,
+          useFallbackDevcontainer: false,
+          hasDevcontainerFile: false,
+          hasAnthropicsFeature: false,
+          isStarted: false,
+        },
+        status: "active",
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+      };
       const worker = new Worker(
-        "test-worker",
+        state,
         workspaceManager,
         mockExecutor,
         true, // VERBOSEモードを有効化
         undefined,
         "http://localhost:8768",
       );
-
-      worker.setThreadId("test-thread");
 
       // devcontainer設定を完了させる
       worker.setUseDevcontainer(false);

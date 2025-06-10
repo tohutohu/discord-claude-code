@@ -301,7 +301,6 @@ export interface IWorker {
   setRepository(repository: GitRepository, localPath: string): Promise<void>;
   setThreadId(threadId: string): void;
   isUsingDevcontainer(): boolean;
-  save(): Promise<void>;
 }
 
 export class Worker implements IWorker {
@@ -330,7 +329,7 @@ export class Worker implements IWorker {
     // 翻訳URLが設定されている場合は翻訳機能を初期化
     if (translatorUrl) {
       this.translator = new PLaMoTranslator(translatorUrl);
-      this.logVerbose("翻訳機能を初期化", { translatorUrl });
+      this.logVerbose("翻詳機能を初期化", { translatorUrl });
     }
   }
 
@@ -341,10 +340,10 @@ export class Worker implements IWorker {
   ): Promise<string> {
     this.logVerbose("メッセージ処理開始", {
       messageLength: message.length,
-      hasRepository: !!this.state.repository,
-      hasWorktreePath: !!this.state.worktreePath,
-      threadId: this.state.threadId,
-      sessionId: this.state.sessionId,
+      hasRepository: !!this.repository,
+      hasWorktreePath: !!this.worktreePath,
+      threadId: this.threadId,
+      sessionId: this.sessionId,
       hasReactionCallback: !!onReaction,
     });
 
@@ -353,24 +352,24 @@ export class Worker implements IWorker {
       console.log(
         `[${
           new Date().toISOString()
-        }] [Worker:${this.state.workerName}] ユーザーメッセージ処理詳細:`,
+        }] [Worker:${this.name}] ユーザーメッセージ処理詳細:`,
       );
       console.log(`  メッセージ: "${message}"`);
-      console.log(`  リポジトリ: ${this.state.repository?.fullName || "なし"}`);
-      console.log(`  worktreePath: ${this.state.worktreePath || "なし"}`);
-      console.log(`  セッションID: ${this.state.sessionId || "なし"}`);
+      console.log(`  リポジトリ: ${this.repository?.fullName || "なし"}`);
+      console.log(`  worktreePath: ${this.worktreePath || "なし"}`);
+      console.log(`  セッションID: ${this.sessionId || "なし"}`);
     }
 
-    if (!this.state.repository || !this.state.worktreePath) {
+    if (!this.repository || !this.worktreePath) {
       this.logVerbose("リポジトリまたはworktreeパスが未設定");
       return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
     }
 
     // devcontainerの選択が完了していない場合は設定を促すメッセージを返す
-    if (!this.isConfigurationComplete()) {
+    if (!this.devcontainerChoiceMade) {
       this.logVerbose("Claude Code設定が未完了", {
-        devcontainerChoiceMade: this.isConfigurationComplete(),
-        useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+        devcontainerChoiceMade: this.devcontainerChoiceMade,
+        useDevcontainer: this.useDevcontainer,
       });
 
       let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
@@ -398,9 +397,7 @@ export class Worker implements IWorker {
           // VERBOSEモードで翻訳結果を表示
           if (this.verbose && message !== translatedMessage) {
             console.log(
-              `[${
-                new Date().toISOString()
-              }] [Worker:${this.state.workerName}] 翻訳結果:`,
+              `[${new Date().toISOString()}] [Worker:${this.name}] 翻訳結果:`,
             );
             console.log(`  元のメッセージ: "${message}"`);
             console.log(`  翻訳後: "${translatedMessage}"`);
@@ -453,10 +450,7 @@ export class Worker implements IWorker {
         errorMessage: (error as Error).message,
         errorStack: (error as Error).stack,
       });
-      console.error(
-        `Worker ${this.state.workerName} - Claude実行エラー:`,
-        error,
-      );
+      console.error(`Worker ${this.name} - Claude実行エラー:`, error);
       const errorMessage = `エラーが発生しました: ${(error as Error).message}`;
 
       // セッションログ機能は削除済み
@@ -482,9 +476,9 @@ export class Worker implements IWorker {
     }
 
     // セッション継続の場合
-    if (this.state.sessionId) {
-      args.push("--resume", this.state.sessionId);
-      this.logVerbose("セッション継続", { sessionId: this.state.sessionId });
+    if (this.sessionId) {
+      args.push("--resume", this.sessionId);
+      this.logVerbose("セッション継続", { sessionId: this.sessionId });
     }
 
     // 常に権限チェックをスキップ
@@ -501,8 +495,8 @@ export class Worker implements IWorker {
 
     this.logVerbose("Claudeコマンド実行", {
       args: args,
-      cwd: this.state.worktreePath,
-      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+      cwd: this.worktreePath,
+      useDevcontainer: this.useDevcontainer,
     });
 
     this.logVerbose("ストリーミング実行開始");
@@ -562,7 +556,7 @@ export class Worker implements IWorker {
             console.log(
               `[${
                 new Date().toISOString()
-              }] [Worker:${this.state.workerName}] Claude実行完了:`,
+              }] [Worker:${this.name}] Claude実行完了:`,
               {
                 subtype: parsed.subtype,
                 cost_usd: parsed.cost_usd,
@@ -623,9 +617,7 @@ export class Worker implements IWorker {
       // VERBOSEモードでstdoutを詳細ログ出力
       if (this.verbose && chunk.trim()) {
         console.log(
-          `[${
-            new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stdout:`,
+          `[${new Date().toISOString()}] [Worker:${this.name}] Claude stdout:`,
         );
         console.log(
           `  ${chunk.split("\n").map((line) => `  ${line}`).join("\n")}`,
@@ -643,7 +635,7 @@ export class Worker implements IWorker {
 
     const { code, stderr } = await this.claudeExecutor.executeStreaming(
       args,
-      this.state.worktreePath!,
+      this.worktreePath!,
       onData,
     );
 
@@ -667,9 +659,7 @@ export class Worker implements IWorker {
       // VERBOSEモードでstderrを詳細ログ出力
       if (this.verbose && stderr.length > 0) {
         console.log(
-          `[${
-            new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stderr:`,
+          `[${new Date().toISOString()}] [Worker:${this.name}] Claude stderr:`,
         );
         console.log(`  終了コード: ${code}`);
         console.log(`  エラー内容:`);
@@ -694,7 +684,7 @@ export class Worker implements IWorker {
         console.log(
           `[${
             new Date().toISOString()
-          }] [Worker:${this.state.workerName}] Claude stderr (警告等):`,
+          }] [Worker:${this.name}] Claude stderr (警告等):`,
         );
         console.log(
           `  ${
@@ -706,20 +696,20 @@ export class Worker implements IWorker {
 
     // セッションIDを更新
     if (newSessionId) {
-      this.state.sessionId = newSessionId;
+      this.sessionId = newSessionId;
       this.logVerbose("セッションID更新", {
-        oldSessionId: this.state.sessionId,
+        oldSessionId: this.sessionId,
         newSessionId,
       });
 
       // 非同期でWorker状態を保存
-      this.save().catch((error) => {
+      this.saveState().catch((error) => {
         console.error("Worker状態の保存に失敗しました:", error);
       });
     }
 
     // 生のjsonlを保存
-    if (this.state.repository?.fullName && allOutput.trim()) {
+    if (this.repository?.fullName && allOutput.trim()) {
       this.logVerbose("生JSONLを保存", { outputLength: allOutput.length });
       await this.saveRawJsonlOutput(allOutput);
     }
@@ -733,12 +723,12 @@ export class Worker implements IWorker {
   }
 
   private async saveRawJsonlOutput(output: string): Promise<void> {
-    if (!this.state.repository?.fullName || !this.state.sessionId) return;
+    if (!this.repository?.fullName || !this.sessionId) return;
 
     try {
       await this.workspaceManager.saveRawSessionJsonl(
-        this.state.repository.fullName,
-        this.state.sessionId,
+        this.repository.fullName,
+        this.sessionId,
         output,
       );
     } catch (error) {
@@ -775,18 +765,11 @@ export class Worker implements IWorker {
   }
 
   getName(): string {
-    return this.state.workerName;
+    return this.name;
   }
 
   getRepository(): GitRepository | null {
-    return this.state.repository
-      ? {
-        fullName: this.state.repository.fullName,
-        org: this.state.repository.org,
-        repo: this.state.repository.repo,
-        localPath: this.state.repository.fullName,
-      }
-      : null;
+    return this.repository;
   }
 
   async setRepository(
@@ -796,26 +779,21 @@ export class Worker implements IWorker {
     this.logVerbose("リポジトリ設定開始", {
       repositoryFullName: repository.fullName,
       localPath,
-      hasThreadId: !!this.state.threadId,
-      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+      hasThreadId: !!this.threadId,
+      useDevcontainer: this.useDevcontainer,
     });
 
-    this.state.repository = {
-      fullName: repository.fullName,
-      org: repository.org,
-      repo: repository.repo,
-    };
-    this.state.repositoryLocalPath = localPath;
+    this.repository = repository;
 
-    if (this.state.threadId) {
+    if (this.threadId) {
       try {
-        this.logVerbose("worktree作成開始", { threadId: this.state.threadId });
-        this.state.worktreePath = await this.workspaceManager.ensureWorktree(
-          this.state.threadId,
+        this.logVerbose("worktree作成開始", { threadId: this.threadId });
+        this.worktreePath = await this.workspaceManager.ensureWorktree(
+          this.threadId,
           localPath,
         );
         this.logVerbose("worktree作成完了", {
-          worktreePath: this.state.worktreePath,
+          worktreePath: this.worktreePath,
         });
 
         // ThreadInfo更新は削除（WorkerStateで管理）
@@ -826,17 +804,15 @@ export class Worker implements IWorker {
           fallbackPath: localPath,
         });
         console.error(`worktreeの作成に失敗しました: ${error}`);
-        this.state.worktreePath = localPath;
+        this.worktreePath = localPath;
       }
     } else {
       this.logVerbose("threadIdなし、localPathを直接使用");
-      this.state.worktreePath = localPath;
+      this.worktreePath = localPath;
     }
 
     // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
-    if (
-      this.state.devcontainerConfig.useDevcontainer && this.state.worktreePath
-    ) {
+    if (this.useDevcontainer && this.worktreePath) {
       // リポジトリのPATを取得
       let ghToken: string | undefined;
       if (repository.fullName) {
@@ -854,38 +830,38 @@ export class Worker implements IWorker {
 
       this.logVerbose("DevcontainerClaudeExecutorに切り替え");
       this.claudeExecutor = new DevcontainerClaudeExecutor(
-        this.state.worktreePath,
+        this.worktreePath,
         this.verbose,
         ghToken,
       );
     }
 
-    this.state.sessionId = null;
+    this.sessionId = null;
     this.logVerbose("リポジトリ設定完了", {
-      finalWorktreePath: this.state.worktreePath,
-      executorType: this.state.devcontainerConfig.useDevcontainer
+      finalWorktreePath: this.worktreePath,
+      executorType: this.useDevcontainer
         ? "DevcontainerClaudeExecutor"
         : "DefaultClaudeCommandExecutor",
     });
 
     // Worker状態を保存
-    await this.save();
+    await this.saveState();
   }
 
   setThreadId(threadId: string): void {
-    this.state.threadId = threadId;
+    this.threadId = threadId;
     // 非同期でWorker状態を保存
-    this.saveAsync();
+    this.saveStateAsync();
   }
 
   /**
    * 非同期で状態を保存し、エラーをログに記録する
    */
-  private saveAsync(): void {
-    this.save().catch((error) => {
+  private saveStateAsync(): void {
+    this.saveState().catch((error) => {
       this.logVerbose("Worker状態の保存に失敗", {
         error: (error as Error).message,
-        threadId: this.state.threadId,
+        threadId: this.threadId,
       });
       console.error("Worker状態の保存に失敗しました:", error);
     });
@@ -895,57 +871,58 @@ export class Worker implements IWorker {
    * devcontainerの使用を設定する
    */
   setUseDevcontainer(useDevcontainer: boolean): void {
-    this.state.devcontainerConfig.useDevcontainer = useDevcontainer;
+    this.useDevcontainer = useDevcontainer;
+    this.devcontainerChoiceMade = true;
 
     // devcontainerが有効で、worktreePathが設定されている場合はExecutorを切り替え
-    if (useDevcontainer && this.state.worktreePath) {
+    if (this.useDevcontainer && this.worktreePath) {
       this.logVerbose("DevcontainerClaudeExecutorに切り替え（設定変更時）");
       this.claudeExecutor = new DevcontainerClaudeExecutor(
-        this.state.worktreePath,
+        this.worktreePath,
         this.verbose,
       );
-    } else if (!useDevcontainer && this.state.worktreePath) {
+    } else if (!this.useDevcontainer && this.worktreePath) {
       // devcontainerを無効にした場合はDefaultに戻す
       this.logVerbose("DefaultClaudeCommandExecutorに切り替え（設定変更時）");
       this.claudeExecutor = new DefaultClaudeCommandExecutor(this.verbose);
     }
 
     // 非同期でWorker状態を保存
-    this.saveAsync();
+    this.saveStateAsync();
   }
 
   /**
    * devcontainerが使用されているかを取得
    */
   isUsingDevcontainer(): boolean {
-    return this.state.devcontainerConfig.useDevcontainer;
+    return this.useDevcontainer;
   }
 
   /**
    * devcontainerが起動済みかを取得
    */
   isDevcontainerStarted(): boolean {
-    return this.state.devcontainerConfig.isStarted;
+    return this.devcontainerStarted;
   }
 
   /**
    * fallback devcontainerの使用を設定する
    */
   setUseFallbackDevcontainer(useFallback: boolean): void {
-    this.state.devcontainerConfig.useFallbackDevcontainer = useFallback;
+    this.useFallbackDevcontainer = useFallback;
     this.logVerbose("fallback devcontainer設定変更", {
       useFallbackDevcontainer: useFallback,
     });
 
     // 非同期でWorker状態を保存
-    this.saveAsync();
+    this.saveStateAsync();
   }
 
   /**
    * fallback devcontainerが使用されているかを取得
    */
   isUsingFallbackDevcontainer(): boolean {
-    return this.state.devcontainerConfig.useFallbackDevcontainer;
+    return this.useFallbackDevcontainer;
   }
 
   /**
@@ -966,8 +943,7 @@ export class Worker implements IWorker {
    * 設定が完了しているかを確認
    */
   isConfigurationComplete(): boolean {
-    // devcontainerの選択が済んでいればtrue
-    return this.state.devcontainerConfig.useDevcontainer !== undefined;
+    return this.devcontainerChoiceMade;
   }
 
   /**
@@ -978,9 +954,8 @@ export class Worker implements IWorker {
     useDevcontainer: boolean;
   } {
     return {
-      devcontainerChoiceMade:
-        this.state.devcontainerConfig.useDevcontainer !== undefined,
-      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+      devcontainerChoiceMade: this.devcontainerChoiceMade,
+      useDevcontainer: this.useDevcontainer,
     };
   }
 
@@ -1309,10 +1284,8 @@ export class Worker implements IWorker {
     if (!filePath) return "";
 
     // worktreePathが設定されている場合はそれを基準に
-    if (
-      this.state.worktreePath && filePath.startsWith(this.state.worktreePath)
-    ) {
-      return filePath.slice(this.state.worktreePath.length).replace(/^\//, "");
+    if (this.worktreePath && filePath.startsWith(this.worktreePath)) {
+      return filePath.slice(this.worktreePath.length).replace(/^\//, "");
     }
 
     // worktreePathがない場合は、リポジトリのパスパターンを探す
@@ -1503,13 +1476,12 @@ export class Worker implements IWorker {
   ): void {
     if (this.verbose) {
       const timestamp = new Date().toISOString();
-      const logMessage =
-        `[${timestamp}] [Worker:${this.state.workerName}] ${message}`;
+      const logMessage = `[${timestamp}] [Worker:${this.name}] ${message}`;
       console.log(logMessage);
 
       if (metadata && Object.keys(metadata).length > 0) {
         console.log(
-          `[${timestamp}] [Worker:${this.state.workerName}] メタデータ:`,
+          `[${timestamp}] [Worker:${this.name}] メタデータ:`,
           metadata,
         );
       }
@@ -1542,7 +1514,7 @@ export class Worker implements IWorker {
   ): Promise<
     { success: boolean; containerId?: string; error?: string }
   > {
-    if (!this.state.repository || !this.state.worktreePath) {
+    if (!this.repository || !this.worktreePath) {
       return {
         success: false,
         error: "リポジトリが設定されていません",
@@ -1551,14 +1523,14 @@ export class Worker implements IWorker {
 
     // リポジトリのPATを取得
     let ghToken: string | undefined;
-    if (this.state.repository.fullName) {
+    if (this.repository.fullName) {
       const patInfo = await this.workspaceManager.loadRepositoryPat(
-        this.state.repository.fullName,
+        this.repository.fullName,
       );
       if (patInfo) {
         ghToken = patInfo.token;
         this.logVerbose("GitHub PAT取得", {
-          repository: this.state.repository.fullName,
+          repository: this.repository.fullName,
           hasToken: true,
         });
       }
@@ -1566,31 +1538,28 @@ export class Worker implements IWorker {
 
     const { startDevcontainer } = await import("./devcontainer.ts");
     const result = await startDevcontainer(
-      this.state.worktreePath,
+      this.worktreePath,
       onProgress,
       ghToken,
     );
 
     if (result.success) {
-      this.state.devcontainerConfig.isStarted = true;
-      this.state.devcontainerConfig.containerId = result.containerId;
+      this.devcontainerStarted = true;
 
       // DevcontainerClaudeExecutorに切り替え
-      if (
-        this.state.devcontainerConfig.useDevcontainer && this.state.worktreePath
-      ) {
+      if (this.useDevcontainer && this.worktreePath) {
         this.logVerbose(
           "DevcontainerClaudeExecutorに切り替え（startDevcontainer成功後）",
         );
         this.claudeExecutor = new DevcontainerClaudeExecutor(
-          this.state.worktreePath,
+          this.worktreePath,
           this.verbose,
           ghToken,
         );
       }
 
       // Worker状態を保存
-      await this.save();
+      await this.saveState();
     }
 
     return result;
@@ -1599,18 +1568,55 @@ export class Worker implements IWorker {
   /**
    * Worker状態を永続化する
    */
-  async save(): Promise<void> {
-    if (!this.state.threadId) {
+  async saveState(): Promise<void> {
+    if (!this.threadId) {
       this.logVerbose("Worker状態保存スキップ: threadId未設定");
       return;
     }
 
+    // 既存のWorkerStateを読み込んで一部の値を保持
+    const existingState = await this.workspaceManager.loadWorkerState(
+      this.threadId,
+    );
+
+    const workerState: WorkerState = {
+      workerName: this.name,
+      threadId: this.threadId,
+      repository: this.repository
+        ? {
+          fullName: this.repository.fullName,
+          org: this.repository.org,
+          repo: this.repository.repo,
+        }
+        : undefined,
+      repositoryLocalPath: this.worktreePath
+        ? this.workspaceManager.getRepositoriesDir()
+        : undefined,
+      worktreePath: this.worktreePath,
+      devcontainerConfig: {
+        useDevcontainer: this.useDevcontainer,
+        useFallbackDevcontainer: this.useFallbackDevcontainer,
+        hasDevcontainerFile:
+          existingState?.devcontainerConfig?.hasDevcontainerFile || false,
+        hasAnthropicsFeature:
+          existingState?.devcontainerConfig?.hasAnthropicsFeature || false,
+        containerId: existingState?.devcontainerConfig?.containerId,
+        isStarted: this.devcontainerStarted,
+      },
+      sessionId: this.sessionId,
+      status: existingState?.status || "active",
+      rateLimitTimestamp: existingState?.rateLimitTimestamp,
+      autoResumeAfterRateLimit: existingState?.autoResumeAfterRateLimit,
+      queuedMessages: existingState?.queuedMessages,
+      createdAt: existingState?.createdAt || new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
+
     try {
-      this.state.lastActiveAt = new Date().toISOString();
-      await this.workspaceManager.saveWorkerState(this.state);
+      await this.workspaceManager.saveWorkerState(workerState);
       this.logVerbose("Worker状態を永続化", {
-        threadId: this.state.threadId,
-        workerName: this.state.workerName,
+        threadId: this.threadId,
+        workerName: this.name,
       });
     } catch (error) {
       console.error("Worker状態の保存に失敗しました:", error);
@@ -1618,48 +1624,66 @@ export class Worker implements IWorker {
   }
 
   /**
-   * Worker状態を復元する（静的メソッド）
+   * Worker状態を復元する
    */
-  static async fromState(
-    workerState: WorkerState,
-    workspaceManager: WorkspaceManager,
-    verbose?: boolean,
-    appendSystemPrompt?: string,
-    translatorUrl?: string,
-  ): Promise<Worker> {
-    const worker = new Worker(
-      workerState,
-      workspaceManager,
-      undefined,
-      verbose,
-      appendSystemPrompt,
-      translatorUrl,
-    );
+  async restoreFromState(workerState: WorkerState): Promise<void> {
+    this.logVerbose("Worker状態復元開始", {
+      threadId: workerState.threadId,
+      workerName: workerState.workerName,
+      hasRepository: !!workerState.repository,
+    });
+
+    // 基本プロパティの復元
+    this.threadId = workerState.threadId;
+    this.worktreePath = workerState.worktreePath || null;
+    this.sessionId = workerState.sessionId || null;
+    this.useDevcontainer = workerState.devcontainerConfig.useDevcontainer;
+    this.useFallbackDevcontainer =
+      workerState.devcontainerConfig.useFallbackDevcontainer;
+
+    // リポジトリ情報の復元
+    if (workerState.repository) {
+      this.repository = {
+        fullName: workerState.repository.fullName,
+        org: workerState.repository.org,
+        repo: workerState.repository.repo,
+        localPath: workerState.repository.fullName, // GitRepositoryインターフェースに合わせる
+      };
+    }
+
+    // devcontainer設定の復元
+    this.devcontainerStarted = workerState.devcontainerConfig.isStarted;
+    this.devcontainerChoiceMade = true; // 設定が保存されているということは選択済み
 
     // devcontainerが使用されている場合はExecutorを切り替え
     if (
-      workerState.devcontainerConfig.useDevcontainer &&
-      workerState.worktreePath &&
-      workerState.devcontainerConfig.isStarted
+      this.useDevcontainer && this.worktreePath && this.devcontainerStarted
     ) {
       // リポジトリのPATを取得
       let ghToken: string | undefined;
-      if (workerState.repository?.fullName) {
-        const patInfo = await workspaceManager.loadRepositoryPat(
-          workerState.repository.fullName,
+      if (this.repository?.fullName) {
+        const patInfo = await this.workspaceManager.loadRepositoryPat(
+          this.repository.fullName,
         );
         if (patInfo) {
           ghToken = patInfo.token;
         }
       }
 
-      worker.claudeExecutor = new DevcontainerClaudeExecutor(
-        workerState.worktreePath,
-        verbose || false,
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え（状態復元時）");
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.worktreePath,
+        this.verbose,
         ghToken,
       );
     }
 
-    return worker;
+    this.logVerbose("Worker状態復元完了", {
+      threadId: this.threadId,
+      workerName: this.name,
+      repository: this.repository?.fullName,
+      useDevcontainer: this.useDevcontainer,
+      devcontainerStarted: this.devcontainerStarted,
+    });
   }
 }
