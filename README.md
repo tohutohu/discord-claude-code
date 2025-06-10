@@ -200,28 +200,92 @@ deno task dev
 
 ## アーキテクチャ
 
+### システム概要
+
+Discord
+BotはAdmin-Worker型のマルチプロセスアーキテクチャを採用しています。1つのAdminプロセスが複数のWorkerを管理し、各Workerが1つのDiscordスレッドを担当します。
+
 ### 主要コンポーネント
 
-- **Admin** (`src/admin.ts`): Workerの管理とメッセージルーティング
-- **Worker** (`src/worker.ts`): Claude実行とメッセージ処理
-- **WorkspaceManager** (`src/workspace.ts`): 作業ディレクトリとデータ永続化
-- **GitUtils** (`src/git-utils.ts`): Gitリポジトリ操作
+#### Admin (`src/admin.ts`) - 1748行
 
-### メッセージフロー
+プロセス全体で1つだけ起動される管理モジュール。
+
+- **Worker管理**: スレッドごとにWorkerインスタンスを作成・管理
+- **メッセージルーティング**: スレッドIDに基づいてメッセージを適切なWorkerに転送
+- **レート制限管理**: Claude APIのレート制限を検出し、自動再開タイマーを管理
+- **Devcontainer対応**: リポジトリのdevcontainer.jsonを検出し、実行環境を選択
+- **状態永続化**: アプリケーション再起動後のスレッド復旧機能
+
+#### Worker (`src/worker.ts`) - 1667行
+
+各スレッドに1対1で対応する実行モジュール。
+
+- **Claude CLI実行**: ホスト環境またはDevcontainer環境でClaude CLIを実行
+- **ストリーミング処理**: JSON Lines形式でClaudeの出力をリアルタイム処理
+- **メッセージフォーマット**: ツール使用の可視化、長文要約、TODOリストの特別処理
+- **翻訳機能統合**: PLaMo-2-translateによる日本語→英語翻訳（オプション）
+- **セッションログ記録**: 全てのやり取りを永続化
+
+#### WorkspaceManager (`src/workspace.ts`) - 636行
+
+作業ディレクトリとデータ永続化を一元管理。
+
+- **11種類のディレクトリ管理**:
+  repositories、threads、sessions、audit、worktrees等
+- **データ永続化**:
+  スレッド情報、セッションログ、監査ログ、PAT情報などをJSON形式で保存
+- **Worktree管理**: Git worktreeのコピー作成・削除による独立した作業環境
+- **メッセージキュー**: レート制限時のメッセージ保存と処理
+
+#### ユーティリティモジュール
+
+- **GitUtils** (`src/git-utils.ts`): GitとGitHub CLIを使用したリポジトリ操作
+- **DevContainer** (`src/devcontainer.ts`): Dev Container
+  CLIとの連携、ストリーミングログ処理
+- **Gemini** (`src/gemini.ts`): Google Gemini APIによるスレッド名自動生成
+- **PLaMoTranslator** (`src/plamo-translator.ts`):
+  コーディング指示に特化した日本語→英語翻訳
+
+### メッセージ処理フロー
 
 ```text
 Discord User
     ↓
-main.ts (MessageCreate)
+main.ts (MessageCreate Event)
     ↓
 admin.routeMessage()
-    ↓
+    ├─ レート制限チェック → キューイング
+    └─ Worker検索
+          ↓
 worker.processMessage()
-    ↓
-Claude CLI実行
-    ↓
-結果をDiscordに送信
+    ├─ PLaMo翻訳（オプション）
+    └─ Claude CLI実行（ストリーミング）
+          ↓
+メッセージタイプ別処理
+    ├─ assistant: フォーマット処理
+    ├─ tool_use: アイコン付き表示
+    ├─ tool_result: スマート要約
+    └─ error: エラーハンドリング
+          ↓
+Discord送信（2000文字制限対応）
 ```
+
+### Dev Container統合
+
+リポジトリにdevcontainer.jsonが存在する場合：
+
+1. Dev Container CLIの可用性チェック
+2. Anthropics features（Claude Code）の検出
+3. ユーザー選択によるDevcontainer起動
+4. コンテナ内でのClaude実行
+
+### 状態管理と永続化
+
+- **スレッド情報**: 作成時刻、最終アクティブ時刻、リポジトリ情報、ステータス
+- **セッションログ**: Claudeとのやり取りを時系列でJSONL形式記録
+- **監査ログ**: システムアクションの追跡（Worker作成、メッセージ受信等）
+- **再起動対応**: AdminState/WorkerStateによる状態復旧
 
 ## トラブルシューティング
 
@@ -272,3 +336,29 @@ MIT License - 詳細は[LICENSE](LICENSE)ファイルを参照してください
 - すべての機能にテストを追加
 - コミット前に`deno task test:all:quiet`を実行
 - テスト駆動開発（TDD）を推奨
+
+### テストカバレッジ
+
+プロジェクトは充実したテストスイートを持っています：
+
+#### 単体テスト (`src/*_test.ts`)
+
+- ✅ 主要モジュール: admin、worker、workspace（部分的）
+- ✅ ユーティリティ:
+  git-utils、devcontainer、gemini、plamo-translator、system-check
+- ❌ 未テスト: main.ts、env.ts、worker-name-generator.ts
+
+#### 統合テスト (`test/*.test.ts`)
+
+- システム全体の統合テスト
+- 永続化機能の統合テスト
+- レート制限機能のテスト
+- ストリーミング処理のテスト
+- Devcontainer関連の複数テスト
+
+#### テストの特徴
+
+- 日本語テスト名による高い可読性
+- `test-utils.ts`による共通モック機能
+- ストリーミング対応の高度なモック
+- 適切なクリーンアップ処理

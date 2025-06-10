@@ -7,7 +7,7 @@ Denoで開発されたDiscord Bot。
 
 Discord Botのアーキテクチャは、以下のような構成になっている。
 
-### Admin
+### Admin (1748行)
 
 Adminモジュールは以下の特徴を持つ
 
@@ -15,19 +15,48 @@ Adminモジュールは以下の特徴を持つ
 - Discordから起動のスラッシュコマンドを受け取るとスレッドを作成し、それを担当するWorkerを起動する
   - Workerがスレッドに対してメッセージを返信できるようにコールバックを提供する
 - Discordからスレッドに対してメッセージを受け取ると、担当のWorkerに対してメッセージを渡す
+- レート制限管理、Devcontainer対応、状態永続化など多くの責務を抱えている
 
-### Worker
+**改善が必要な点:**
+
+- 巨大なクラス（1748行）で責務が多すぎる
+- `restoreActiveThreads`（73行）、`checkAndSetupDevcontainer`（192行）などの長大なメソッド
+- マジックナンバーの散在（レート制限の5分など）
+- WorkerManager、RateLimitManager、DevcontainerManagerなどへの責務分離が必要
+
+### Worker (1667行)
 
 WorkerモジュールはAdminモジュールによって起動・管理される。
 1つのWorkerが1つのスレッドを担当する。
 
-### WorkspaceManager
+**主な機能:**
+
+- Claude CLI実行（ホスト環境/Devcontainer環境）
+- ストリーミング処理によるリアルタイム出力
+- メッセージフォーマッティング（ツールアイコン、要約、TODOリスト）
+- PLaMo翻訳統合
+
+**改善が必要な点:**
+
+- 巨大なクラス（1667行）で責務が多すぎる
+- `executeClaudeStreaming`メソッドが220行以上
+- MessageFormatter、ClaudeStreamProcessorなどへの分離が必要
+- フォーマット関連メソッドの重複
+
+### WorkspaceManager (636行)
 
 WorkspaceManagerモジュールは作業ディレクトリの管理とデータ永続化を担当する。
 
-- 構造化された作業ディレクトリ（repositories/、threads/、sessions/、audit/）を管理
+- 構造化された作業ディレクトリ（repositories/、threads/、sessions/、audit/、worktrees/、pats/、queued_messages/、admin/、workers/）を管理
 - スレッド情報、Claudeセッションログ、監査ログのJSON永続化
 - 再起動後の継続性とaudit log的な検証機能を提供
+
+**改善が必要な点:**
+
+- 11種類のデータ型を1クラスで管理
+- ThreadManager、SessionManager、AuditLoggerなどへの分離が必要
+- ディレクトリ走査処理の重複
+- JSON.parseの結果を直接型アサーション（スキーマ検証なし）
 
 ## 作業ディレクトリ構造
 
@@ -109,24 +138,56 @@ WORK_BASE_DIR/
 - Worker: Claudeコマンド実行、セッションログ記録
 - WorkspaceManagerと統合してセッションログを永続化
 
-### src/git-utils.ts
+### src/git-utils.ts (275行)
 
 - GitRepository: リポジトリ情報の型定義
 - parseRepository: リポジトリ名のパース
 - ensureRepository: リポジトリのクローン・更新（WorkspaceManager対応）
+- createWorktreeCopy: rsyncによるリポジトリコピーと独立ブランチ作成
 
-### src/gemini.ts
+**改善点:**
+
+- createWorktreeCopy関数が130行以上と長大
+- デフォルトブランチ名"main"のハードコード
+- Git設定（ユーザー名・メール）のハードコード
+
+### src/devcontainer.ts (403行)
+
+- checkDevcontainerConfig: devcontainer.json存在確認
+- checkDevcontainerCli: CLI利用可能性チェック
+- startDevcontainer: コンテナ起動とストリーミングログ処理
+- execInDevcontainer: コンテナ内コマンド実行
+
+**改善点:**
+
+- startDevcontainer関数が230行と巨大
+- マジックナンバー（maxLogLines=30、progressInterval=2000）
+- ログ処理とプログレス通知の責務混在
+
+### src/gemini.ts (63行)
 
 - summarizeWithGemini: Gemini APIを使用してテキストを要約
 - generateThreadName: 要約とリポジトリ名からスレッド名を生成
 - 最初のユーザーメッセージを基にDiscordスレッド名を自動生成
 
-### src/plamo-translator.ts
+**改善点:**
+
+- ハードコードされたモデル名
+- キャッシング未実装
+- リトライ機構の不在
+
+### src/plamo-translator.ts (104行)
 
 - PLaMoTranslator: PLaMo-2-translate APIクライアント
 - translate: 日本語から英語への翻訳
 - isAvailable: APIサーバーの可用性チェック
 - コーディング指示に特化したシステムプロンプトを使用
+
+**改善点:**
+
+- temperature、max_tokensなどのマジックナンバー
+- エラー種別の区別なし
+- 型検証の不在
 
 ## テストコマンド
 
@@ -332,3 +393,47 @@ Discord User → main.ts (MessageCreate) → admin.routeMessage() → worker.pro
 - resultメッセージは進捗として送信されない
 - extractOutputMessageでresultタイプはnullを返す
 - これにより重複送信を防止（以前は3回送信されていた）
+
+## 推奨されるアーキテクチャ改善
+
+### 責務の分離
+
+現在の主要3クラス（Admin、Worker、WorkspaceManager）は巨大で責務が多すぎるため、以下の分離を推奨：
+
+#### Adminクラスの分離
+
+- **WorkerManager**: Worker管理専用
+- **RateLimitManager**: レート制限とタイマー管理
+- **DevcontainerManager**: Devcontainer関連処理
+- **MessageRouter**: メッセージルーティング専用
+
+#### Workerクラスの分離
+
+- **MessageFormatter**: フォーマット関連
+- **ClaudeStreamProcessor**: ストリーミング処理
+- **WorkerConfiguration**: 設定管理
+- **SessionLogger**: セッションログ管理
+
+#### WorkspaceManagerクラスの分離
+
+- **ThreadManager**: スレッド情報管理
+- **SessionManager**: セッションログ管理
+- **AuditLogger**: 監査ログ管理
+- **PatManager**: PAT情報管理
+- **QueueManager**: メッセージキュー管理
+
+### 設計パターンの適用
+
+- **State Pattern**: Worker/Threadの状態遷移管理
+- **Observer Pattern**: イベントベースのアーキテクチャ
+- **Factory Pattern**: Worker作成ロジックの抽象化
+- **Repository Pattern**: データアクセスロジックの抽象化
+- **Strategy Pattern**: フォーマット処理の戦略化
+
+### 共通改善点
+
+- **マジックナンバーの定数化**: 全モジュールで散在
+- **エラーハンドリングの統一**: カスタムエラー型の導入
+- **型安全性の向上**: スキーマ検証の追加（Zodなど）
+- **テスタビリティ向上**: 依存性注入の活用
+- **ログ管理**: 専用Loggerクラスの導入
