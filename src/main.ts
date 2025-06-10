@@ -47,7 +47,10 @@ console.log("\n✅ システム要件チェック完了\n");
 const env = getEnv();
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
-const admin = new Admin(
+// Admin状態を読み込む
+const adminState = await workspaceManager.loadAdminState();
+const admin = Admin.fromState(
+  adminState,
   workspaceManager,
   env.VERBOSE,
   env.CLAUDE_APPEND_SYSTEM_PROMPT,

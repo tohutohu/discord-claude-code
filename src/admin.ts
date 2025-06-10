@@ -1,6 +1,7 @@
 import { ClaudeCodeRateLimitError, IWorker, Worker } from "./worker.ts";
 import { generateWorkerName } from "./worker-name-generator.ts";
 import {
+  AdminState,
   AuditEntry,
   QueuedMessage,
   ThreadInfo,
@@ -52,9 +53,11 @@ export interface IAdmin {
   setThreadCloseCallback(
     callback: (threadId: string) => Promise<void>,
   ): void;
+  save(): Promise<void>;
 }
 
 export class Admin implements IAdmin {
+  private state: AdminState;
   private workers: Map<string, IWorker>;
   private workspaceManager: WorkspaceManager;
   private verbose: boolean;
@@ -70,11 +73,13 @@ export class Admin implements IAdmin {
   ) => Promise<void>;
 
   constructor(
+    state: AdminState,
     workspaceManager: WorkspaceManager,
     verbose: boolean = false,
     appendSystemPrompt?: string,
     translatorUrl?: string,
   ) {
+    this.state = state;
     this.workers = new Map();
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
@@ -98,19 +103,17 @@ export class Admin implements IAdmin {
     this.logVerbose("アクティブスレッド復旧開始");
 
     try {
-      // アクティブスレッドリストを読み込む
-      const adminState = await this.workspaceManager.loadAdminState();
-      if (!adminState || adminState.activeThreadIds.length === 0) {
-        this.logVerbose("アクティブスレッドリストが空または存在しない");
+      if (this.state.activeThreadIds.length === 0) {
+        this.logVerbose("アクティブスレッドリストが空");
         return;
       }
 
       this.logVerbose("復旧対象スレッド発見", {
-        activeThreadCount: adminState.activeThreadIds.length,
-        threadIds: adminState.activeThreadIds,
+        activeThreadCount: this.state.activeThreadIds.length,
+        threadIds: this.state.activeThreadIds,
       });
 
-      for (const threadId of adminState.activeThreadIds) {
+      for (const threadId of [...this.state.activeThreadIds]) {
         try {
           // スレッド情報を読み込む
           const threadInfo = await this.workspaceManager.loadThreadInfo(
@@ -120,7 +123,7 @@ export class Admin implements IAdmin {
             this.logVerbose("スレッド情報が見つからない", { threadId });
             // アクティブリストから削除（失敗しても復旧ループを止めない）
             try {
-              await this.workspaceManager.removeActiveThread(threadId);
+              await this.removeActiveThread(threadId);
             } catch (error) {
               this.logVerbose("アクティブリストからの削除に失敗", {
                 threadId,
@@ -134,7 +137,7 @@ export class Admin implements IAdmin {
           if (threadInfo.status === "archived") {
             this.logVerbose("アーカイブ済みスレッドをスキップ", { threadId });
             try {
-              await this.workspaceManager.removeActiveThread(threadId);
+              await this.removeActiveThread(threadId);
             } catch (error) {
               this.logVerbose("アクティブリストからの削除に失敗", {
                 threadId,
@@ -255,17 +258,13 @@ export class Admin implements IAdmin {
         hasRepository: !!workerState.repository,
       });
 
-      const worker = new Worker(
-        workerState.workerName,
+      const worker = await Worker.fromState(
+        workerState,
         this.workspaceManager,
-        undefined,
         this.verbose,
         this.appendSystemPrompt,
         this.translatorUrl,
       );
-
-      // WorkerStateから復元
-      await worker.restoreFromState(workerState);
 
       // Workerを管理Mapに追加
       this.workers.set(threadId, worker);
@@ -292,17 +291,38 @@ export class Admin implements IAdmin {
       });
 
       const workerName = generateWorkerName();
-      const worker = new Worker(
+      const newWorkerState: WorkerState = {
         workerName,
+        threadId,
+        repository: threadInfo.repositoryFullName
+          ? {
+            fullName: threadInfo.repositoryFullName,
+            org: threadInfo.repositoryFullName.split("/")[0],
+            repo: threadInfo.repositoryFullName.split("/")[1],
+          }
+          : undefined,
+        repositoryLocalPath: threadInfo.repositoryLocalPath || undefined,
+        worktreePath: threadInfo.worktreePath,
+        devcontainerConfig: {
+          useDevcontainer: false,
+          useFallbackDevcontainer: false,
+          hasDevcontainerFile: false,
+          hasAnthropicsFeature: false,
+          isStarted: false,
+        },
+        status: "active",
+        createdAt: threadInfo.createdAt,
+        lastActiveAt: new Date().toISOString(),
+      };
+
+      const worker = new Worker(
+        newWorkerState,
         this.workspaceManager,
         undefined,
         this.verbose,
         this.appendSystemPrompt,
         this.translatorUrl,
       );
-      worker.setThreadId(threadId);
-
-      // devcontainer設定はWorkerStateで管理されるようになった
 
       // リポジトリ情報を復旧
       if (
@@ -395,7 +415,7 @@ export class Admin implements IAdmin {
 
     // アクティブスレッドリストからも削除
     try {
-      await this.workspaceManager.removeActiveThread(threadId);
+      await this.removeActiveThread(threadId);
     } catch (error) {
       this.logVerbose("アクティブリストからの削除に失敗", {
         threadId,
@@ -498,15 +518,29 @@ export class Admin implements IAdmin {
       verboseMode: this.verbose,
     });
 
-    const worker = new Worker(
+    const workerState: WorkerState = {
       workerName,
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
+
+    const worker = new Worker(
+      workerState,
       this.workspaceManager,
       undefined,
       this.verbose,
       this.appendSystemPrompt,
       this.translatorUrl,
     );
-    worker.setThreadId(threadId);
     this.workers.set(threadId, worker);
 
     this.logVerbose("Worker作成完了、管理Mapに追加", {
@@ -516,11 +550,11 @@ export class Admin implements IAdmin {
     });
 
     // アクティブスレッドリストに追加
-    await this.workspaceManager.addActiveThread(threadId);
+    await this.addActiveThread(threadId);
     this.logVerbose("アクティブスレッドリストに追加完了", { threadId });
 
     // Worker状態を保存（statusを含む）
-    await worker.saveState();
+    await worker.save();
     this.logVerbose("Worker状態保存完了", { threadId });
 
     // ThreadInfoも作成・保存
@@ -1079,7 +1113,7 @@ export class Admin implements IAdmin {
       }
 
       // アクティブスレッドリストから削除
-      await this.workspaceManager.removeActiveThread(threadId);
+      await this.removeActiveThread(threadId);
       this.logVerbose("アクティブスレッドリストから削除完了", { threadId });
 
       await this.logAuditEntry(threadId, "thread_terminated", {
@@ -1652,5 +1686,63 @@ export class Admin implements IAdmin {
     } catch (error) {
       console.error("監査ログの記録に失敗しました:", error);
     }
+  }
+
+  /**
+   * アクティブスレッドリストに追加
+   */
+  private async addActiveThread(threadId: string): Promise<void> {
+    if (!this.state.activeThreadIds.includes(threadId)) {
+      this.state.activeThreadIds.push(threadId);
+      await this.save();
+    }
+  }
+
+  /**
+   * アクティブスレッドリストから削除
+   */
+  private async removeActiveThread(threadId: string): Promise<void> {
+    this.state.activeThreadIds = this.state.activeThreadIds.filter(
+      (id) => id !== threadId,
+    );
+    await this.save();
+  }
+
+  /**
+   * Admin状態を保存
+   */
+  async save(): Promise<void> {
+    try {
+      await this.workspaceManager.saveAdminState(this.state);
+      this.logVerbose("Admin状態を永続化", {
+        activeThreadCount: this.state.activeThreadIds.length,
+      });
+    } catch (error) {
+      console.error("Admin状態の保存に失敗しました:", error);
+    }
+  }
+
+  /**
+   * Admin状態を復元する（静的メソッド）
+   */
+  static fromState(
+    adminState: AdminState | null,
+    workspaceManager: WorkspaceManager,
+    verbose?: boolean,
+    appendSystemPrompt?: string,
+    translatorUrl?: string,
+  ): Admin {
+    const state = adminState || {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    return new Admin(
+      state,
+      workspaceManager,
+      verbose,
+      appendSystemPrompt,
+      translatorUrl,
+    );
   }
 }

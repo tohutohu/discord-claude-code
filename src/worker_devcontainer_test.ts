@@ -1,6 +1,6 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { Worker } from "./worker.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { WorkerState, WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 import { createMockClaudeCommandExecutor } from "../test/test-utils.ts";
 
@@ -13,14 +13,27 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
     workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
 
+    const state: WorkerState = {
+      workerName: "test-worker",
+      threadId: "test-thread-123",
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
     worker = new Worker(
-      "test-worker",
+      state,
       workspaceManager,
       createMockClaudeCommandExecutor("Claude からのテスト応答"),
       undefined,
       undefined,
     );
-    worker.setThreadId("test-thread-123");
 
     await t.step("devcontainerの使用設定", () => {
       assertEquals(worker.isUsingDevcontainer(), false);

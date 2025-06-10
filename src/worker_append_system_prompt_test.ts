@@ -1,7 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { describe, it } from "https://deno.land/std@0.208.0/testing/bdd.ts";
 import { ClaudeCommandExecutor, Worker } from "./worker.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { WorkerState, WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 
 class MockClaudeExecutor implements ClaudeCommandExecutor {
@@ -68,16 +68,27 @@ describe("Worker --append-system-prompt オプション", () => {
 
       try {
         // Workerを作成（コンストラクタでmockExecutorを渡す）
+        const state: WorkerState = {
+          workerName: "test-worker",
+          threadId: "test-thread-1",
+          devcontainerConfig: {
+            useDevcontainer: false,
+            useFallbackDevcontainer: false,
+            hasDevcontainerFile: false,
+            hasAnthropicsFeature: false,
+            isStarted: false,
+          },
+          status: "active",
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+        };
         const worker = new Worker(
-          "test-worker",
+          state,
           workspaceManager,
           mockExecutor,
           true, // verboseをtrueに設定
           appendPrompt,
         );
-
-        // threadIdを設定してからリポジトリを設定
-        worker.setThreadId("test-thread-1");
 
         const repository = parseRepository("test/repo");
         if (repository) {
@@ -141,17 +152,28 @@ describe("Worker --append-system-prompt オプション", () => {
       await gitInit.output();
 
       try {
-        // Workerを作成（コンストラクタでmockExecutorを渡す）
+        // Workerを作成（コンストラクタでmockExecutorを温す）
+        const state: WorkerState = {
+          workerName: "test-worker",
+          threadId: "test-thread-2",
+          devcontainerConfig: {
+            useDevcontainer: false,
+            useFallbackDevcontainer: false,
+            hasDevcontainerFile: false,
+            hasAnthropicsFeature: false,
+            isStarted: false,
+          },
+          status: "active",
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+        };
         const worker = new Worker(
-          "test-worker",
+          state,
           workspaceManager,
           mockExecutor,
           true, // verboseをtrueに設定
           undefined, // appendSystemPrompt未設定
         );
-
-        // threadIdを設定してからリポジトリを設定
-        worker.setThreadId("test-thread-2");
 
         const repository = parseRepository("test/repo");
         if (repository) {

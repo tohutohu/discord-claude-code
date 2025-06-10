@@ -1,15 +1,19 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { Worker } from "./worker.ts";
 import { WorkspaceManager } from "./workspace.ts";
-import { createMockClaudeCommandExecutor } from "../test/test-utils.ts";
+import {
+  createMockClaudeCommandExecutor,
+  createTestWorkerState,
+} from "../test/test-utils.ts";
 
 Deno.test("extractOutputMessage - TODOリスト更新（tool_use）を正しく処理する", async () => {
   const tempDir = await Deno.makeTempDir();
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -99,8 +103,9 @@ Deno.test("extractOutputMessage - 通常のテキストメッセージを正し�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -143,8 +148,9 @@ Deno.test("extractOutputMessage - resultメッセージは進捗表示しない"
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -178,8 +184,9 @@ Deno.test("extractOutputMessage - エラーメッセージを正しく処理す�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -213,8 +220,9 @@ Deno.test("extractOutputMessage - systemメッセージを正しく処理する"
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-system");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
   );
@@ -254,8 +262,9 @@ Deno.test("extractTodoListUpdate - fallback処理でテキストからTODOリス
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -292,8 +301,9 @@ Deno.test("extractOutputMessage - Bashツール実行を正しく処理する", 
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -335,8 +345,9 @@ Deno.test("extractOutputMessage - ツール結果（tool_result）を正しく�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -378,8 +389,9 @@ Deno.test("extractOutputMessage - エラーツール結果を正しく処理す�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -420,8 +432,9 @@ Deno.test("extractOutputMessage - 短いツール結果を正しく処理する"
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -460,8 +473,9 @@ Deno.test("extractOutputMessage - TodoWrite成功メッセージをスキップ�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -500,8 +514,9 @@ Deno.test("extractOutputMessage - TodoWriteエラーメッセージは表示す�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -541,8 +556,9 @@ Deno.test("extractOutputMessage - 長いツール結果をスマート要約す�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -592,8 +608,9 @@ Deno.test("extractOutputMessage - エラー結果から重要部分を抽出す�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,
@@ -647,8 +664,9 @@ Deno.test("extractOutputMessage - 中程度の長さの結果を先頭末尾で�
   const workspaceManager = new WorkspaceManager(tempDir);
   await workspaceManager.initialize();
 
+  const state = createTestWorkerState("test-worker", "test-thread-1");
   const worker = new Worker(
-    "test-worker",
+    state,
     workspaceManager,
     createMockClaudeCommandExecutor(),
     undefined,

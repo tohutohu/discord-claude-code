@@ -1,7 +1,7 @@
 import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
 import { Admin } from "./admin.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { AdminState, WorkspaceManager } from "./workspace.ts";
 
 Deno.test("Admin devcontainer機能のテスト", async (t) => {
   const tempDir = await Deno.makeTempDir();
@@ -11,7 +11,11 @@ Deno.test("Admin devcontainer機能のテスト", async (t) => {
   try {
     workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
-    admin = new Admin(workspaceManager, undefined, undefined);
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+    admin = new Admin(adminState, workspaceManager, undefined, undefined);
 
     await t.step("devcontainer.jsonが存在しない場合のチェック", async () => {
       const repoDir = await Deno.makeTempDir();
