@@ -1,11 +1,11 @@
 import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
-import { ClaudeCodeRateLimitError, Worker } from "../src/worker.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
 import {
-  createMockClaudeCommandExecutor,
-  createTestWorkerState,
-} from "./test-utils.ts";
+  ClaudeCodeRateLimitError,
+  ClaudeStreamProcessor,
+  MessageFormatter,
+} from "../src/worker.ts";
+import { WorkspaceManager } from "../src/workspace.ts";
 
 Deno.test("レートリミット検出とメッセージ作成", async () => {
   const baseDir = await Deno.makeTempDir({ prefix: "test_rate_limit_" });
@@ -46,40 +46,25 @@ Deno.test("ClaudeCodeRateLimitError の作成と属性", () => {
   assertEquals(error.message, `Claude AI usage limit reached|${timestamp}`);
 });
 
-Deno.test("Worker でのレートリミット検出", () => {
-  const baseDir = "/tmp/test";
-  const workspaceManager = new WorkspaceManager(baseDir);
-  const mockExecutor = createMockClaudeCommandExecutor();
-  const state = createTestWorkerState("test-worker", "test-thread-id");
-  const worker = new Worker(
-    state,
-    workspaceManager,
-    mockExecutor,
-    undefined,
-    undefined,
-  );
-
-  // private メソッドにアクセスするため型アサーション
-  const workerAny = (worker as unknown) as {
-    isClaudeCodeRateLimit: (result: string) => boolean;
-    extractRateLimitTimestamp: (result: string) => number | null;
-  };
+Deno.test("ClaudeStreamProcessor でのレートリミット検出", () => {
+  const formatter = new MessageFormatter();
+  const processor = new ClaudeStreamProcessor(formatter);
 
   // レートリミットメッセージの検出テスト
   assertEquals(
-    workerAny.isClaudeCodeRateLimit("Claude AI usage limit reached|1749168000"),
+    processor.isClaudeCodeRateLimit("Claude AI usage limit reached|1749168000"),
     true,
   );
-  assertEquals(workerAny.isClaudeCodeRateLimit("Normal response"), false);
+  assertEquals(processor.isClaudeCodeRateLimit("Normal response"), false);
 
   // タイムスタンプ抽出テスト
   assertEquals(
-    workerAny.extractRateLimitTimestamp(
+    processor.extractRateLimitTimestamp(
       "Claude AI usage limit reached|1749168000",
     ),
     1749168000,
   );
-  assertEquals(workerAny.extractRateLimitTimestamp("Normal response"), null);
+  assertEquals(processor.extractRateLimitTimestamp("Normal response"), null);
 });
 
 Deno.test("レートリミット自動継続ボタンハンドリング", async () => {

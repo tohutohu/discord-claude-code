@@ -1,62 +1,46 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { Worker } from "../src/worker.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
-import { createTestWorkerState } from "./test-utils.ts";
+import { MessageFormatter } from "../src/worker.ts";
 
-class TestWorker extends Worker {
+class TestMessageFormatter extends MessageFormatter {
   // テスト用にgetRelativePathをpublicにする
   public testGetRelativePath(filePath: string): string {
     // @ts-ignore - private メソッドにアクセス
     return this.getRelativePath(filePath);
   }
-
-  // テスト用にworktreePathを設定できるようにする
-  public setWorktreePathForTest(path: string | null): void {
-    // @ts-ignore - private プロパティにアクセス
-    this.state.worktreePath = path;
-  }
 }
 
-Deno.test("Worker.getRelativePath - worktreePathが設定されている場合", async () => {
+Deno.test("MessageFormatter.getRelativePath - worktreePathが設定されている場合", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
-    const workspaceManager = new WorkspaceManager(tempDir);
-    const state = createTestWorkerState("test-worker", "test-thread-1");
-    const worker = new TestWorker(state, workspaceManager);
-
     // worktreePathを設定
     const worktreePath = "/Users/test/workspace/repositories/org/repo";
-    worker.setWorktreePathForTest(worktreePath);
+    const formatter = new TestMessageFormatter(worktreePath);
 
     // worktreePath内のファイル
     assertEquals(
-      worker.testGetRelativePath(`${worktreePath}/src/main.ts`),
+      formatter.testGetRelativePath(`${worktreePath}/src/main.ts`),
       "src/main.ts",
     );
 
     // worktreePath外のファイル
     assertEquals(
-      worker.testGetRelativePath("/some/other/path/file.ts"),
-      "/some/other/path/file.ts",
+      formatter.testGetRelativePath("/some/other/path/file.ts"),
+      "file.ts",
     );
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
 });
 
-Deno.test("Worker.getRelativePath - リポジトリパターンの場合", async () => {
+Deno.test("MessageFormatter.getRelativePath - リポジトリパターンの場合", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
-    const workspaceManager = new WorkspaceManager(tempDir);
-    const state = createTestWorkerState("test-worker", "test-thread-1");
-    const worker = new TestWorker(state, workspaceManager);
-
-    // worktreePathが未設定
-    worker.setWorktreePathForTest(null);
+    // worktreePathは設定しない
+    const formatter = new TestMessageFormatter();
 
     // repositories ディレクトリ内のファイル
     assertEquals(
-      worker.testGetRelativePath(
+      formatter.testGetRelativePath(
         "/work/repositories/myorg/myrepo/src/index.ts",
       ),
       "src/index.ts",
@@ -64,7 +48,9 @@ Deno.test("Worker.getRelativePath - リポジトリパターンの場合", async
 
     // 別のリポジトリ
     assertEquals(
-      worker.testGetRelativePath("/var/data/repositories/org2/repo2/README.md"),
+      formatter.testGetRelativePath(
+        "/var/data/repositories/org2/repo2/README.md",
+      ),
       "README.md",
     );
   } finally {
@@ -72,25 +58,23 @@ Deno.test("Worker.getRelativePath - リポジトリパターンの場合", async
   }
 });
 
-Deno.test("Worker.getRelativePath - threadsパターンの場合", async () => {
+Deno.test("MessageFormatter.getRelativePath - threadsパターンの場合", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
-    const workspaceManager = new WorkspaceManager(tempDir);
-    const state = createTestWorkerState("test-worker", "test-thread-1");
-    const worker = new TestWorker(state, workspaceManager);
-
-    // worktreePathが未設定
-    worker.setWorktreePathForTest(null);
+    // worktreePathは設定しない
+    const formatter = new TestMessageFormatter();
 
     // threads ディレクトリ内のworktree
     assertEquals(
-      worker.testGetRelativePath("/work/threads/thread123/worktree/src/app.ts"),
+      formatter.testGetRelativePath(
+        "/work/threads/thread123/worktree/src/app.ts",
+      ),
       "src/app.ts",
     );
 
     // 別のスレッド
     assertEquals(
-      worker.testGetRelativePath(
+      formatter.testGetRelativePath(
         "/data/threads/thread456/worktree/package.json",
       ),
       "package.json",
@@ -100,26 +84,24 @@ Deno.test("Worker.getRelativePath - threadsパターンの場合", async () => {
   }
 });
 
-Deno.test("Worker.getRelativePath - 特殊なケース", async () => {
+Deno.test("MessageFormatter.getRelativePath - 特殊なケース", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
-    const workspaceManager = new WorkspaceManager(tempDir);
-    const state = createTestWorkerState("test-worker", "test-thread-1");
-    const worker = new TestWorker(state, workspaceManager);
+    const formatter = new TestMessageFormatter();
 
     // 空文字列
-    assertEquals(worker.testGetRelativePath(""), "");
+    assertEquals(formatter.testGetRelativePath(""), "");
 
     // パターンにマッチしない通常のパス
     assertEquals(
-      worker.testGetRelativePath("/usr/local/bin/some-file"),
-      "/usr/local/bin/some-file",
+      formatter.testGetRelativePath("/usr/local/bin/some-file"),
+      "some-file",
     );
 
     // worktreePathがルートディレクトリ終端のスラッシュあり
-    worker.setWorktreePathForTest("/work/repo/");
+    const formatter2 = new TestMessageFormatter("/work/repo/");
     assertEquals(
-      worker.testGetRelativePath("/work/repo/file.ts"),
+      formatter2.testGetRelativePath("/work/repo/file.ts"),
       "file.ts",
     );
   } finally {
@@ -127,26 +109,22 @@ Deno.test("Worker.getRelativePath - 特殊なケース", async () => {
   }
 });
 
-Deno.test("Worker.getRelativePath - Discord表示時の実際の使用", async () => {
+Deno.test("MessageFormatter.getRelativePath - Discord表示時の実際の使用", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
-    const workspaceManager = new WorkspaceManager(tempDir);
-    const state = createTestWorkerState("test-worker", "test-thread-1");
-    const worker = new TestWorker(state, workspaceManager);
-
     // 実際のワークツリーパス例
     const worktreePath =
       "/Users/to-hutohu/workspace/claude-code-repos/worktrees/1234567890";
-    worker.setWorktreePathForTest(worktreePath);
+    const formatter = new TestMessageFormatter(worktreePath);
 
     // Read ツールの場合
     const filePath = `${worktreePath}/src/main.ts`;
-    assertEquals(worker.testGetRelativePath(filePath), "src/main.ts");
+    assertEquals(formatter.testGetRelativePath(filePath), "src/main.ts");
 
     // ネストしたディレクトリ
     const nestedPath = `${worktreePath}/src/components/Button/index.tsx`;
     assertEquals(
-      worker.testGetRelativePath(nestedPath),
+      formatter.testGetRelativePath(nestedPath),
       "src/components/Button/index.tsx",
     );
   } finally {
