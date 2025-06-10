@@ -461,7 +461,7 @@ Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる"
   assertEquals(retrievedConfig?.isStarted, true);
 });
 
-Deno.test("Admin - ThreadInfoにdevcontainer設定が永続化される", async () => {
+Deno.test("Admin - WorkerStateにdevcontainer設定が永続化される", async () => {
   const workspace = await createTestWorkspaceManager();
   const admin = new Admin(workspace, undefined, undefined);
   const threadId = "devcontainer-persist-test";
@@ -479,13 +479,13 @@ Deno.test("Admin - ThreadInfoにdevcontainer設定が永続化される", async 
 
   await admin.saveDevcontainerConfig(threadId, config);
 
-  // WorkspaceManagerから直接ThreadInfoを読み込んで確認
-  const threadInfo = await workspace.loadThreadInfo(threadId);
+  // WorkspaceManagerから直接WorkerStateを読み込んで確認
+  const workerState = await workspace.loadWorkerState(threadId);
 
-  assertEquals(threadInfo?.devcontainerConfig?.useDevcontainer, false);
-  assertEquals(threadInfo?.devcontainerConfig?.hasDevcontainerFile, false);
-  assertEquals(threadInfo?.devcontainerConfig?.hasAnthropicsFeature, false);
-  assertEquals(threadInfo?.devcontainerConfig?.isStarted, false);
+  assertEquals(workerState?.devcontainerConfig?.useDevcontainer, false);
+  assertEquals(workerState?.devcontainerConfig?.hasDevcontainerFile, false);
+  assertEquals(workerState?.devcontainerConfig?.hasAnthropicsFeature, false);
+  assertEquals(workerState?.devcontainerConfig?.isStarted, false);
 });
 
 Deno.test("Admin - 存在しないスレッドのdevcontainer設定取得はnullを返す", async () => {
@@ -556,10 +556,12 @@ Deno.test("Admin - アーカイブされたスレッドは復旧されない", a
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
     status: "archived" as const,
-    devcontainerConfig: null,
   };
 
   await workspace.saveThreadInfo(threadInfo);
+
+  // アクティブスレッドリストに追加
+  await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
   const admin = new Admin(workspace, undefined, undefined);
@@ -582,15 +584,12 @@ Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
     status: "active" as const,
-    devcontainerConfig: {
-      useDevcontainer: false,
-      hasDevcontainerFile: false,
-      hasAnthropicsFeature: false,
-      isStarted: false,
-    },
   };
 
   await workspace.saveThreadInfo(threadInfo);
+
+  // アクティブスレッドリストに追加
+  await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
   const admin = new Admin(workspace, undefined, undefined);
@@ -641,10 +640,12 @@ Deno.test("Admin - worktreeが存在しないスレッドは復旧時にアー�
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
     status: "active" as const,
-    devcontainerConfig: null,
   };
 
   await workspace.saveThreadInfo(threadInfo);
+
+  // アクティブスレッドリストに追加
+  await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
   const admin = new Admin(workspace, undefined, undefined);
@@ -675,15 +676,12 @@ Deno.test("Admin - worktreeが存在するスレッドは正常に復旧され�
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
     status: "active" as const,
-    devcontainerConfig: {
-      useDevcontainer: false,
-      hasDevcontainerFile: false,
-      hasAnthropicsFeature: false,
-      isStarted: false,
-    },
   };
 
   await workspace.saveThreadInfo(threadInfo);
+
+  // アクティブスレッドリストに追加
+  await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
   const admin = new Admin(workspace, undefined, undefined);
@@ -717,16 +715,38 @@ Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", asyn
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
     status: "active" as const,
+  };
+
+  await workspace.saveThreadInfo(threadInfo);
+
+  // WorkerStateを作成してdevcontainer設定を含める
+  const workerState = {
+    workerName: "test-worker",
+    threadId,
+    threadName: "Test Thread",
+    repository: {
+      fullName: "test/repo",
+      org: "test",
+      repo: "repo",
+    },
+    repositoryLocalPath: workspace.getBaseDir(),
+    worktreePath,
     devcontainerConfig: {
       useDevcontainer: true,
+      useFallbackDevcontainer: false,
       hasDevcontainerFile: true,
       hasAnthropicsFeature: true,
       containerId: "restored-container-123",
       isStarted: true,
     },
+    status: "active" as const,
+    createdAt: new Date().toISOString(),
+    lastActiveAt: new Date().toISOString(),
   };
+  await workspace.saveWorkerState(workerState);
 
-  await workspace.saveThreadInfo(threadInfo);
+  // アクティブスレッドリストに追加
+  await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
   const admin = new Admin(workspace, undefined, undefined);
@@ -767,10 +787,12 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
     createdAt: new Date().toISOString(),
     lastActiveAt: new Date().toISOString(),
     status: "active" as const,
-    devcontainerConfig: null,
   };
 
   await workspace.saveThreadInfo(threadInfo);
+
+  // アクティブスレッドリストに追加
+  await workspace.addActiveThread(threadId);
 
   // Adminを作成してアクティブスレッドを復旧
   const admin = new Admin(workspace, undefined, undefined);
@@ -785,7 +807,10 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
     assertEquals(worker.isUsingDevcontainer(), false);
   }
 
-  // devcontainer設定がnullであることを確認
+  // devcontainer設定がデフォルト値であることを確認
   const restoredConfig = await admin.getDevcontainerConfig(threadId);
-  assertEquals(restoredConfig, null);
+  assertEquals(restoredConfig?.useDevcontainer, false);
+  assertEquals(restoredConfig?.hasDevcontainerFile, false);
+  assertEquals(restoredConfig?.hasAnthropicsFeature, false);
+  assertEquals(restoredConfig?.isStarted, false);
 });

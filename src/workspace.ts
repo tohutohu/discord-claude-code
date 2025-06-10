@@ -10,6 +10,8 @@ export interface WorkspaceConfig {
   worktreesDir: string;
   patsDir: string;
   queuedMessagesDir: string;
+  adminDir: string;
+  workersDir: string;
 }
 
 export interface ThreadInfo {
@@ -20,24 +22,6 @@ export interface ThreadInfo {
   createdAt: string;
   lastActiveAt: string;
   status: "active" | "inactive" | "archived";
-  devcontainerConfig: {
-    useDevcontainer: boolean;
-    hasDevcontainerFile: boolean;
-    hasAnthropicsFeature: boolean;
-    containerId?: string;
-    isStarted: boolean;
-  } | null;
-  rateLimitTimestamp?: number;
-  autoResumeAfterRateLimit?: boolean;
-}
-
-export interface SessionLog {
-  sessionId: string;
-  threadId: string;
-  timestamp: string;
-  type: "command" | "response" | "error";
-  content: string;
-  metadata?: Record<string, unknown>;
 }
 
 export interface AuditEntry {
@@ -67,6 +51,39 @@ export interface ThreadQueue {
   messages: QueuedMessage[];
 }
 
+export interface AdminState {
+  activeThreadIds: string[];
+  lastUpdated: string;
+}
+
+export interface WorkerState {
+  workerName: string;
+  threadId: string;
+  threadName?: string;
+  repository?: {
+    fullName: string;
+    org: string;
+    repo: string;
+  };
+  repositoryLocalPath?: string;
+  worktreePath?: string | null;
+  devcontainerConfig: {
+    useDevcontainer: boolean;
+    useFallbackDevcontainer: boolean;
+    hasDevcontainerFile: boolean;
+    hasAnthropicsFeature: boolean;
+    containerId?: string;
+    isStarted: boolean;
+  };
+  sessionId?: string | null;
+  status: "active" | "inactive" | "archived";
+  rateLimitTimestamp?: number;
+  autoResumeAfterRateLimit?: boolean;
+  queuedMessages?: QueuedMessage[];
+  createdAt: string;
+  lastActiveAt: string;
+}
+
 export class WorkspaceManager {
   private config: WorkspaceConfig;
 
@@ -80,6 +97,8 @@ export class WorkspaceManager {
       worktreesDir: join(baseDir, "worktrees"),
       patsDir: join(baseDir, "pats"),
       queuedMessagesDir: join(baseDir, "queued_messages"),
+      adminDir: join(baseDir, "admin"),
+      workersDir: join(baseDir, "workers"),
     };
   }
 
@@ -91,6 +110,8 @@ export class WorkspaceManager {
     await ensureDir(this.config.worktreesDir);
     await ensureDir(this.config.patsDir);
     await ensureDir(this.config.queuedMessagesDir);
+    await ensureDir(this.config.adminDir);
+    await ensureDir(this.config.workersDir);
   }
 
   getRepositoriesDir(): string {
@@ -111,14 +132,6 @@ export class WorkspaceManager {
 
   private getThreadFilePath(threadId: string): string {
     return join(this.config.threadsDir, `${threadId}.json`);
-  }
-
-  private getSessionDirPath(threadId: string): string {
-    return join(this.config.sessionsDir, threadId);
-  }
-
-  private getSessionFilePath(threadId: string, sessionId: string): string {
-    return join(this.getSessionDirPath(threadId), `${sessionId}.json`);
   }
 
   private getRepositorySessionDirPath(repositoryFullName: string): string {
@@ -163,39 +176,6 @@ export class WorkspaceManager {
     if (threadInfo) {
       threadInfo.lastActiveAt = new Date().toISOString();
       await this.saveThreadInfo(threadInfo);
-    }
-  }
-
-  async saveSessionLog(sessionLog: SessionLog): Promise<void> {
-    const sessionDirPath = this.getSessionDirPath(sessionLog.threadId);
-    await ensureDir(sessionDirPath);
-
-    const filePath = this.getSessionFilePath(
-      sessionLog.threadId,
-      sessionLog.sessionId,
-    );
-    await Deno.writeTextFile(filePath, JSON.stringify(sessionLog, null, 2));
-  }
-
-  async loadSessionLogs(threadId: string): Promise<SessionLog[]> {
-    try {
-      const sessionDirPath = this.getSessionDirPath(threadId);
-      const sessionLogs: SessionLog[] = [];
-
-      for await (const entry of Deno.readDir(sessionDirPath)) {
-        if (entry.isFile && entry.name.endsWith(".json")) {
-          const filePath = join(sessionDirPath, entry.name);
-          const content = await Deno.readTextFile(filePath);
-          sessionLogs.push(JSON.parse(content) as SessionLog);
-        }
-      }
-
-      return sessionLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    } catch (error) {
-      if (error instanceof Deno.errors.NotFound) {
-        return [];
-      }
-      throw error;
     }
   }
 
@@ -542,6 +522,115 @@ export class WorkspaceManager {
       if (!(error instanceof Deno.errors.NotFound)) {
         throw error;
       }
+    }
+  }
+
+  // Admin State Management
+  private getAdminStateFilePath(): string {
+    return join(this.config.adminDir, "active_threads.json");
+  }
+
+  async saveAdminState(adminState: AdminState): Promise<void> {
+    const filePath = this.getAdminStateFilePath();
+    adminState.lastUpdated = new Date().toISOString();
+    await Deno.writeTextFile(filePath, JSON.stringify(adminState, null, 2));
+  }
+
+  async loadAdminState(): Promise<AdminState | null> {
+    try {
+      const filePath = this.getAdminStateFilePath();
+      const content = await Deno.readTextFile(filePath);
+      return JSON.parse(content) as AdminState;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async addActiveThread(threadId: string): Promise<void> {
+    let adminState = await this.loadAdminState();
+    if (!adminState) {
+      adminState = {
+        activeThreadIds: [],
+        lastUpdated: new Date().toISOString(),
+      };
+    }
+
+    if (!adminState.activeThreadIds.includes(threadId)) {
+      adminState.activeThreadIds.push(threadId);
+      await this.saveAdminState(adminState);
+    }
+  }
+
+  async removeActiveThread(threadId: string): Promise<void> {
+    const adminState = await this.loadAdminState();
+    if (adminState) {
+      adminState.activeThreadIds = adminState.activeThreadIds.filter(
+        (id) => id !== threadId,
+      );
+      await this.saveAdminState(adminState);
+    }
+  }
+
+  // Worker State Management
+  private getWorkerStateFilePath(threadId: string): string {
+    return join(this.config.workersDir, `${threadId}.json`);
+  }
+
+  async saveWorkerState(workerState: WorkerState): Promise<void> {
+    const filePath = this.getWorkerStateFilePath(workerState.threadId);
+    workerState.lastActiveAt = new Date().toISOString();
+    await Deno.writeTextFile(filePath, JSON.stringify(workerState, null, 2));
+  }
+
+  async loadWorkerState(threadId: string): Promise<WorkerState | null> {
+    try {
+      const filePath = this.getWorkerStateFilePath(threadId);
+      const content = await Deno.readTextFile(filePath);
+      return JSON.parse(content) as WorkerState;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async deleteWorkerState(threadId: string): Promise<void> {
+    const filePath = this.getWorkerStateFilePath(threadId);
+    try {
+      await Deno.remove(filePath);
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) {
+        throw error;
+      }
+    }
+  }
+
+  async getAllWorkerStates(): Promise<WorkerState[]> {
+    try {
+      const workerStates: WorkerState[] = [];
+
+      for await (const entry of Deno.readDir(this.config.workersDir)) {
+        if (entry.isFile && entry.name.endsWith(".json")) {
+          const threadId = entry.name.replace(".json", "");
+          const workerState = await this.loadWorkerState(threadId);
+          if (workerState) {
+            workerStates.push(workerState);
+          }
+        }
+      }
+
+      return workerStates.sort((a, b) =>
+        b.lastActiveAt.localeCompare(a.lastActiveAt)
+      );
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) {
+        return [];
+      }
+      throw error;
     }
   }
 }
