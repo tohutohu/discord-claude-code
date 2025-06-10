@@ -90,12 +90,12 @@ export interface WorkerState {
 }
 
 export class WorkspaceManager {
-  private config: WorkspaceConfig;
-  private threadManager: ThreadManager;
-  private sessionManager: SessionManager;
-  private auditLogger: AuditLogger;
-  private patManager: PatManager;
-  private queueManager: QueueManager;
+  private readonly config: WorkspaceConfig;
+  private readonly threadManager: ThreadManager;
+  private readonly sessionManager: SessionManager;
+  private readonly auditLogger: AuditLogger;
+  private readonly patManager: PatManager;
+  private readonly queueManager: QueueManager;
 
   constructor(baseDir: string) {
     this.config = {
@@ -237,15 +237,20 @@ export class WorkspaceManager {
     await this.patManager.saveRepositoryPat(patInfo);
 
     // 監査ログに記録
-    await this.appendAuditLog({
-      timestamp: new Date().toISOString(),
-      threadId: "system",
-      action: "save_repository_pat",
-      details: {
-        repository: patInfo.repositoryFullName,
-        description: patInfo.description,
-      },
-    });
+    try {
+      await this.appendAuditLog({
+        timestamp: new Date().toISOString(),
+        threadId: "system",
+        action: "save_repository_pat",
+        details: {
+          repository: patInfo.repositoryFullName,
+          description: patInfo.description,
+        },
+      });
+    } catch (error) {
+      console.error("監査ログの記録に失敗しました:", error);
+      // 監査ログの失敗は主要操作に影響を与えないようにする
+    }
   }
 
   async loadRepositoryPat(
@@ -258,14 +263,19 @@ export class WorkspaceManager {
     await this.patManager.deleteRepositoryPat(repositoryFullName);
 
     // 監査ログに記録
-    await this.appendAuditLog({
-      timestamp: new Date().toISOString(),
-      threadId: "system",
-      action: "delete_repository_pat",
-      details: {
-        repository: repositoryFullName,
-      },
-    });
+    try {
+      await this.appendAuditLog({
+        timestamp: new Date().toISOString(),
+        threadId: "system",
+        action: "delete_repository_pat",
+        details: {
+          repository: repositoryFullName,
+        },
+      });
+    } catch (error) {
+      console.error("監査ログの記録に失敗しました:", error);
+      // 監査ログの失敗は主要操作に影響を与えないようにする
+    }
   }
 
   async listRepositoryPats(): Promise<RepositoryPatInfo[]> {
@@ -289,15 +299,20 @@ export class WorkspaceManager {
     await this.queueManager.addMessageToQueue(threadId, message);
 
     // 監査ログに記録
-    await this.appendAuditLog({
-      timestamp: new Date().toISOString(),
-      threadId,
-      action: "message_queued",
-      details: {
-        messageId: message.messageId,
-        authorId: message.authorId,
-      },
-    });
+    try {
+      await this.appendAuditLog({
+        timestamp: new Date().toISOString(),
+        threadId,
+        action: "message_queued",
+        details: {
+          messageId: message.messageId,
+          authorId: message.authorId,
+        },
+      });
+    } catch (error) {
+      console.error("監査ログの記録に失敗しました:", error);
+      // 監査ログの失敗は主要操作に影響を与えないようにする
+    }
   }
 
   async getAndClearMessageQueue(threadId: string): Promise<QueuedMessage[]> {
@@ -305,14 +320,19 @@ export class WorkspaceManager {
 
     // 監査ログに記録
     if (messages.length > 0) {
-      await this.appendAuditLog({
-        timestamp: new Date().toISOString(),
-        threadId,
-        action: "message_queue_cleared",
-        details: {
-          messageCount: messages.length,
-        },
-      });
+      try {
+        await this.appendAuditLog({
+          timestamp: new Date().toISOString(),
+          threadId,
+          action: "message_queue_cleared",
+          details: {
+            messageCount: messages.length,
+          },
+        });
+      } catch (error) {
+        console.error("監査ログの記録に失敗しました:", error);
+        // 監査ログの失敗は主要操作に影響を与えないようにする
+      }
     }
 
     return messages;

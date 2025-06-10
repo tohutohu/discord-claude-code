@@ -63,7 +63,7 @@ export class SessionManager {
     if (existingFilePath) {
       // 既存ファイルに追記
       filePath = existingFilePath;
-      await Deno.writeTextFile(filePath, "\n" + rawJsonlContent, {
+      await Deno.writeTextFile(filePath, `\n${rawJsonlContent}`, {
         append: true,
       });
     } else {

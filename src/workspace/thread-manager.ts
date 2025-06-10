@@ -1,6 +1,7 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import type { ThreadInfo } from "../workspace.ts";
+import { createWorktreeCopy, isWorktreeCopyExists } from "../git-utils.ts";
 
 export class ThreadManager {
   private readonly threadsDir: string;
@@ -79,10 +80,6 @@ export class ThreadManager {
     threadId: string,
     repositoryPath: string,
   ): Promise<string> {
-    const { createWorktreeCopy, isWorktreeCopyExists } = await import(
-      "../git-utils.ts"
-    );
-
     const worktreePath = this.getWorktreePath(threadId);
     const exists = await isWorktreeCopyExists(worktreePath);
     if (exists) {

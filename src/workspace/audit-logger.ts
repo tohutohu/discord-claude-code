@@ -23,7 +23,7 @@ export class AuditLogger {
     await ensureDir(auditDateDir);
 
     const filePath = this.getAuditFilePath(date);
-    const logLine = JSON.stringify(auditEntry) + "\n";
+    const logLine = `${JSON.stringify(auditEntry)}\n`;
 
     try {
       await Deno.writeTextFile(filePath, logLine, { append: true });
