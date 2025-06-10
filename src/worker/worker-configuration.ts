@@ -7,7 +7,7 @@ export class WorkerConfiguration {
   private translatorUrl?: string;
 
   constructor(
-    verbose: boolean = false,
+    verbose = false,
     appendSystemPrompt?: string,
     translatorUrl?: string,
   ) {
@@ -70,7 +70,7 @@ export class WorkerConfiguration {
 
     // append-system-promptが設定されている場合
     if (this.appendSystemPrompt) {
-      args.push("--append-system-prompt", this.appendSystemPrompt);
+      args.push(`--append-system-prompt=${this.appendSystemPrompt}`);
     }
 
     return args;

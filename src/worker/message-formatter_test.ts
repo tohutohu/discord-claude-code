@@ -62,6 +62,39 @@ Deno.test("MessageFormatter - formatToolUse - TodoWriteツール", () => {
   );
 });
 
+Deno.test("MessageFormatter - formatToolUse - MultiEdit", () => {
+  const formatter = new MessageFormatter();
+  const item = {
+    type: "tool_use",
+    name: "MultiEdit",
+    input: {
+      file_path: "/path/to/file.ts",
+      edits: [
+        { old_string: "old1", new_string: "new1" },
+        { old_string: "old2", new_string: "new2" },
+      ],
+    },
+  };
+  const result = formatter.formatToolUse(item);
+  assertEquals(result, "🔧 **MultiEdit**: ファイル一括編集: file.ts");
+});
+
+Deno.test("MessageFormatter - formatToolUse - MultiEdit with repository path", () => {
+  const formatter = new MessageFormatter();
+  const item = {
+    type: "tool_use",
+    name: "MultiEdit",
+    input: {
+      file_path: "/work/repositories/org/repo/src/file.ts",
+      edits: [
+        { old_string: "old1", new_string: "new1" },
+      ],
+    },
+  };
+  const result = formatter.formatToolUse(item);
+  assertEquals(result, "🔧 **MultiEdit**: ファイル一括編集: src/file.ts");
+});
+
 Deno.test("MessageFormatter - formatToolResult - 短い結果", () => {
   const formatter = new MessageFormatter();
   const content = "実行成功しました";

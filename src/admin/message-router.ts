@@ -1,6 +1,7 @@
 import { ClaudeCodeRateLimitError } from "../worker.ts";
-import { AuditEntry, WorkspaceManager } from "../workspace.ts";
-import { DiscordMessage } from "./types.ts";
+import { WorkspaceManager } from "../workspace.ts";
+import type { AuditEntry } from "../workspace.ts";
+import type { DiscordMessage } from "./types.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
 import { WorkerManager } from "./worker-manager.ts";
 
@@ -14,7 +15,7 @@ export class MessageRouter {
     workerManager: WorkerManager,
     rateLimitManager: RateLimitManager,
     workspaceManager: WorkspaceManager,
-    verbose: boolean = false,
+    verbose = false,
   ) {
     this.workerManager = workerManager;
     this.rateLimitManager = rateLimitManager;
@@ -62,7 +63,7 @@ export class MessageRouter {
       );
       console.log(`  スレッドID: ${threadId}`);
       console.log(`  メッセージ長: ${message.length}文字`);
-      console.log(`  メッセージ内容:`);
+      console.log("  メッセージ内容:");
       console.log(
         `    ${message.split("\n").map((line) => `    ${line}`).join("\n")}`,
       );

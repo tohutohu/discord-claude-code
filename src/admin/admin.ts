@@ -1,6 +1,8 @@
-import { IWorker, Worker } from "../worker.ts";
-import { AdminState, AuditEntry, WorkspaceManager } from "../workspace.ts";
-import { DiscordMessage, IAdmin } from "./types.ts";
+import type { IWorker } from "../worker.ts";
+import { Worker } from "../worker.ts";
+import { WorkspaceManager } from "../workspace.ts";
+import type { AdminState, AuditEntry } from "../workspace.ts";
+import type { DiscordMessage, IAdmin } from "./types.ts";
 import { WorkerManager } from "./worker-manager.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
 import { DevcontainerManager } from "./devcontainer-manager.ts";
@@ -19,7 +21,7 @@ export class Admin implements IAdmin {
   constructor(
     state: AdminState,
     workspaceManager: WorkspaceManager,
-    verbose: boolean = false,
+    verbose = false,
     appendSystemPrompt?: string,
     translatorUrl?: string,
   ) {

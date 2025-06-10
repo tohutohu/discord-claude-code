@@ -61,8 +61,17 @@ Deno.test("WorkerConfiguration - buildClaudeArgs - 追加システムプロン�
   const config = new WorkerConfiguration(false, "追加プロンプト");
   const args = config.buildClaudeArgs("テストプロンプト");
 
-  assertEquals(args.includes("--append-system-prompt"), true);
-  assertEquals(args.includes("追加プロンプト"), true);
+  assertEquals(args.includes("--append-system-prompt=追加プロンプト"), true);
+});
+
+Deno.test("WorkerConfiguration - buildClaudeArgs - 空白を含む追加システムプロンプト", () => {
+  const config = new WorkerConfiguration(false, "追加の システム プロンプト");
+  const args = config.buildClaudeArgs("テストプロンプト");
+
+  assertEquals(
+    args.includes("--append-system-prompt=追加の システム プロンプト"),
+    true,
+  );
 });
 
 Deno.test("WorkerConfiguration - logVerbose - verboseモードでログ出力", () => {

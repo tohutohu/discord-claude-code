@@ -12,7 +12,7 @@ export interface ClaudeCommandExecutor {
 export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
   private readonly verbose: boolean;
 
-  constructor(verbose: boolean = false) {
+  constructor(verbose = false) {
     this.verbose = verbose;
   }
 
@@ -74,7 +74,7 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 
   constructor(
     repositoryPath: string,
-    verbose: boolean = false,
+    verbose = false,
     ghToken?: string,
   ) {
     this.repositoryPath = repositoryPath;

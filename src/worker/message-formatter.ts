@@ -28,8 +28,9 @@ export class MessageFormatter {
       ? truncated.substring(0, lastNewline)
       : truncated;
 
-    return this.stripAnsiCodes(finalResponse) +
-      "\n\n*（応答が長いため、一部のみ表示しています）*";
+    return `${
+      this.stripAnsiCodes(finalResponse)
+    }\n\n*（応答が長いため、一部のみ表示しています）*`;
   }
 
   /**
@@ -38,6 +39,7 @@ export class MessageFormatter {
   private stripAnsiCodes(text: string): string {
     // ANSIエスケープシーケンスを除去する正規表現
     // \x1b (ESC) は制御文字ですが、ANSIエスケープシーケンスの開始を示すため必要です
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSIエスケープシーケンスの処理に必要
     // deno-lint-ignore no-control-regex
     return text.replace(/\x1b\[[0-9;]*[mGKHF]/g, "");
   }

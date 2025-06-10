@@ -1,6 +1,7 @@
-import { IWorker, Worker } from "../worker.ts";
+import { type IWorker, Worker } from "../worker.ts";
 import { generateWorkerName } from "../worker-name-generator.ts";
-import { ThreadInfo, WorkerState, WorkspaceManager } from "../workspace.ts";
+import type { ThreadInfo, WorkerState } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace.ts";
 import { parseRepository } from "../git-utils.ts";
 
 export class WorkerManager {
@@ -12,7 +13,7 @@ export class WorkerManager {
 
   constructor(
     workspaceManager: WorkspaceManager,
-    verbose: boolean = false,
+    verbose = false,
     appendSystemPrompt?: string,
     translatorUrl?: string,
   ) {

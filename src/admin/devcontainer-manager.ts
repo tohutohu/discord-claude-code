@@ -3,9 +3,10 @@ import {
   checkDevcontainerConfig,
   startFallbackDevcontainer,
 } from "../devcontainer.ts";
-import { Worker } from "../worker.ts";
-import { AuditEntry, WorkspaceManager } from "../workspace.ts";
-import { DiscordActionRow } from "./types.ts";
+import type { Worker } from "../worker.ts";
+import type { AuditEntry } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace.ts";
+import type { DiscordActionRow } from "./types.ts";
 
 export class DevcontainerManager {
   private workspaceManager: WorkspaceManager;
@@ -13,7 +14,7 @@ export class DevcontainerManager {
 
   constructor(
     workspaceManager: WorkspaceManager,
-    verbose: boolean = false,
+    verbose = false,
   ) {
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
@@ -270,21 +271,20 @@ export class DevcontainerManager {
         message:
           "devcontainerが正常に起動しました。Claude実行環境が準備完了です。",
       };
-    } else {
-      await this.logAuditEntry(threadId, "devcontainer_start_failed", {
-        error: result.error,
-      });
-
-      this.logVerbose("devcontainer起動失敗、監査ログ記録完了", {
-        threadId,
-        error: result.error,
-      });
-
-      return {
-        success: false,
-        message: `devcontainerの起動に失敗しました: ${result.error}`,
-      };
     }
+    await this.logAuditEntry(threadId, "devcontainer_start_failed", {
+      error: result.error,
+    });
+
+    this.logVerbose("devcontainer起動失敗、監査ログ記録完了", {
+      threadId,
+      error: result.error,
+    });
+
+    return {
+      success: false,
+      message: `devcontainerの起動に失敗しました: ${result.error}`,
+    };
   }
 
   /**
@@ -343,21 +343,20 @@ export class DevcontainerManager {
         message:
           "fallback devcontainerが正常に起動しました。Claude実行環境が準備完了です。",
       };
-    } else {
-      await this.logAuditEntry(threadId, "fallback_devcontainer_start_failed", {
-        error: result.error,
-      });
-
-      this.logVerbose("fallback devcontainer起動失敗、監査ログ記録完了", {
-        threadId,
-        error: result.error,
-      });
-
-      return {
-        success: false,
-        message: `fallback devcontainerの起動に失敗しました: ${result.error}`,
-      };
     }
+    await this.logAuditEntry(threadId, "fallback_devcontainer_start_failed", {
+      error: result.error,
+    });
+
+    this.logVerbose("fallback devcontainer起動失敗、監査ログ記録完了", {
+      threadId,
+      error: result.error,
+    });
+
+    return {
+      success: false,
+      message: `fallback devcontainerの起動に失敗しました: ${result.error}`,
+    };
   }
 
   /**
@@ -404,7 +403,7 @@ export class DevcontainerManager {
     };
     await this.saveDevcontainerConfig(threadId, config);
 
-    return `通常のローカル環境でClaude実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`;
+    return "通常のローカル環境でClaude実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。";
   }
 
   /**
@@ -425,7 +424,7 @@ export class DevcontainerManager {
     };
     await this.saveDevcontainerConfig(threadId, config);
 
-    return `通常のローカル環境でClaudeを実行します。\n\n\`--dangerously-skip-permissions\`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）`;
+    return "通常のローカル環境でClaudeを実行します。";
   }
 
   /**

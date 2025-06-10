@@ -327,9 +327,15 @@ export class Worker implements IWorker {
       }
     };
 
+    if (!this.state.worktreePath) {
+      throw new Error(
+        "worktreePathが設定されていません。リポジトリ設定を確認してください。",
+      );
+    }
+
     const { code, stderr } = await this.claudeExecutor.executeStreaming(
       args,
-      this.state.worktreePath!,
+      this.state.worktreePath,
       onData,
     );
 

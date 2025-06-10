@@ -108,10 +108,7 @@ Deno.test("DevcontainerManager - anthropics featuresがない場合の警告", a
 
       assertEquals(result.hasDevcontainer, true);
       // devcontainer CLIがインストールされていない環境では警告メッセージが異なる
-      if (
-        result.warning &&
-        result.warning.includes("anthropics/devcontainer-features")
-      ) {
+      if (result.warning?.includes("anthropics/devcontainer-features")) {
         assertStringIncludes(
           result.warning,
           "anthropics/devcontainer-features",

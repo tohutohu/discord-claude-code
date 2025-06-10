@@ -1,12 +1,9 @@
-import {
-  AuditEntry,
-  QueuedMessage,
-  WorkerState,
-  WorkspaceManager,
-} from "../workspace.ts";
+import type { AuditEntry, QueuedMessage, WorkerState } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace.ts";
 
 export class RateLimitManager {
-  private autoResumeTimers: Map<string, number> = new Map();
+  private autoResumeTimers: Map<string, ReturnType<typeof setTimeout>> =
+    new Map();
   private workspaceManager: WorkspaceManager;
   private verbose: boolean;
   private onAutoResumeMessage?: (
@@ -16,7 +13,7 @@ export class RateLimitManager {
 
   constructor(
     workspaceManager: WorkspaceManager,
-    verbose: boolean = false,
+    verbose = false,
   ) {
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
@@ -119,21 +116,20 @@ export class RateLimitManager {
         this.scheduleAutoResume(threadId, workerState.rateLimitTimestamp);
 
         return `自動継続が設定されました。${resumeTimeStr}頃に「続けて」というプロンプトで自動的にセッションを再開します。`;
-      } else {
-        // 手動再開を選択
-        workerState.autoResumeAfterRateLimit = false;
-        await this.workspaceManager.saveWorkerState(workerState);
-
-        await this.logAuditEntry(
-          threadId,
-          "rate_limit_manual_resume_selected",
-          {
-            timestamp: workerState.rateLimitTimestamp,
-          },
-        );
-
-        return "手動での再開が選択されました。制限解除後に手動でメッセージを送信してください。";
       }
+      // 手動再開を選択
+      workerState.autoResumeAfterRateLimit = false;
+      await this.workspaceManager.saveWorkerState(workerState);
+
+      await this.logAuditEntry(
+        threadId,
+        "rate_limit_manual_resume_selected",
+        {
+          timestamp: workerState.rateLimitTimestamp,
+        },
+      );
+
+      return "手動での再開が選択されました。制限解除後に手動でメッセージを送信してください。";
     } catch (error) {
       console.error("レートリミットボタン処理でエラーが発生しました:", error);
       return "処理中にエラーが発生しました。";
