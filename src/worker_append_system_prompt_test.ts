@@ -114,19 +114,11 @@ describe("Worker --append-system-prompt オプション", () => {
         // デバッグ: 受け取った引数を確認
         console.log("Captured args:", mockExecutor.capturedArgs);
 
-        // コマンドラインに --append-system-prompt が含まれることを確認
-        const appendIndex = mockExecutor.capturedArgs.indexOf(
-          "--append-system-prompt",
+        // コマンドラインに --append-system-prompt=追加プロンプト が含まれることを確認
+        const hasAppendPrompt = mockExecutor.capturedArgs.some(
+          (arg) => arg === `--append-system-prompt=${appendPrompt}`,
         );
-        assertEquals(appendIndex !== -1, true);
-
-        // 次の引数が追加プロンプトであることを確認
-        if (appendIndex !== -1) {
-          assertEquals(
-            mockExecutor.capturedArgs[appendIndex + 1],
-            appendPrompt,
-          );
-        }
+        assertEquals(hasAppendPrompt, true);
       } finally {
         await Deno.remove(repoPath, { recursive: true });
       }

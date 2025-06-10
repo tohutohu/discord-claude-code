@@ -1,6 +1,7 @@
 import {
   assertEquals,
   assertExists,
+  assertNotEquals,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
 import {
@@ -346,44 +347,77 @@ Deno.test("Admin - verboseモードが正しく設定される", async () => {
   assertEquals(typeof adminVerbose.getWorker, "function");
 });
 
-Deno.test("Admin - verboseモードでログが出力される", async () => {
-  const workspace = await createTestWorkspaceManager();
+Deno.test(
+  "Admin - verboseモードでログが出力される（新構造対応必要）",
+  async () => {
+    const workspace = await createTestWorkspaceManager();
 
-  // コンソールログをキャプチャするためのモック
-  const originalConsoleLog = console.log;
-  const logMessages: string[] = [];
-  console.log = (...args: unknown[]) => {
-    logMessages.push(args.join(" "));
-  };
-
-  try {
-    // verboseモード有効でAdminを作成
-    const adminState = {
-      activeThreadIds: [],
-      lastUpdated: new Date().toISOString(),
+    // コンソールログをキャプチャするためのモック
+    const originalConsoleLog = console.log;
+    const logMessages: string[] = [];
+    console.log = (...args: unknown[]) => {
+      logMessages.push(args.join(" "));
     };
-    const admin = new Admin(adminState, workspace, true, undefined);
-    const threadId = "verbose-test-thread";
 
-    // Worker作成（ログが出力される）
-    await admin.createWorker(threadId);
+    try {
+      // verboseモード有効でAdminを作成
+      const adminState = {
+        activeThreadIds: [],
+        lastUpdated: new Date().toISOString(),
+      };
+      const admin = new Admin(adminState, workspace, true, undefined);
+      const threadId = "verbose-test-thread";
 
-    // verboseログが出力されていることを確認
-    const verboseLogs = logMessages.filter((log) =>
-      log.includes("[Admin]") &&
-      (log.includes("Admin初期化完了") || log.includes("Worker作成要求"))
-    );
+      // Worker作成（ログが出力される）
+      await admin.createWorker(threadId);
 
-    assertEquals(
-      verboseLogs.length >= 2,
-      true,
-      `期待される数のverboseログが出力されていません。実際のログ: ${verboseLogs.length}`,
-    );
-  } finally {
-    // コンソールログを元に戻す
-    console.log = originalConsoleLog;
-  }
-});
+      // verboseログが出力されていることを確認
+      // Admin初期化ログ
+      const adminInitLog = logMessages.find((log) =>
+        log.includes("[Admin]") && log.includes("Admin初期化完了")
+      );
+      assertNotEquals(
+        adminInitLog,
+        undefined,
+        "Admin初期化完了ログが見つかりません",
+      );
+
+      // WorkerManager によるWorker作成ログ
+      const workerCreateLog = logMessages.find((log) =>
+        log.includes("[WorkerManager]") && log.includes("Worker作成要求")
+      );
+      assertNotEquals(
+        workerCreateLog,
+        undefined,
+        "WorkerManagerのWorker作成要求ログが見つかりません",
+      );
+
+      // Adminのアクティブスレッドリスト追加ログ
+      const activeThreadLog = logMessages.find((log) =>
+        log.includes("[Admin]") &&
+        log.includes("アクティブスレッドリストに追加完了")
+      );
+      assertNotEquals(
+        activeThreadLog,
+        undefined,
+        "Adminのアクティブスレッドリスト追加ログが見つかりません",
+      );
+
+      // 複数のverboseログが出力されていることを確認
+      const totalVerboseLogs = logMessages.filter((log) =>
+        log.includes("[Admin]") || log.includes("[WorkerManager]")
+      );
+      assertEquals(
+        totalVerboseLogs.length >= 3,
+        true,
+        `期待される数のverboseログが出力されていません。実際のログ: ${totalVerboseLogs.length}`,
+      );
+    } finally {
+      // コンソールログを元に戻す
+      console.log = originalConsoleLog;
+    }
+  },
+);
 
 Deno.test("Admin - verboseモード無効時はログが出力されない", async () => {
   const workspace = await createTestWorkspaceManager();
@@ -421,52 +455,79 @@ Deno.test("Admin - verboseモード無効時はログが出力されない", asy
   }
 });
 
-Deno.test("Admin - verboseモードでのメッセージルーティングログ", async () => {
-  const workspace = await createTestWorkspaceManager();
+Deno.test(
+  "Admin - verboseモードでのメッセージルーティングログ（新構造対応必要）",
+  async () => {
+    const workspace = await createTestWorkspaceManager();
 
-  // コンソールログをキャプチャするためのモック
-  const originalConsoleLog = console.log;
-  const logMessages: string[] = [];
-  console.log = (...args: unknown[]) => {
-    logMessages.push(args.join(" "));
-  };
-
-  try {
-    // verboseモード有効でAdminを作成
-    const adminState = {
-      activeThreadIds: [],
-      lastUpdated: new Date().toISOString(),
+    // コンソールログをキャプチャするためのモック
+    const originalConsoleLog = console.log;
+    const logMessages: string[] = [];
+    console.log = (...args: unknown[]) => {
+      logMessages.push(args.join(" "));
     };
-    const admin = new Admin(adminState, workspace, true, undefined);
-    const threadId = "routing-test-thread";
 
-    // Worker作成
-    await admin.createWorker(threadId);
-
-    // 存在しないスレッドへのメッセージをテスト
     try {
-      await admin.routeMessage("non-existent-thread", "test message");
-    } catch (error) {
-      // エラーが期待される
+      // verboseモード有効でAdminを作成
+      const adminState = {
+        activeThreadIds: [],
+        lastUpdated: new Date().toISOString(),
+      };
+      const admin = new Admin(adminState, workspace, true, undefined);
+      const threadId = "routing-test-thread";
+
+      // Worker作成
+      await admin.createWorker(threadId);
+
+      // 存在しないスレッドへのメッセージをテスト
+      try {
+        await admin.routeMessage("non-existent-thread", "test message");
+      } catch (error) {
+        // エラーが期待される
+      }
+
+      // verboseログが出力されていることを確認
+      // MessageRouterのルーティング開始ログ
+      const routingStartLog = logMessages.find((log) =>
+        log.includes("[MessageRouter]") &&
+        log.includes("メッセージルーティング開始")
+      );
+      assertNotEquals(
+        routingStartLog,
+        undefined,
+        "MessageRouterのメッセージルーティング開始ログが見つかりません",
+      );
+
+      // MessageRouterのWorker見つからずログ
+      const workerNotFoundLog = logMessages.find((log) =>
+        log.includes("[MessageRouter]") && log.includes("Worker見つからず")
+      );
+      assertNotEquals(
+        workerNotFoundLog,
+        undefined,
+        "MessageRouterのWorker見つからずログが見つかりません",
+      );
+
+      // 正常なスレッドへのメッセージをテスト
+      logMessages.length = 0; // ログをクリア
+      const response = await admin.routeMessage(threadId, "test message");
+      assertNotEquals(response, undefined);
+
+      // 正常ルーティングのログ確認
+      const normalRoutingLog = logMessages.find((log) =>
+        log.includes("[MessageRouter]") && log.includes("Worker発見、処理開始")
+      );
+      assertNotEquals(
+        normalRoutingLog,
+        undefined,
+        "MessageRouterのWorker発見ログが見つかりません",
+      );
+    } finally {
+      // コンソールログを元に戻す
+      console.log = originalConsoleLog;
     }
-
-    // verboseログが出力されていることを確認
-    const routingLogs = logMessages.filter((log) =>
-      log.includes("[Admin]") &&
-      (log.includes("メッセージルーティング開始") ||
-        log.includes("Worker見つからず"))
-    );
-
-    assertEquals(
-      routingLogs.length >= 1,
-      true,
-      `メッセージルーティングのverboseログが出力されていません。`,
-    );
-  } finally {
-    // コンソールログを元に戻す
-    console.log = originalConsoleLog;
-  }
-});
+  },
+);
 
 Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる", async () => {
   const workspace = await createTestWorkspaceManager();

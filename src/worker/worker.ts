@@ -1,0 +1,785 @@
+import { GitRepository } from "../git-utils.ts";
+import { WorkerState, WorkspaceManager } from "../workspace.ts";
+import { PLaMoTranslator } from "../plamo-translator.ts";
+import { MessageFormatter } from "./message-formatter.ts";
+import {
+  ClaudeCodeRateLimitError,
+  ClaudeStreamProcessor,
+} from "./claude-stream-processor.ts";
+import { WorkerConfiguration } from "./worker-configuration.ts";
+import { SessionLogger } from "./session-logger.ts";
+import {
+  ClaudeCommandExecutor,
+  DefaultClaudeCommandExecutor,
+  DevcontainerClaudeExecutor,
+} from "./claude-executor.ts";
+
+export interface IWorker {
+  processMessage(
+    message: string,
+    onProgress?: (content: string) => Promise<void>,
+    onReaction?: (emoji: string) => Promise<void>,
+  ): Promise<string>;
+  getName(): string;
+  getRepository(): GitRepository | null;
+  setRepository(repository: GitRepository, localPath: string): Promise<void>;
+  setThreadId(threadId: string): void;
+  isUsingDevcontainer(): boolean;
+  save(): Promise<void>;
+}
+
+export class Worker implements IWorker {
+  private state: WorkerState;
+  private claudeExecutor: ClaudeCommandExecutor;
+  private readonly workspaceManager: WorkspaceManager;
+  private readonly configuration: WorkerConfiguration;
+  private readonly sessionLogger: SessionLogger;
+  private formatter: MessageFormatter;
+  private translator: PLaMoTranslator | null = null;
+
+  constructor(
+    state: WorkerState,
+    workspaceManager: WorkspaceManager,
+    claudeExecutor?: ClaudeCommandExecutor,
+    verbose?: boolean,
+    appendSystemPrompt?: string,
+    translatorUrl?: string,
+  ) {
+    this.state = state;
+    this.workspaceManager = workspaceManager;
+    this.configuration = new WorkerConfiguration(
+      verbose || false,
+      appendSystemPrompt,
+      translatorUrl,
+    );
+    this.sessionLogger = new SessionLogger(workspaceManager);
+    this.formatter = new MessageFormatter(state.worktreePath || undefined);
+    this.claudeExecutor = claudeExecutor ||
+      new DefaultClaudeCommandExecutor(this.configuration.isVerbose());
+
+    // 翻訳URLが設定されている場合は翻訳機能を初期化
+    if (translatorUrl) {
+      this.translator = new PLaMoTranslator(translatorUrl);
+      this.logVerbose("翻訳機能を初期化", { translatorUrl });
+    }
+  }
+
+  async processMessage(
+    message: string,
+    onProgress: (content: string) => Promise<void> = async () => {},
+    onReaction?: (emoji: string) => Promise<void>,
+  ): Promise<string> {
+    this.logVerbose("メッセージ処理開始", {
+      messageLength: message.length,
+      hasRepository: !!this.state.repository,
+      hasWorktreePath: !!this.state.worktreePath,
+      threadId: this.state.threadId,
+      sessionId: this.state.sessionId,
+      hasReactionCallback: !!onReaction,
+    });
+
+    // VERBOSEモードでユーザーメッセージの詳細ログ
+    if (this.configuration.isVerbose()) {
+      console.log(
+        `[${
+          new Date().toISOString()
+        }] [Worker:${this.state.workerName}] ユーザーメッセージ処理詳細:`,
+      );
+      console.log(`  メッセージ: "${message}"`);
+      console.log(`  リポジトリ: ${this.state.repository?.fullName || "なし"}`);
+      console.log(`  worktreePath: ${this.state.worktreePath || "なし"}`);
+      console.log(`  セッションID: ${this.state.sessionId || "なし"}`);
+    }
+
+    if (!this.state.repository || !this.state.worktreePath) {
+      this.logVerbose("リポジトリまたはworktreeパスが未設定");
+      return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+    }
+
+    // devcontainerの選択が完了していない場合は設定を促すメッセージを返す
+    if (!this.isConfigurationComplete()) {
+      this.logVerbose("Claude Code設定が未完了", {
+        devcontainerChoiceMade: this.isConfigurationComplete(),
+        useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+      });
+
+      let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
+      message += "**実行環境を選択してください:**\n";
+      message +=
+        "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
+      message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
+      message += "設定が完了すると、Claude Codeを実行できるようになります。";
+
+      return message;
+    }
+
+    try {
+      // 翻訳処理（設定されている場合のみ）
+      let translatedMessage = message;
+      if (this.translator) {
+        try {
+          this.logVerbose("メッセージの翻訳を開始");
+          translatedMessage = await this.translator.translate(message);
+          this.logVerbose("メッセージの翻訳完了", {
+            originalLength: message.length,
+            translatedLength: translatedMessage.length,
+          });
+
+          // VERBOSEモードで翻訳結果を表示
+          if (this.configuration.isVerbose() && message !== translatedMessage) {
+            console.log(
+              `[${
+                new Date().toISOString()
+              }] [Worker:${this.state.workerName}] 翻訳結果:`,
+            );
+            console.log(`  元のメッセージ: "${message}"`);
+            console.log(`  翻訳後: "${translatedMessage}"`);
+          }
+        } catch (error) {
+          this.logVerbose("翻訳エラー（元のメッセージを使用）", {
+            error: (error as Error).message,
+          });
+          // 翻訳に失敗した場合は元のメッセージを使用
+          translatedMessage = message;
+        }
+      }
+
+      // 処理開始の通知
+      this.logVerbose("進捗通知開始");
+      await onProgress("🤖 Claudeが考えています...");
+
+      // Claude実行開始前のリアクションを追加
+      if (onReaction) {
+        try {
+          await onReaction("⚙️");
+          this.logVerbose("Claude実行開始リアクション追加完了");
+        } catch (error) {
+          this.logVerbose("Claude実行開始リアクション追加エラー", {
+            error: (error as Error).message,
+          });
+        }
+      }
+
+      this.logVerbose("Claude実行開始");
+      const result = await this.executeClaude(translatedMessage, onProgress);
+      this.logVerbose("Claude実行完了", { resultLength: result.length });
+
+      const formattedResponse = this.formatter.formatResponse(result);
+      this.logVerbose("レスポンス整形完了", {
+        formattedLength: formattedResponse.length,
+      });
+
+      this.logVerbose("メッセージ処理完了");
+      return formattedResponse;
+    } catch (error) {
+      if (error instanceof ClaudeCodeRateLimitError) {
+        throw error; // レートリミットエラーはそのまま投げる
+      }
+      this.logVerbose("メッセージ処理エラー", {
+        errorMessage: (error as Error).message,
+        errorStack: (error as Error).stack,
+      });
+      console.error(
+        `Worker ${this.state.workerName} - Claude実行エラー:`,
+        error,
+      );
+      const errorMessage = `エラーが発生しました: ${(error as Error).message}`;
+
+      return errorMessage;
+    }
+  }
+
+  private async executeClaude(
+    prompt: string,
+    onProgress: (content: string) => Promise<void>,
+  ): Promise<string> {
+    const args = this.configuration.buildClaudeArgs(
+      prompt,
+      this.state.sessionId,
+    );
+
+    this.logVerbose("Claudeコマンド実行", {
+      args: args,
+      cwd: this.state.worktreePath,
+      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+    });
+
+    this.logVerbose("ストリーミング実行開始");
+    return await this.executeClaudeStreaming(args, onProgress);
+  }
+
+  private async executeClaudeStreaming(
+    args: string[],
+    onProgress: (content: string) => Promise<void>,
+  ): Promise<string> {
+    this.logVerbose("ストリーミング実行詳細開始");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result = "";
+    let newSessionId: string | null = null;
+    let allOutput = "";
+    let processedLines = 0;
+
+    const streamProcessor = new ClaudeStreamProcessor(
+      this.formatter,
+    );
+
+    const processLine = (line: string) => {
+      if (!line.trim()) return;
+      processedLines++;
+
+      try {
+        const parsed = JSON.parse(line);
+        this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
+          lineNumber: processedLines,
+          hasSessionId: !!parsed.session_id,
+        });
+
+        // 最終結果を取得
+        if (parsed.type === "result") {
+          if ("result" in parsed && parsed.result) {
+            result = parsed.result;
+            this.logVerbose("最終結果取得", {
+              resultLength: result.length,
+              subtype: parsed.subtype,
+              isError: parsed.is_error,
+            });
+
+            // Claude Codeレートリミットの検出
+            if (parsed.result.includes("Claude AI usage limit reached|")) {
+              const match = parsed.result.match(
+                /Claude AI usage limit reached\|(\d+)/,
+              );
+              if (match) {
+                throw new ClaudeCodeRateLimitError(
+                  Number.parseInt(match[1], 10),
+                );
+              }
+            }
+          }
+        }
+
+        // Claude Codeの実際の出力内容をDiscordに送信
+        if (onProgress) {
+          const outputMessage = streamProcessor.extractOutputMessage(parsed);
+          if (outputMessage) {
+            onProgress(this.formatter.formatResponse(outputMessage)).catch(
+              console.error,
+            );
+          }
+        }
+
+        // セッションIDを更新
+        if (parsed.session_id) {
+          newSessionId = parsed.session_id;
+          this.logVerbose("新しいセッションID取得", {
+            sessionId: newSessionId,
+          });
+        }
+
+        // アシスタントメッセージからテキストを抽出（結果の蓄積のみ）
+        if (parsed.type === "assistant" && parsed.message?.content) {
+          for (const content of parsed.message.content) {
+            if (content.type === "text" && content.text) {
+              result += content.text;
+            }
+          }
+        }
+      } catch (parseError) {
+        if (parseError instanceof ClaudeCodeRateLimitError) {
+          throw parseError;
+        }
+        this.logVerbose(`JSON解析エラー: ${parseError}`, {
+          line: line.substring(0, 100),
+        });
+        console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
+
+        // JSONとしてパースできなかった場合は全文を投稿
+        if (onProgress && line.trim()) {
+          onProgress(this.formatter.formatResponse(line)).catch(console.error);
+        }
+      }
+    };
+
+    const onData = (data: Uint8Array) => {
+      const chunk = decoder.decode(data, { stream: true });
+      allOutput += chunk;
+      buffer += chunk;
+
+      // VERBOSEモードでstdoutを詳細ログ出力
+      if (this.configuration.isVerbose() && chunk.trim()) {
+        console.log(
+          `[${
+            new Date().toISOString()
+          }] [Worker:${this.state.workerName}] Claude stdout:`,
+        );
+        console.log(
+          `  ${chunk.split("\n").map((line) => `  ${line}`).join("\n")}`,
+        );
+      }
+
+      // 改行で分割して処理
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        processLine(line);
+      }
+    };
+
+    if (!this.state.worktreePath) {
+      throw new Error(
+        "worktreePathが設定されていません。リポジトリ設定を確認してください。",
+      );
+    }
+
+    const { code, stderr } = await this.claudeExecutor.executeStreaming(
+      args,
+      this.state.worktreePath,
+      onData,
+    );
+
+    this.logVerbose("ストリーミング実行完了", {
+      exitCode: code,
+      stderrLength: stderr.length,
+      totalOutputLength: allOutput.length,
+      processedLines,
+      hasNewSessionId: !!newSessionId,
+    });
+
+    // 最後のバッファを処理
+    if (buffer) {
+      this.logVerbose("最終バッファ処理", { bufferLength: buffer.length });
+      processLine(buffer);
+    }
+
+    if (code !== 0) {
+      const errorMessage = new TextDecoder().decode(stderr);
+
+      // VERBOSEモードでstderrを詳細ログ出力
+      if (this.configuration.isVerbose() && stderr.length > 0) {
+        console.log(
+          `[${
+            new Date().toISOString()
+          }] [Worker:${this.state.workerName}] Claude stderr:`,
+        );
+        console.log(`  終了コード: ${code}`);
+        console.log(`  エラー内容:`);
+        console.log(
+          `    ${
+            errorMessage.split("\n").map((line) => `    ${line}`).join("\n")
+          }`,
+        );
+      }
+
+      this.logVerbose("ストリーミング実行エラー", {
+        exitCode: code,
+        errorMessage,
+      });
+      throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+    }
+
+    // VERBOSEモードで成功時のstderrも出力（警告等の情報がある場合）
+    if (this.configuration.isVerbose() && stderr.length > 0) {
+      const stderrContent = new TextDecoder().decode(stderr);
+      if (stderrContent.trim()) {
+        console.log(
+          `[${
+            new Date().toISOString()
+          }] [Worker:${this.state.workerName}] Claude stderr (警告等):`,
+        );
+        console.log(
+          `  ${
+            stderrContent.split("\n").map((line) => `  ${line}`).join("\n")
+          }`,
+        );
+      }
+    }
+
+    // セッションIDを更新
+    if (newSessionId) {
+      this.state.sessionId = newSessionId;
+      this.logVerbose("セッションID更新", {
+        oldSessionId: this.state.sessionId,
+        newSessionId,
+      });
+
+      // 非同期でWorker状態を保存
+      this.save().catch((error) => {
+        console.error("Worker状態の保存に失敗しました:", error);
+      });
+    }
+
+    // 生のjsonlを保存
+    if (this.state.repository?.fullName && allOutput.trim()) {
+      this.logVerbose("生JSONLを保存", { outputLength: allOutput.length });
+      await this.sessionLogger.saveRawJsonlOutput(
+        this.state.repository.fullName,
+        this.state.sessionId || undefined,
+        allOutput,
+      );
+    }
+
+    const finalResult = result.trim() ||
+      "Claude からの応答を取得できませんでした。";
+    this.logVerbose("ストリーミング処理完了", {
+      finalResultLength: finalResult.length,
+    });
+    return finalResult;
+  }
+
+  getName(): string {
+    return this.state.workerName;
+  }
+
+  getRepository(): GitRepository | null {
+    return this.state.repository
+      ? {
+        fullName: this.state.repository.fullName,
+        org: this.state.repository.org,
+        repo: this.state.repository.repo,
+        localPath: this.state.repositoryLocalPath ||
+          this.state.repository.fullName,
+      }
+      : null;
+  }
+
+  async setRepository(
+    repository: GitRepository,
+    localPath: string,
+  ): Promise<void> {
+    this.logVerbose("リポジトリ設定開始", {
+      repositoryFullName: repository.fullName,
+      localPath,
+      hasThreadId: !!this.state.threadId,
+      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+    });
+
+    this.state.repository = {
+      fullName: repository.fullName,
+      org: repository.org,
+      repo: repository.repo,
+    };
+    this.state.repositoryLocalPath = localPath;
+
+    if (this.state.threadId) {
+      try {
+        this.logVerbose("worktree作成開始", { threadId: this.state.threadId });
+        this.state.worktreePath = await this.workspaceManager.ensureWorktree(
+          this.state.threadId,
+          localPath,
+        );
+        this.logVerbose("worktree作成完了", {
+          worktreePath: this.state.worktreePath,
+        });
+
+        // ThreadInfo更新は削除（WorkerStateで管理）
+        this.logVerbose("worktree情報をWorkerStateで管理");
+      } catch (error) {
+        this.logVerbose("worktree作成失敗、localPathを使用", {
+          error: (error as Error).message,
+          fallbackPath: localPath,
+        });
+        console.error(`worktreeの作成に失敗しました: ${error}`);
+        this.state.worktreePath = localPath;
+      }
+    } else {
+      this.logVerbose("threadIdなし、localPathを直接使用");
+      this.state.worktreePath = localPath;
+    }
+
+    // devcontainerが有効な場合はDevcontainerClaudeExecutorに切り替え
+    if (
+      this.state.devcontainerConfig.useDevcontainer && this.state.worktreePath
+    ) {
+      // リポジトリのPATを取得
+      let ghToken: string | undefined;
+      if (repository.fullName) {
+        const patInfo = await this.workspaceManager.loadRepositoryPat(
+          repository.fullName,
+        );
+        if (patInfo) {
+          ghToken = patInfo.token;
+          this.logVerbose("GitHub PAT取得（setRepository）", {
+            repository: repository.fullName,
+            hasToken: true,
+          });
+        }
+      }
+
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え");
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.state.worktreePath,
+        this.configuration.isVerbose(),
+        ghToken,
+      );
+    }
+
+    // MessageFormatterのworktreePathを更新
+    this.formatter = new MessageFormatter(this.state.worktreePath || undefined);
+
+    this.state.sessionId = null;
+    this.logVerbose("リポジトリ設定完了", {
+      finalWorktreePath: this.state.worktreePath,
+      executorType: this.state.devcontainerConfig.useDevcontainer
+        ? "DevcontainerClaudeExecutor"
+        : "DefaultClaudeCommandExecutor",
+    });
+
+    // Worker状態を保存
+    await this.save();
+  }
+
+  setThreadId(threadId: string): void {
+    this.state.threadId = threadId;
+    // 非同期でWorker状態を保存
+    this.saveAsync();
+  }
+
+  /**
+   * 非同期で状態を保存し、エラーをログに記録する
+   */
+  private saveAsync(): void {
+    this.save().catch((error) => {
+      this.logVerbose("Worker状態の保存に失敗", {
+        error: (error as Error).message,
+        threadId: this.state.threadId,
+      });
+      console.error("Worker状態の保存に失敗しました:", error);
+    });
+  }
+
+  /**
+   * devcontainerの使用を設定する
+   */
+  setUseDevcontainer(useDevcontainer: boolean): void {
+    this.state.devcontainerConfig.useDevcontainer = useDevcontainer;
+
+    // devcontainerが有効で、worktreePathが設定されている場合はExecutorを切り替え
+    if (useDevcontainer && this.state.worktreePath) {
+      this.logVerbose("DevcontainerClaudeExecutorに切り替え（設定変更時）");
+      this.claudeExecutor = new DevcontainerClaudeExecutor(
+        this.state.worktreePath,
+        this.configuration.isVerbose(),
+      );
+    } else if (!useDevcontainer && this.state.worktreePath) {
+      // devcontainerを無効にした場合はDefaultに戻す
+      this.logVerbose("DefaultClaudeCommandExecutorに切り替え（設定変更時）");
+      this.claudeExecutor = new DefaultClaudeCommandExecutor(
+        this.configuration.isVerbose(),
+      );
+    }
+
+    // 非同期でWorker状態を保存
+    this.saveAsync();
+  }
+
+  /**
+   * devcontainerが使用されているかを取得
+   */
+  isUsingDevcontainer(): boolean {
+    return this.state.devcontainerConfig.useDevcontainer;
+  }
+
+  /**
+   * devcontainerが起動済みかを取得
+   */
+  isDevcontainerStarted(): boolean {
+    return this.state.devcontainerConfig.isStarted;
+  }
+
+  /**
+   * fallback devcontainerの使用を設定する
+   */
+  setUseFallbackDevcontainer(useFallback: boolean): void {
+    this.state.devcontainerConfig.useFallbackDevcontainer = useFallback;
+    this.logVerbose("fallback devcontainer設定変更", {
+      useFallbackDevcontainer: useFallback,
+    });
+
+    // 非同期でWorker状態を保存
+    this.saveAsync();
+  }
+
+  /**
+   * fallback devcontainerが使用されているかを取得
+   */
+  isUsingFallbackDevcontainer(): boolean {
+    return this.state.devcontainerConfig.useFallbackDevcontainer;
+  }
+
+  /**
+   * verboseモードを設定する
+   */
+  setVerbose(verbose: boolean): void {
+    this.configuration.setVerbose(verbose);
+  }
+
+  /**
+   * verboseモードが有効かを取得
+   */
+  isVerbose(): boolean {
+    return this.configuration.isVerbose();
+  }
+
+  /**
+   * 設定が完了しているかを確認
+   */
+  isConfigurationComplete(): boolean {
+    // devcontainerの選択が済んでいればtrue
+    return this.state.devcontainerConfig.useDevcontainer !== undefined;
+  }
+
+  /**
+   * 現在の設定状態を取得
+   */
+  getConfigurationStatus(): {
+    devcontainerChoiceMade: boolean;
+    useDevcontainer: boolean;
+  } {
+    return {
+      devcontainerChoiceMade:
+        this.state.devcontainerConfig.useDevcontainer !== undefined,
+      useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+    };
+  }
+
+  /**
+   * verboseログを出力する
+   */
+  private logVerbose(
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): void {
+    this.configuration.logVerbose(this.state.workerName, message, metadata);
+  }
+
+  /**
+   * devcontainerを起動する
+   */
+  async startDevcontainer(
+    onProgress?: (message: string) => Promise<void>,
+  ): Promise<
+    { success: boolean; containerId?: string; error?: string }
+  > {
+    if (!this.state.repository || !this.state.worktreePath) {
+      return {
+        success: false,
+        error: "リポジトリが設定されていません",
+      };
+    }
+
+    // リポジトリのPATを取得
+    let ghToken: string | undefined;
+    if (this.state.repository.fullName) {
+      const patInfo = await this.workspaceManager.loadRepositoryPat(
+        this.state.repository.fullName,
+      );
+      if (patInfo) {
+        ghToken = patInfo.token;
+        this.logVerbose("GitHub PAT取得", {
+          repository: this.state.repository.fullName,
+          hasToken: true,
+        });
+      }
+    }
+
+    const { startDevcontainer } = await import("../devcontainer.ts");
+    const result = await startDevcontainer(
+      this.state.worktreePath,
+      onProgress,
+      ghToken,
+    );
+
+    if (result.success) {
+      this.state.devcontainerConfig.isStarted = true;
+      this.state.devcontainerConfig.containerId = result.containerId;
+
+      // DevcontainerClaudeExecutorに切り替え
+      if (
+        this.state.devcontainerConfig.useDevcontainer && this.state.worktreePath
+      ) {
+        this.logVerbose(
+          "DevcontainerClaudeExecutorに切り替え（startDevcontainer成功後）",
+        );
+        this.claudeExecutor = new DevcontainerClaudeExecutor(
+          this.state.worktreePath,
+          this.configuration.isVerbose(),
+          ghToken,
+        );
+      }
+
+      // Worker状態を保存
+      await this.save();
+    }
+
+    return result;
+  }
+
+  /**
+   * Worker状態を永続化する
+   */
+  async save(): Promise<void> {
+    if (!this.state.threadId) {
+      this.logVerbose("Worker状態保存スキップ: threadId未設定");
+      return;
+    }
+
+    try {
+      this.state.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveWorkerState(this.state);
+      this.logVerbose("Worker状態を永続化", {
+        threadId: this.state.threadId,
+        workerName: this.state.workerName,
+      });
+    } catch (error) {
+      console.error("Worker状態の保存に失敗しました:", error);
+    }
+  }
+
+  /**
+   * Worker状態を復元する（静的メソッド）
+   */
+  static async fromState(
+    workerState: WorkerState,
+    workspaceManager: WorkspaceManager,
+    verbose?: boolean,
+    appendSystemPrompt?: string,
+    translatorUrl?: string,
+  ): Promise<Worker> {
+    const worker = new Worker(
+      workerState,
+      workspaceManager,
+      undefined,
+      verbose,
+      appendSystemPrompt,
+      translatorUrl,
+    );
+
+    // devcontainerが使用されている場合はExecutorを切り替え
+    if (
+      workerState.devcontainerConfig.useDevcontainer &&
+      workerState.worktreePath &&
+      workerState.devcontainerConfig.isStarted
+    ) {
+      // リポジトリのPATを取得
+      let ghToken: string | undefined;
+      if (workerState.repository?.fullName) {
+        const patInfo = await workspaceManager.loadRepositoryPat(
+          workerState.repository.fullName,
+        );
+        if (patInfo) {
+          ghToken = patInfo.token;
+        }
+      }
+
+      worker.claudeExecutor = new DevcontainerClaudeExecutor(
+        workerState.worktreePath,
+        verbose || false,
+        ghToken,
+      );
+    }
+
+    return worker;
+  }
+}

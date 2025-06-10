@@ -1,0 +1,364 @@
+import { type IWorker, Worker } from "../worker.ts";
+import { generateWorkerName } from "../worker-name-generator.ts";
+import type { ThreadInfo, WorkerState } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace.ts";
+import { parseRepository } from "../git-utils.ts";
+
+export class WorkerManager {
+  private workers: Map<string, IWorker> = new Map();
+  private workspaceManager: WorkspaceManager;
+  private verbose: boolean;
+  private appendSystemPrompt?: string;
+  private translatorUrl?: string;
+
+  constructor(
+    workspaceManager: WorkspaceManager,
+    verbose = false,
+    appendSystemPrompt?: string,
+    translatorUrl?: string,
+  ) {
+    this.workspaceManager = workspaceManager;
+    this.verbose = verbose;
+    this.appendSystemPrompt = appendSystemPrompt;
+    this.translatorUrl = translatorUrl;
+  }
+
+  /**
+   * Workerを作成する
+   */
+  async createWorker(threadId: string): Promise<IWorker> {
+    this.logVerbose("Worker作成要求", {
+      threadId,
+      currentWorkerCount: this.workers.size,
+      hasExistingWorker: this.workers.has(threadId),
+    });
+
+    // 既にWorkerが存在する場合はそれを返す
+    const existingWorker = this.workers.get(threadId);
+    if (existingWorker) {
+      this.logVerbose("既存Worker返却", {
+        threadId,
+        workerName: existingWorker.getName(),
+        hasRepository: !!existingWorker.getRepository(),
+      });
+      return existingWorker;
+    }
+
+    // 新しいWorkerを作成
+    const workerName = generateWorkerName();
+    this.logVerbose("新規Worker作成開始", {
+      threadId,
+      workerName,
+      verboseMode: this.verbose,
+    });
+
+    const workerState: WorkerState = {
+      workerName,
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    };
+
+    const worker = new Worker(
+      workerState,
+      this.workspaceManager,
+      undefined,
+      this.verbose,
+      this.appendSystemPrompt,
+      this.translatorUrl,
+    );
+    this.workers.set(threadId, worker);
+
+    this.logVerbose("Worker作成完了、管理Mapに追加", {
+      threadId,
+      workerName,
+      totalWorkerCount: this.workers.size,
+    });
+
+    // Worker状態を保存
+    await worker.save();
+    this.logVerbose("Worker状態保存完了", { threadId });
+
+    // ThreadInfoも作成・保存
+    const threadInfo: ThreadInfo = {
+      threadId,
+      repositoryFullName: null,
+      repositoryLocalPath: null,
+      worktreePath: null,
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+      status: "active",
+    };
+    await this.workspaceManager.saveThreadInfo(threadInfo);
+    this.logVerbose("ThreadInfo保存完了", { threadId });
+
+    return worker;
+  }
+
+  /**
+   * Workerを取得する
+   */
+  getWorker(threadId: string): IWorker | null {
+    return this.workers.get(threadId) || null;
+  }
+
+  /**
+   * Workerを削除する
+   */
+  removeWorker(threadId: string): IWorker | null {
+    const worker = this.workers.get(threadId);
+    if (worker) {
+      this.workers.delete(threadId);
+      this.logVerbose("Worker管理Mapから削除", { threadId });
+    }
+    return worker || null;
+  }
+
+  /**
+   * 管理中のWorker数を取得
+   */
+  getWorkerCount(): number {
+    return this.workers.size;
+  }
+
+  /**
+   * 単一のスレッドを復旧する
+   */
+  async restoreThread(threadInfo: ThreadInfo): Promise<void> {
+    const { threadId } = threadInfo;
+
+    this.logVerbose("スレッド復旧開始", {
+      threadId,
+      repositoryFullName: threadInfo.repositoryFullName,
+    });
+
+    // worktreeとディレクトリの存在確認
+    if (threadInfo.worktreePath) {
+      try {
+        const stat = await Deno.stat(threadInfo.worktreePath);
+        if (!stat.isDirectory) {
+          this.logVerbose(
+            "worktreeパスが通常ファイル、スレッド終了として処理",
+            {
+              threadId,
+              worktreePath: threadInfo.worktreePath,
+            },
+          );
+          await this.archiveThread(threadId);
+          return;
+        }
+      } catch (error) {
+        if (error instanceof Deno.errors.NotFound) {
+          this.logVerbose("worktreeが存在しない、スレッド終了として処理", {
+            threadId,
+            worktreePath: threadInfo.worktreePath,
+          });
+          await this.archiveThread(threadId);
+          return;
+        }
+        throw error;
+      }
+
+      // git worktreeの有効性を確認
+      if (threadInfo.repositoryLocalPath) {
+        try {
+          const command = new Deno.Command("git", {
+            args: ["worktree", "list", "--porcelain"],
+            cwd: threadInfo.repositoryLocalPath,
+            stdout: "piped",
+            stderr: "piped",
+          });
+
+          const { success, stdout } = await command.output();
+          if (success) {
+            const output = new TextDecoder().decode(stdout);
+            const worktreeExists = output.includes(threadInfo.worktreePath);
+            if (!worktreeExists) {
+              this.logVerbose(
+                "worktreeがgitに登録されていない、スレッド終了として処理",
+                {
+                  threadId,
+                  worktreePath: threadInfo.worktreePath,
+                },
+              );
+              await this.archiveThread(threadId);
+              return;
+            }
+          }
+        } catch (error) {
+          this.logVerbose("git worktree list失敗、復旧を継続", {
+            threadId,
+            error: (error as Error).message,
+          });
+        }
+      }
+    }
+
+    // WorkerStateを読み込む
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+
+    if (workerState) {
+      // 既存のWorkerStateから復元
+      this.logVerbose("WorkerStateから復元", {
+        threadId,
+        workerName: workerState.workerName,
+        hasRepository: !!workerState.repository,
+      });
+
+      const worker = await Worker.fromState(
+        workerState,
+        this.workspaceManager,
+        this.verbose,
+        this.appendSystemPrompt,
+        this.translatorUrl,
+      );
+
+      // Workerを管理Mapに追加
+      this.workers.set(threadId, worker);
+
+      // 最終アクティブ時刻を更新
+      await this.workspaceManager.updateThreadLastActive(threadId);
+
+      this.logVerbose("スレッド復旧完了（WorkerStateから）", {
+        threadId,
+        workerName: workerState.workerName,
+        hasRepository: !!worker.getRepository(),
+      });
+    } else {
+      // WorkerStateがない場合は従来の方法で復元
+      this.logVerbose("WorkerStateが見つからない、ThreadInfoから復元", {
+        threadId,
+      });
+
+      const workerName = generateWorkerName();
+      const newWorkerState: WorkerState = {
+        workerName,
+        threadId,
+        repository: threadInfo.repositoryFullName
+          ? {
+            fullName: threadInfo.repositoryFullName,
+            org: threadInfo.repositoryFullName.split("/")[0],
+            repo: threadInfo.repositoryFullName.split("/")[1],
+          }
+          : undefined,
+        repositoryLocalPath: threadInfo.repositoryLocalPath || undefined,
+        worktreePath: threadInfo.worktreePath,
+        devcontainerConfig: {
+          useDevcontainer: false,
+          useFallbackDevcontainer: false,
+          hasDevcontainerFile: false,
+          hasAnthropicsFeature: false,
+          isStarted: false,
+        },
+        status: "active",
+        createdAt: threadInfo.createdAt,
+        lastActiveAt: new Date().toISOString(),
+      };
+
+      const worker = new Worker(
+        newWorkerState,
+        this.workspaceManager,
+        undefined,
+        this.verbose,
+        this.appendSystemPrompt,
+        this.translatorUrl,
+      );
+
+      // リポジトリ情報を復旧
+      if (
+        threadInfo.repositoryFullName && threadInfo.repositoryLocalPath &&
+        threadInfo.worktreePath
+      ) {
+        try {
+          // リポジトリ情報を再構築
+          const repository = parseRepository(threadInfo.repositoryFullName);
+
+          if (repository) {
+            await worker.setRepository(
+              repository,
+              threadInfo.repositoryLocalPath,
+            );
+            this.logVerbose("リポジトリ情報復旧完了", {
+              threadId,
+              repositoryFullName: threadInfo.repositoryFullName,
+              worktreePath: threadInfo.worktreePath,
+            });
+          }
+        } catch (error) {
+          this.logVerbose("リポジトリ情報復旧失敗", {
+            threadId,
+            repositoryFullName: threadInfo.repositoryFullName,
+            error: (error as Error).message,
+          });
+          console.warn(
+            `スレッド ${threadId} のリポジトリ情報復旧に失敗しました:`,
+            error,
+          );
+        }
+      }
+
+      // Workerを管理Mapに追加
+      this.workers.set(threadId, worker);
+
+      // 最終アクティブ時刻を更新
+      await this.workspaceManager.updateThreadLastActive(threadId);
+
+      this.logVerbose("スレッド復旧完了（ThreadInfoから）", {
+        threadId,
+        workerName,
+        hasRepository: !!worker.getRepository(),
+      });
+    }
+  }
+
+  /**
+   * スレッドをアーカイブ状態にする
+   */
+  private async archiveThread(threadId: string): Promise<void> {
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    if (workerState) {
+      workerState.status = "archived";
+      workerState.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveWorkerState(workerState);
+
+      this.logVerbose("スレッドをアーカイブ状態に変更", {
+        threadId,
+        repositoryFullName: workerState.repository?.fullName,
+      });
+    }
+
+    // ThreadInfoもアーカイブ状態に更新
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+    if (threadInfo) {
+      threadInfo.status = "archived";
+      threadInfo.lastActiveAt = new Date().toISOString();
+      await this.workspaceManager.saveThreadInfo(threadInfo);
+    }
+  }
+
+  /**
+   * verboseログを出力する
+   */
+  private logVerbose(
+    message: string,
+    metadata?: Record<string, unknown>,
+  ): void {
+    if (this.verbose) {
+      const timestamp = new Date().toISOString();
+      const logMessage = `[${timestamp}] [WorkerManager] ${message}`;
+      console.log(logMessage);
+
+      if (metadata && Object.keys(metadata).length > 0) {
+        console.log(`[${timestamp}] [WorkerManager] メタデータ:`, metadata);
+      }
+    }
+  }
+}
