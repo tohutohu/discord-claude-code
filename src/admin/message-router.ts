@@ -1,4 +1,4 @@
-import { ClaudeCodeRateLimitError } from "../worker.ts";
+import { ClaudeCodeRateLimitError, type IWorker } from "../worker.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { AuditEntry } from "../workspace.ts";
 import type { DiscordMessage } from "./types.ts";
@@ -42,53 +42,124 @@ export class MessageRouter {
     });
 
     // メッセージ受信確認のリアクションを追加
-    if (onReaction) {
-      try {
-        await onReaction("👀");
-        this.logVerbose("メッセージ受信リアクション追加完了", { threadId });
-      } catch (error) {
-        this.logVerbose("メッセージ受信リアクション追加エラー", {
-          threadId,
-          error: (error as Error).message,
-        });
-      }
+    await this.addMessageReceivedReaction(threadId, onReaction);
+
+    // VERBOSEモードでの詳細ログ出力
+    this.logMessageDetails(threadId, message);
+
+    // レートリミット確認と処理
+    const rateLimitResult = await this.checkAndHandleRateLimit(
+      threadId,
+      messageId,
+      authorId,
+      message,
+    );
+    if (rateLimitResult) {
+      return rateLimitResult;
     }
 
-    // VERBOSEモードでDiscordユーザーメッセージの詳細ログ
-    if (this.verbose) {
-      console.log(
-        `[${
-          new Date().toISOString()
-        }] [MessageRouter] Discord受信メッセージ詳細:`,
-      );
-      console.log(`  スレッドID: ${threadId}`);
-      console.log(`  メッセージ長: ${message.length}文字`);
-      console.log("  メッセージ内容:");
-      console.log(
-        `    ${message.split("\n").map((line) => `    ${line}`).join("\n")}`,
-      );
-    }
+    // スレッド用のWorker取得
+    const worker = this.findWorkerForThread(threadId);
 
-    // レートリミット中か確認
-    if (
-      await this.rateLimitManager.isRateLimited(threadId) && messageId &&
-      authorId
-    ) {
-      // レートリミット中のメッセージをキューに追加
-      await this.rateLimitManager.queueMessage(
+    // 監査ログに記録
+    await this.logAuditEntry(threadId, "message_received", {
+      messageLength: message.length,
+      hasRepository: worker.getRepository() !== null,
+    });
+
+    this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
+
+    try {
+      // Workerへの処理委譲
+      return await this.delegateToWorker(
+        worker,
         threadId,
-        messageId,
         message,
-        authorId,
+        onProgress,
+        onReaction,
       );
-      return "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。";
+    } catch (error) {
+      // レートリミットエラーのハンドリング
+      return await this.handleRateLimitError(threadId, error);
+    }
+  }
+
+  /**
+   * メッセージ受信リアクションを追加する
+   */
+  private async addMessageReceivedReaction(
+    threadId: string,
+    onReaction?: (emoji: string) => Promise<void>,
+  ): Promise<void> {
+    if (!onReaction) {
+      return;
     }
 
-    const worker = this.workerManager.getWorker(threadId);
-    if (!worker) {
-      this.logVerbose("Worker見つからず", {
+    try {
+      await onReaction("👀");
+      this.logVerbose("メッセージ受信リアクション追加完了", { threadId });
+    } catch (error) {
+      this.logVerbose("メッセージ受信リアクション追加エラー", {
         threadId,
+        error: (error as Error).message,
       });
+    }
+  }
+
+  /**
+   * VERBOSEモードでの詳細ログを出力する
+   */
+  private logMessageDetails(threadId: string, message: string): void {
+    if (!this.verbose) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    console.log(
+      `[${timestamp}] [MessageRouter] Discord受信メッセージ詳細:`,
+    );
+    console.log(`  スレッドID: ${threadId}`);
+    console.log(`  メッセージ長: ${message.length}文字`);
+    console.log("  メッセージ内容:");
+    console.log(
+      `    ${message.split("\n").map((line) => `    ${line}`).join("\n")}`,
+    );
+  }
+
+  /**
+   * レートリミット状態を確認し、必要に応じて処理する
+   */
+  private async checkAndHandleRateLimit(
+    threadId: string,
+    messageId?: string,
+    authorId?: string,
+    message?: string,
+  ): Promise<string | null> {
+    const isRateLimited = await this.rateLimitManager.isRateLimited(threadId);
+
+    if (!isRateLimited || !messageId || !authorId) {
+      return null;
+    }
+
+    // レートリミット中のメッセージをキューに追加
+    await this.rateLimitManager.queueMessage(
+      threadId,
+      messageId,
+      message || "",
+      authorId,
+    );
+
+    return "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。";
+  }
+
+  /**
+   * スレッド用のWorkerを取得する
+   */
+  private findWorkerForThread(threadId: string): IWorker {
+    const worker = this.workerManager.getWorker(threadId);
+
+    if (!worker) {
+      this.logVerbose("Worker見つからず", { threadId });
       throw new Error(`Worker not found for thread: ${threadId}`);
     }
 
@@ -104,50 +175,61 @@ export class MessageRouter {
       threadId,
     });
 
-    // 監査ログに記録
-    await this.logAuditEntry(threadId, "message_received", {
-      messageLength: message.length,
-      hasRepository: worker.getRepository() !== null,
+    return worker;
+  }
+
+  /**
+   * Workerへメッセージ処理を委譲する
+   */
+  private async delegateToWorker(
+    worker: IWorker,
+    threadId: string,
+    message: string,
+    onProgress?: (content: string) => Promise<void>,
+    onReaction?: (emoji: string) => Promise<void>,
+  ): Promise<string> {
+    const result = await worker.processMessage(
+      message,
+      onProgress,
+      onReaction,
+    );
+
+    this.logVerbose("メッセージ処理完了", {
+      threadId,
+      responseLength: result.length,
     });
 
-    this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
+    return result;
+  }
 
-    try {
-      const result = await worker.processMessage(
-        message,
-        onProgress,
-        onReaction,
-      );
-
-      this.logVerbose("メッセージ処理完了", {
-        threadId,
-        responseLength: result.length,
-      });
-
-      return result;
-    } catch (error) {
-      if (error instanceof ClaudeCodeRateLimitError) {
-        this.logVerbose("Claude Codeレートリミット検出", {
-          threadId,
-          timestamp: error.timestamp,
-        });
-
-        // レートリミット情報をスレッド情報に保存
-        await this.rateLimitManager.saveRateLimitInfo(
-          threadId,
-          error.timestamp,
-        );
-
-        // 自動継続確認メッセージを返す
-        return this.rateLimitManager.createRateLimitMessage(
-          threadId,
-          error.timestamp,
-        );
-      }
-
+  /**
+   * レートリミットエラーをハンドリングする
+   */
+  private async handleRateLimitError(
+    threadId: string,
+    error: unknown,
+  ): Promise<string | DiscordMessage> {
+    if (!(error instanceof ClaudeCodeRateLimitError)) {
       // その他のエラーは再投げ
       throw error;
     }
+
+    this.logVerbose("Claude Codeレートリミット検出", {
+      threadId,
+      timestamp: error.timestamp,
+    });
+
+    // レートリミット情報をスレッド情報に保存
+    await this.rateLimitManager.saveRateLimitInfo(
+      threadId,
+      error.timestamp,
+    );
+
+    // 自動継続確認メッセージを返す
+    return this.rateLimitManager.createRateLimitMessage(
+      threadId,
+      error.timestamp,
+    );
   }
 
   /**
