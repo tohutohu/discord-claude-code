@@ -113,7 +113,7 @@ export class Admin implements IAdmin {
         threadIds: this.state.activeThreadIds,
       });
 
-      for (const threadId of this.state.activeThreadIds) {
+      for (const threadId of [...this.state.activeThreadIds]) {
         try {
           // スレッド情報を読み込む
           const threadInfo = await this.workspaceManager.loadThreadInfo(

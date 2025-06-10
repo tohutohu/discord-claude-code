@@ -770,6 +770,7 @@ export class Worker implements IWorker {
 
   private stripAnsiCodes(text: string): string {
     // ANSIエスケープシーケンスを除去する正規表現
+    // \x1b (ESC) は制御文字ですが、ANSIエスケープシーケンスの開始を示すため必要です
     // deno-lint-ignore no-control-regex
     return text.replace(/\x1b\[[0-9;]*[mGKHF]/g, "");
   }
@@ -784,7 +785,8 @@ export class Worker implements IWorker {
         fullName: this.state.repository.fullName,
         org: this.state.repository.org,
         repo: this.state.repository.repo,
-        localPath: this.state.repository.fullName,
+        localPath: this.state.repositoryLocalPath ||
+          this.state.repository.fullName,
       }
       : null;
   }
