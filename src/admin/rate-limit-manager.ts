@@ -1,5 +1,6 @@
 import type { AuditEntry, QueuedMessage, WorkerState } from "../workspace.ts";
 import { WorkspaceManager } from "../workspace.ts";
+import { RATE_LIMIT } from "../constants.ts";
 
 export class RateLimitManager {
   private autoResumeTimers: Map<string, ReturnType<typeof setTimeout>> =
@@ -48,7 +49,9 @@ export class RateLimitManager {
 
         await this.logAuditEntry(threadId, "rate_limit_detected", {
           timestamp,
-          resumeTime: new Date(timestamp * 1000 + 5 * 60 * 1000).toISOString(),
+          resumeTime: new Date(
+            timestamp * 1000 + RATE_LIMIT.AUTO_RESUME_DELAY_MS,
+          ).toISOString(),
           autoResumeEnabled: true,
         });
       }
@@ -61,7 +64,9 @@ export class RateLimitManager {
    * レートリミットメッセージを作成する（ボタンなし）
    */
   createRateLimitMessage(_threadId: string, timestamp: number): string {
-    const resumeTime = new Date(timestamp * 1000 + 5 * 60 * 1000);
+    const resumeTime = new Date(
+      timestamp * 1000 + RATE_LIMIT.AUTO_RESUME_DELAY_MS,
+    );
     const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
       timeZone: "Asia/Tokyo",
       year: "numeric",
@@ -101,7 +106,8 @@ export class RateLimitManager {
         });
 
         const resumeTime = new Date(
-          workerState.rateLimitTimestamp * 1000 + 5 * 60 * 1000,
+          workerState.rateLimitTimestamp * 1000 +
+            RATE_LIMIT.AUTO_RESUME_DELAY_MS,
         );
         const resumeTimeStr = resumeTime.toLocaleString("ja-JP", {
           timeZone: "Asia/Tokyo",
@@ -150,7 +156,8 @@ export class RateLimitManager {
     }
 
     // 5分後に再開するタイマーを設定
-    const resumeTime = rateLimitTimestamp * 1000 + 5 * 60 * 1000;
+    const resumeTime = rateLimitTimestamp * 1000 +
+      RATE_LIMIT.AUTO_RESUME_DELAY_MS;
     const currentTime = Date.now();
     const delay = Math.max(0, resumeTime - currentTime);
 
@@ -318,7 +325,8 @@ export class RateLimitManager {
     }
 
     const currentTime = Date.now();
-    const resumeTime = workerState.rateLimitTimestamp * 1000 + 5 * 60 * 1000;
+    const resumeTime = workerState.rateLimitTimestamp * 1000 +
+      RATE_LIMIT.AUTO_RESUME_DELAY_MS;
 
     // 既に時間が過ぎている場合は即座に実行
     if (currentTime >= resumeTime) {

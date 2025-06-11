@@ -3,6 +3,8 @@
  * mlx_lm.serverで立てたPLaMo-2-translateと通信して日本語から英語への翻訳を行う
  */
 
+import { PLAMO_TRANSLATOR } from "./constants.ts";
+
 export interface TranslationRequest {
   messages: Array<{
     role: "system" | "user";
@@ -66,8 +68,8 @@ Translate only the user's message. Do not add explanations or additional context
             content: text,
           },
         ],
-        temperature: 0.1, // より決定的な翻訳のため低めに設定
-        max_tokens: 2048,
+        temperature: PLAMO_TRANSLATOR.TEMPERATURE, // より決定的な翻訳のため低めに設定
+        max_tokens: PLAMO_TRANSLATOR.MAX_TOKENS,
       };
 
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
@@ -106,7 +108,7 @@ Translate only the user's message. Do not add explanations or additional context
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
         method: "GET",
-        signal: AbortSignal.timeout(5000), // 5秒でタイムアウト
+        signal: AbortSignal.timeout(PLAMO_TRANSLATOR.TIMEOUT_MS), // 5秒でタイムアウト
       });
       // レスポンスボディを消費してリークを防ぐ
       await response.text();

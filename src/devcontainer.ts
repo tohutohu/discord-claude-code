@@ -1,4 +1,5 @@
 import { join } from "std/path/mod.ts";
+import { DEVCONTAINER } from "./constants.ts";
 
 export interface DevcontainerConfig {
   name?: string;
@@ -160,9 +161,9 @@ export async function startDevcontainer(
     let output = "";
     let errorOutput = "";
     const logBuffer: string[] = [];
-    const maxLogLines = 30;
+    const maxLogLines = DEVCONTAINER.MAX_LOG_LINES;
     let lastProgressUpdate = Date.now();
-    const progressUpdateInterval = 2000; // 2秒
+    const progressUpdateInterval = DEVCONTAINER.PROGRESS_UPDATE_INTERVAL_MS; // 2秒
 
     // stdoutとstderrをストリーミングで読み取る
     const stdoutReader = process.stdout.getReader();
@@ -226,7 +227,10 @@ export async function startDevcontainer(
                   lowercaseMessage.includes("success")
                 ) {
                   const now = Date.now();
-                  if (now - lastProgressUpdate > 1000) { // 1秒以上経過していれば更新
+                  if (
+                    now - lastProgressUpdate >
+                      DEVCONTAINER.PROGRESS_NOTIFY_INTERVAL_MS
+                  ) { // 1秒以上経過していれば更新
                     lastProgressUpdate = now;
                     if (onProgress) {
                       // 特定のイベントにアイコンを付与
