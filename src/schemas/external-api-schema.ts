@@ -133,6 +133,20 @@ export const DevcontainerLogSchema = z.object({
 
 export type DevcontainerLog = z.infer<typeof DevcontainerLogSchema>;
 
+// TodoWrite Tool Schema
+export const TodoItemSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  status: z.enum(["pending", "in_progress", "completed"]),
+  priority: z.enum(["high", "medium", "low"]),
+});
+
+export const TodoWriteInputSchema = z.object({
+  todos: z.array(TodoItemSchema),
+});
+
+export type TodoWriteInput = z.infer<typeof TodoWriteInputSchema>;
+
 // Validation helper functions
 export function validateClaudeStreamMessage(
   data: unknown,
@@ -174,6 +188,14 @@ export function validateDevcontainerConfig(
 
 export function validateDevcontainerLog(data: unknown): DevcontainerLog | null {
   const result = DevcontainerLogSchema.safeParse(data);
+  if (result.success) {
+    return result.data;
+  }
+  return null;
+}
+
+export function validateTodoWriteInput(data: unknown): TodoWriteInput | null {
+  const result = TodoWriteInputSchema.safeParse(data);
   if (result.success) {
     return result.data;
   }

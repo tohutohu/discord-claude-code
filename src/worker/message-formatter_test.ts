@@ -151,8 +151,8 @@ Deno.test("MessageFormatter - extractTodoListUpdate - TodoWrite検出", () => {
     何か他のテキスト
     "name": "TodoWrite"
     "todos": [
-      {"status": "completed", "content": "タスク1"},
-      {"status": "pending", "content": "タスク2"}
+      {"id": "1", "status": "completed", "content": "タスク1", "priority": "high"},
+      {"id": "2", "status": "pending", "content": "タスク2", "priority": "medium"}
     ]
   `;
   const result = formatter.extractTodoListUpdate(textContent);
