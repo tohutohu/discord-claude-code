@@ -437,3 +437,21 @@ export async function waitFor(
   }
   throw new Error("Timeout waiting for condition");
 }
+
+/**
+ * Claude CLIが利用可能かチェックする
+ */
+export async function isClaudeCliAvailable(): Promise<boolean> {
+  try {
+    const process = new Deno.Command("claude", {
+      args: ["--version"],
+      stdout: "piped",
+      stderr: "piped",
+    });
+
+    const result = await process.output();
+    return result.success;
+  } catch {
+    return false;
+  }
+}
