@@ -3,16 +3,8 @@ import { ensureDir } from "std/fs/mod.ts";
 import type { ThreadInfo } from "../workspace.ts";
 import { createWorktreeCopy, isWorktreeCopyExists } from "../git-utils.ts";
 import { err, ok, Result } from "neverthrow";
-
-// WorkspaceError型定義
-export type WorkspaceError =
-  | { type: "INITIALIZATION_FAILED"; error: string }
-  | { type: "SAVE_FAILED"; threadId: string; error: string }
-  | { type: "LOAD_FAILED"; threadId: string; error: string }
-  | { type: "UPDATE_FAILED"; threadId: string; error: string }
-  | { type: "LIST_FAILED"; error: string }
-  | { type: "WORKTREE_CREATE_FAILED"; threadId: string; error: string }
-  | { type: "WORKTREE_REMOVE_FAILED"; threadId: string; error: string };
+import { validateThreadInfoSafe } from "./schemas/thread-schema.ts";
+import type { WorkspaceError } from "./types.ts";
 
 export class ThreadManager {
   private readonly threadsDir: string;
@@ -30,7 +22,7 @@ export class ThreadManager {
       return ok(undefined);
     } catch (error) {
       return err({
-        type: "INITIALIZATION_FAILED",
+        type: "THREAD_INITIALIZATION_FAILED",
         error: `ThreadManagerの初期化に失敗しました: ${error}`,
       });
     }
@@ -53,7 +45,7 @@ export class ThreadManager {
       return ok(undefined);
     } catch (error) {
       return err({
-        type: "SAVE_FAILED",
+        type: "THREAD_SAVE_FAILED",
         threadId: threadInfo.threadId,
         error: `スレッド情報の保存に失敗しました: ${error}`,
       });
@@ -66,13 +58,17 @@ export class ThreadManager {
     try {
       const filePath = this.getThreadFilePath(threadId);
       const content = await Deno.readTextFile(filePath);
-      return ok(JSON.parse(content) as ThreadInfo);
+      const result = validateThreadInfoSafe(JSON.parse(content));
+      if (!result.success) {
+        throw new Error(`Invalid thread info for ${threadId}: ${result.error}`);
+      }
+      return ok(result.data);
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return ok(null);
       }
       return err({
-        type: "LOAD_FAILED",
+        type: "THREAD_LOAD_FAILED",
         threadId,
         error: `スレッド情報の読み込みに失敗しました: ${error}`,
       });
@@ -93,10 +89,13 @@ export class ThreadManager {
       const saveResult = await this.saveThreadInfo(threadInfo);
       if (saveResult.isErr()) {
         return err({
-          type: "UPDATE_FAILED",
+          type: "THREAD_UPDATE_FAILED",
           threadId,
-          error:
-            `最終アクティブ時刻の更新に失敗しました: ${saveResult.error.error}`,
+          error: `最終アクティブ時刻の更新に失敗しました: ${
+            "error" in saveResult.error
+              ? saveResult.error.error
+              : JSON.stringify(saveResult.error)
+          }`,
         });
       }
     }
@@ -135,7 +134,7 @@ export class ThreadManager {
         return ok([]);
       }
       return err({
-        type: "LIST_FAILED",
+        type: "THREAD_LIST_FAILED",
         error: `スレッド情報の一覧取得に失敗しました: ${error}`,
       });
     }

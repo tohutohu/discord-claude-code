@@ -1,4 +1,5 @@
 import { assertEquals } from "std/assert/mod.ts";
+import * as path from "std/path/mod.ts";
 import { SessionManager } from "./session-manager.ts";
 
 Deno.test("SessionManager - セッションログの保存と読み込み", async () => {
@@ -218,25 +219,40 @@ Deno.test("SessionManager - 空行を含むJSONLの処理", async () => {
     const repositoryFullName = "test-org/test-repo";
     const sessionId = "test-session-789";
 
-    // 空行を含むコンテンツ
-    const saveResult1 = await manager.saveRawSessionJsonl(
+    // 空行を含むJSONLコンテンツを作成
+    const sessionLogs = [
+      {
+        timestamp: new Date().toISOString(),
+        sessionId,
+        type: "request",
+        content: "1",
+      },
+      {
+        timestamp: new Date().toISOString(),
+        sessionId,
+        type: "response",
+        content: "2",
+      },
+    ];
+
+    // JSONLファイルを直接作成（空行を含む）
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const sessionFilePath = path.join(
+      testBaseDir,
+      "sessions",
       repositoryFullName,
-      sessionId,
-      JSON.stringify({ type: "request", content: "1" }),
+      `${timestamp}_${sessionId}.jsonl`,
     );
-    assertEquals(saveResult1.isOk(), true);
-    const saveResult2 = await manager.saveRawSessionJsonl(
-      repositoryFullName,
-      sessionId,
-      "",
-    ); // 空行
-    assertEquals(saveResult2.isOk(), true);
-    const saveResult3 = await manager.saveRawSessionJsonl(
-      repositoryFullName,
-      sessionId,
-      JSON.stringify({ type: "response", content: "2" }),
-    );
-    assertEquals(saveResult3.isOk(), true);
+    await Deno.mkdir(path.dirname(sessionFilePath), { recursive: true });
+
+    // 空行を間に挟んでJSONLを書き込む
+    const content = [
+      JSON.stringify(sessionLogs[0]),
+      "", // 空行
+      JSON.stringify(sessionLogs[1]),
+    ].join("\n");
+
+    await Deno.writeTextFile(sessionFilePath, content);
 
     const loadResult = await manager.loadSessionLogs(
       repositoryFullName,

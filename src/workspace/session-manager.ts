@@ -2,13 +2,10 @@ import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import { err, ok, Result } from "neverthrow";
 import type { WorkspaceError } from "./types.ts";
+import { validateSessionLogSafe } from "./schemas/session-schema.ts";
+import type { SessionLog } from "./schemas/session-schema.ts";
 
-export interface SessionLog {
-  timestamp: string;
-  sessionId: string;
-  type: "request" | "response" | "error" | "session";
-  content: string;
-}
+export type { SessionLog } from "./schemas/session-schema.ts";
 
 export class SessionManager {
   private readonly sessionsDir: string;
@@ -125,7 +122,20 @@ export class SessionManager {
         line.length > 0
       );
 
-      return ok(lines.map((line) => JSON.parse(line) as SessionLog));
+      const logs: SessionLog[] = [];
+      for (const line of lines) {
+        try {
+          const result = validateSessionLogSafe(JSON.parse(line));
+          if (result.success) {
+            logs.push(result.data);
+          } else {
+            console.error(`Invalid session log entry:`, result.error);
+          }
+        } catch (parseError) {
+          console.error(`Failed to parse session log line:`, parseError);
+        }
+      }
+      return ok(logs);
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return ok([]);

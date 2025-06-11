@@ -1,6 +1,7 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import type { QueuedMessage, ThreadQueue } from "../workspace.ts";
+import { validateThreadQueueSafe } from "./schemas/queue-schema.ts";
 
 export class QueueManager {
   private readonly queuedMessagesDir: string;
@@ -26,7 +27,13 @@ export class QueueManager {
     try {
       const filePath = this.getQueueFilePath(threadId);
       const content = await Deno.readTextFile(filePath);
-      return JSON.parse(content) as ThreadQueue;
+      const result = validateThreadQueueSafe(JSON.parse(content));
+      if (!result.success) {
+        throw new Error(
+          `Invalid message queue for thread ${threadId}: ${result.error}`,
+        );
+      }
+      return result.data;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return null;

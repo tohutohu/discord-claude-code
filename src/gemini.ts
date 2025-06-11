@@ -45,7 +45,7 @@ ${text}`;
     if (!response || !response.text) {
       return {
         success: false,
-        error: `No summary generated: ${JSON.stringify(response)}`,
+        error: "No summary generated: API response did not contain text",
       };
     }
 

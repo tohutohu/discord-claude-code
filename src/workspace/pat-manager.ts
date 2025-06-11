@@ -3,6 +3,7 @@ import { ensureDir } from "std/fs/mod.ts";
 import { err, ok, Result } from "neverthrow";
 import type { RepositoryPatInfo } from "../workspace.ts";
 import type { WorkspaceError } from "./types.ts";
+import { validateRepositoryPatInfoSafe } from "./schemas/pat-schema.ts";
 
 export class PatManager {
   private readonly patsDir: string;
@@ -52,7 +53,13 @@ export class PatManager {
     try {
       const filePath = this.getPatFilePath(repositoryFullName);
       const content = await Deno.readTextFile(filePath);
-      return ok(JSON.parse(content) as RepositoryPatInfo);
+      const result = validateRepositoryPatInfoSafe(JSON.parse(content));
+      if (!result.success) {
+        throw new Error(
+          `Invalid PAT data for ${repositoryFullName}: ${result.error}`,
+        );
+      }
+      return ok(result.data);
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return ok(null);
@@ -96,7 +103,12 @@ export class PatManager {
           const filePath = join(this.patsDir, entry.name);
           try {
             const content = await Deno.readTextFile(filePath);
-            pats.push(JSON.parse(content) as RepositoryPatInfo);
+            const result = validateRepositoryPatInfoSafe(JSON.parse(content));
+            if (result.success) {
+              pats.push(result.data);
+            } else {
+              console.error(`Invalid PAT data in ${entry.name}:`, result.error);
+            }
           } catch (error) {
             // 個別のファイル読み込みエラーはログに記録して続行
             console.error(`PAT情報の読み込みエラー (${entry.name}):`, error);

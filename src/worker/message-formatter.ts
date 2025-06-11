@@ -1,4 +1,5 @@
 import { DISCORD, FORMATTING } from "../constants.ts";
+import { validateTodoWriteInput } from "../schemas/external-api-schema.ts";
 
 /**
  * メッセージフォーマット関連の責務を担当するクラス
@@ -278,14 +279,23 @@ export class MessageFormatter {
         return null;
       }
 
-      const todosArray = JSON.parse(todoWriteMatch[1]);
-      if (!Array.isArray(todosArray) || todosArray.length === 0) {
+      // 安全なスキーマ検証でJSONをパース
+      let parsedData: unknown;
+      try {
+        parsedData = JSON.parse(todoWriteMatch[1]);
+      } catch {
         return null;
       }
 
-      return this.formatTodoList(todosArray);
+      // TodoWriteInputスキーマで検証
+      const validatedInput = validateTodoWriteInput({ todos: parsedData });
+      if (!validatedInput || validatedInput.todos.length === 0) {
+        return null;
+      }
+
+      return this.formatTodoList(validatedInput.todos);
     } catch (_error) {
-      // JSON解析エラーの場合は通常の処理を続行
+      // エラーの場合は通常の処理を続行
       return null;
     }
   }

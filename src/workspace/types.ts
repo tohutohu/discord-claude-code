@@ -2,6 +2,10 @@
 export type WorkspaceError =
   | { type: "THREAD_NOT_FOUND"; threadId: string }
   | { type: "THREAD_SAVE_FAILED"; threadId: string; error: string }
+  | { type: "THREAD_LOAD_FAILED"; threadId: string; error: string }
+  | { type: "THREAD_UPDATE_FAILED"; threadId: string; error: string }
+  | { type: "THREAD_LIST_FAILED"; error: string }
+  | { type: "THREAD_INITIALIZATION_FAILED"; error: string }
   | {
     type: "SESSION_SAVE_FAILED";
     repositoryFullName: string;

@@ -22,6 +22,41 @@ export interface TranslationResponse {
   }>;
 }
 
+/**
+ * TranslationResponseの型ガード
+ */
+function isTranslationResponse(data: unknown): data is TranslationResponse {
+  if (!data || typeof data !== "object") {
+    return false;
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  if (!Array.isArray(obj.choices)) {
+    return false;
+  }
+
+  for (const choice of obj.choices) {
+    if (!choice || typeof choice !== "object") {
+      return false;
+    }
+
+    const choiceObj = choice as Record<string, unknown>;
+
+    if (!choiceObj.message || typeof choiceObj.message !== "object") {
+      return false;
+    }
+
+    const messageObj = choiceObj.message as Record<string, unknown>;
+
+    if (typeof messageObj.content !== "string") {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export class PLaMoTranslator {
   private readonly baseUrl: string;
   private readonly systemPrompt: string;
@@ -86,9 +121,24 @@ Translate only the user's message. Do not add explanations or additional context
         );
       }
 
-      const data = await response.json() as TranslationResponse;
+      const responseText = await response.text();
+      let data: unknown;
 
-      if (!data.choices || data.choices.length === 0) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        throw new Error(
+          `Invalid JSON response: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        );
+      }
+
+      if (!isTranslationResponse(data)) {
+        throw new Error("Invalid translation response format");
+      }
+
+      if (data.choices.length === 0) {
         throw new Error("No translation result received");
       }
 

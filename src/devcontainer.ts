@@ -1,24 +1,13 @@
 import { join } from "std/path/mod.ts";
 import { DEVCONTAINER } from "./constants.ts";
+import {
+  DevcontainerConfig,
+  DevcontainerLog,
+  validateDevcontainerConfig,
+  validateDevcontainerLog,
+} from "./schemas/external-api-schema.ts";
 
-export interface DevcontainerConfig {
-  name?: string;
-  image?: string;
-  dockerFile?: string;
-  build?: {
-    dockerfile?: string;
-    context?: string;
-  };
-  features?: Record<string, unknown>;
-  customizations?: {
-    vscode?: {
-      extensions?: string[];
-    };
-  };
-  postCreateCommand?: string | string[];
-  postStartCommand?: string | string[];
-  postAttachCommand?: string | string[];
-}
+// DevcontainerConfigはexternal-api-schemaからインポートして使用
 
 export interface DevcontainerInfo {
   configExists: boolean;
@@ -41,7 +30,13 @@ export async function checkDevcontainerConfig(
   for (const configPath of possiblePaths) {
     try {
       const configContent = await Deno.readTextFile(configPath);
-      const config: DevcontainerConfig = JSON.parse(configContent);
+      const parsedConfig = JSON.parse(configContent);
+      const config = validateDevcontainerConfig(parsedConfig);
+
+      if (!config) {
+        console.warn(`devcontainer.json形式が無効です (${configPath})`);
+        continue;
+      }
 
       const hasAnthropicsFeature = checkAnthropicsFeature(config);
 
@@ -170,14 +165,25 @@ function setupProgressTimer(
 /**
  * JSONログからメッセージを抽出する
  */
-function extractLogMessage(logEntry: Record<string, unknown>): {
+function extractLogMessage(
+  logEntry: DevcontainerLog | Record<string, unknown>,
+): {
   message: string;
   timestamp: string;
 } {
+  // DevcontainerLogの場合はmessageとtimestampを使用
+  if ("message" in logEntry || "timestamp" in logEntry) {
+    const message = String(logEntry.message || JSON.stringify(logEntry));
+    const timestamp = String(logEntry.timestamp || "");
+    return { message, timestamp };
+  }
+
+  // その他のログ形式の場合
+  const record = logEntry as Record<string, unknown>;
   const message = String(
-    logEntry.message || logEntry.msg || JSON.stringify(logEntry),
+    record.message || record.msg || JSON.stringify(logEntry),
   );
-  const timestamp = String(logEntry.timestamp || logEntry.time || "");
+  const timestamp = String(record.timestamp || record.time || "");
   return { message, timestamp };
 }
 
@@ -243,7 +249,10 @@ async function processStdoutLine(
   onProgress?: (message: string) => Promise<void>,
 ): Promise<void> {
   try {
-    const logEntry = JSON.parse(line);
+    const parsedLog = JSON.parse(line);
+    const validatedLog = validateDevcontainerLog(parsedLog);
+    // バリデーションに失敗しても処理を継続（後方互換性のため）
+    const logEntry = validatedLog || parsedLog;
     const { message, timestamp } = extractLogMessage(logEntry);
 
     // 読みやすい形式でバッファに追加
