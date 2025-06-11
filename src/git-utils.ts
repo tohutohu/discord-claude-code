@@ -1,5 +1,6 @@
 import { join } from "std/path/mod.ts";
 import { WorkspaceManager } from "./workspace.ts";
+import { GIT } from "./constants.ts";
 
 export interface GitRepository {
   org: string;
@@ -37,7 +38,7 @@ export async function ensureRepository(
     const stat = await Deno.stat(fullPath);
     if (stat.isDirectory) {
       // 既存リポジトリを最新に更新
-      await updateRepositoryWithGh(fullPath, "main");
+      await updateRepositoryWithGh(fullPath, GIT.DEFAULT_BRANCH);
       return { path: fullPath, wasUpdated: true };
     }
   } catch (_error) {
@@ -201,7 +202,7 @@ export async function createWorktreeCopy(
 
         // gitユーザー設定（コミットに必要）
         const configNameProcess = new Deno.Command("git", {
-          args: ["config", "user.name", "Discord Bot"],
+          args: ["config", "user.name", GIT.BOT_USER_NAME],
           cwd: worktreePath,
           stdout: "piped",
           stderr: "piped",
@@ -209,7 +210,7 @@ export async function createWorktreeCopy(
         await configNameProcess.output();
 
         const configEmailProcess = new Deno.Command("git", {
-          args: ["config", "user.email", "bot@example.com"],
+          args: ["config", "user.email", GIT.BOT_USER_EMAIL],
           cwd: worktreePath,
           stdout: "piped",
           stderr: "piped",
