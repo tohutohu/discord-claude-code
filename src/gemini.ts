@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { GEMINI } from "./constants.ts";
 
 export interface SummarizeResult {
   success: boolean;
@@ -31,13 +32,13 @@ export async function summarizeWithGemini(
 ${text}`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-05-20",
+      model: GEMINI.MODEL_NAME,
       contents: prompt,
       config: {
-        temperature: 0.3,
+        temperature: GEMINI.TEMPERATURE,
         topK: 1,
         topP: 0.8,
-        maxOutputTokens: 10000,
+        maxOutputTokens: GEMINI.MAX_OUTPUT_TOKENS,
       },
     });
 

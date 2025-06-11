@@ -1,3 +1,5 @@
+import { DISCORD, FORMATTING } from "../constants.ts";
+
 /**
  * メッセージフォーマット関連の責務を担当するクラス
  */
@@ -12,7 +14,7 @@ export class MessageFormatter {
    * Discordの文字数制限を考慮してレスポンスをフォーマット
    */
   formatResponse(response: string): string {
-    const maxLength = 1900; // 余裕を持って少し短く
+    const maxLength = DISCORD.TRUNCATE_LENGTH; // 余裕を持って少し短く
 
     if (response.length <= maxLength) {
       // ANSIエスケープシーケンスを除去
@@ -87,7 +89,7 @@ export class MessageFormatter {
     const maxLength = 1500; // Discord制限を考慮した最大長
 
     // 短い場合は全文表示
-    if (content.length <= 500) {
+    if (content.length <= FORMATTING.SHORT_RESULT_THRESHOLD) {
       return `\`\`\`\n${content}\n\`\`\``;
     }
 
@@ -97,7 +99,7 @@ export class MessageFormatter {
     }
 
     // 中程度の長さの場合
-    if (content.length <= 2000) {
+    if (content.length <= FORMATTING.LONG_RESULT_THRESHOLD) {
       return this.formatMediumResult(content, maxLength);
     }
 

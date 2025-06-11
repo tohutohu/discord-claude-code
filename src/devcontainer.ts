@@ -1,4 +1,5 @@
 import { join } from "std/path/mod.ts";
+import { DEVCONTAINER } from "./constants.ts";
 
 export interface DevcontainerConfig {
   name?: string;
@@ -155,7 +156,7 @@ function setupProgressTimer(
   maxLogLines: number,
   onProgress?: (message: string) => Promise<void>,
 ): number {
-  const progressUpdateInterval = 2000; // 2秒
+  const progressUpdateInterval = DEVCONTAINER.PROGRESS_UPDATE_INTERVAL_MS;
   return setInterval(async () => {
     if (onProgress && logBuffer.length > 0) {
       const recentLogs = logBuffer.slice(-maxLogLines);
@@ -257,7 +258,9 @@ async function processStdoutLine(
     // 重要なイベントは即座に通知
     if (isImportantEvent(message)) {
       const now = Date.now();
-      if (now - lastProgressUpdate.time > 1000) { // 1秒以上経過していれば更新
+      if (
+        now - lastProgressUpdate.time > DEVCONTAINER.PROGRESS_NOTIFY_INTERVAL_MS
+      ) { // 1秒以上経過していれば更新
         lastProgressUpdate.time = now;
         if (onProgress) {
           const icon = getProgressIcon(message);
@@ -390,7 +393,7 @@ export async function startDevcontainer(
 
     const decoder = new TextDecoder();
     const logBuffer: string[] = [];
-    const maxLogLines = 30;
+    const maxLogLines = DEVCONTAINER.MAX_LOG_LINES;
     const lastProgressUpdate = { time: Date.now() };
 
     // stdoutとstderrをストリーミングで読み取る
