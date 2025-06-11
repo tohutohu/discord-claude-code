@@ -2,6 +2,17 @@ import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import type { ThreadInfo } from "../workspace.ts";
 import { createWorktreeCopy, isWorktreeCopyExists } from "../git-utils.ts";
+import { err, ok, Result } from "neverthrow";
+
+// WorkspaceError型定義
+export type WorkspaceError =
+  | { type: "INITIALIZATION_FAILED"; error: string }
+  | { type: "SAVE_FAILED"; threadId: string; error: string }
+  | { type: "LOAD_FAILED"; threadId: string; error: string }
+  | { type: "UPDATE_FAILED"; threadId: string; error: string }
+  | { type: "LIST_FAILED"; error: string }
+  | { type: "WORKTREE_CREATE_FAILED"; threadId: string; error: string }
+  | { type: "WORKTREE_REMOVE_FAILED"; threadId: string; error: string };
 
 export class ThreadManager {
   private readonly threadsDir: string;
@@ -12,9 +23,17 @@ export class ThreadManager {
     this.worktreesDir = join(baseDir, "worktrees");
   }
 
-  async initialize(): Promise<void> {
-    await ensureDir(this.threadsDir);
-    await ensureDir(this.worktreesDir);
+  async initialize(): Promise<Result<void, WorkspaceError>> {
+    try {
+      await ensureDir(this.threadsDir);
+      await ensureDir(this.worktreesDir);
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        type: "INITIALIZATION_FAILED",
+        error: `ThreadManagerの初期化に失敗しました: ${error}`,
+      });
+    }
   }
 
   private getThreadFilePath(threadId: string): string {
@@ -25,106 +44,181 @@ export class ThreadManager {
     return join(this.worktreesDir, threadId);
   }
 
-  async saveThreadInfo(threadInfo: ThreadInfo): Promise<void> {
-    const filePath = this.getThreadFilePath(threadInfo.threadId);
-    await Deno.writeTextFile(filePath, JSON.stringify(threadInfo, null, 2));
+  async saveThreadInfo(
+    threadInfo: ThreadInfo,
+  ): Promise<Result<void, WorkspaceError>> {
+    try {
+      const filePath = this.getThreadFilePath(threadInfo.threadId);
+      await Deno.writeTextFile(filePath, JSON.stringify(threadInfo, null, 2));
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        type: "SAVE_FAILED",
+        threadId: threadInfo.threadId,
+        error: `スレッド情報の保存に失敗しました: ${error}`,
+      });
+    }
   }
 
-  async loadThreadInfo(threadId: string): Promise<ThreadInfo | null> {
+  async loadThreadInfo(
+    threadId: string,
+  ): Promise<Result<ThreadInfo | null, WorkspaceError>> {
     try {
       const filePath = this.getThreadFilePath(threadId);
       const content = await Deno.readTextFile(filePath);
-      return JSON.parse(content) as ThreadInfo;
+      return ok(JSON.parse(content) as ThreadInfo);
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return null;
+        return ok(null);
       }
-      throw error;
+      return err({
+        type: "LOAD_FAILED",
+        threadId,
+        error: `スレッド情報の読み込みに失敗しました: ${error}`,
+      });
     }
   }
 
-  async updateThreadLastActive(threadId: string): Promise<void> {
-    const threadInfo = await this.loadThreadInfo(threadId);
+  async updateThreadLastActive(
+    threadId: string,
+  ): Promise<Result<void, WorkspaceError>> {
+    const loadResult = await this.loadThreadInfo(threadId);
+    if (loadResult.isErr()) {
+      return err(loadResult.error);
+    }
+
+    const threadInfo = loadResult.value;
     if (threadInfo) {
       threadInfo.lastActiveAt = new Date().toISOString();
-      await this.saveThreadInfo(threadInfo);
+      const saveResult = await this.saveThreadInfo(threadInfo);
+      if (saveResult.isErr()) {
+        return err({
+          type: "UPDATE_FAILED",
+          threadId,
+          error:
+            `最終アクティブ時刻の更新に失敗しました: ${saveResult.error.error}`,
+        });
+      }
     }
+    return ok(undefined);
   }
 
-  async getAllThreadInfos(): Promise<ThreadInfo[]> {
+  async getAllThreadInfos(): Promise<Result<ThreadInfo[], WorkspaceError>> {
     try {
       const threadInfos: ThreadInfo[] = [];
 
       for await (const entry of Deno.readDir(this.threadsDir)) {
         if (entry.isFile && entry.name.endsWith(".json")) {
           const threadId = entry.name.replace(".json", "");
-          const threadInfo = await this.loadThreadInfo(threadId);
-          if (threadInfo) {
-            threadInfos.push(threadInfo);
+          const loadResult = await this.loadThreadInfo(threadId);
+          if (loadResult.isErr()) {
+            // 個別の読み込みエラーはスキップしてログのみ出力
+            console.error(
+              `スレッド情報の読み込みに失敗しました (${threadId}):`,
+              loadResult.error,
+            );
+            continue;
+          }
+          if (loadResult.value) {
+            threadInfos.push(loadResult.value);
           }
         }
       }
 
-      return threadInfos.sort((a, b) =>
-        b.lastActiveAt.localeCompare(a.lastActiveAt)
+      return ok(
+        threadInfos.sort((a, b) =>
+          b.lastActiveAt.localeCompare(a.lastActiveAt)
+        ),
       );
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return [];
+        return ok([]);
       }
-      throw error;
+      return err({
+        type: "LIST_FAILED",
+        error: `スレッド情報の一覧取得に失敗しました: ${error}`,
+      });
     }
   }
 
   async ensureWorktree(
     threadId: string,
     repositoryPath: string,
-  ): Promise<string> {
-    const worktreePath = this.getWorktreePath(threadId);
-    const exists = await isWorktreeCopyExists(worktreePath);
-    if (exists) {
-      return worktreePath;
-    }
+  ): Promise<Result<string, WorkspaceError>> {
+    try {
+      const worktreePath = this.getWorktreePath(threadId);
+      const exists = await isWorktreeCopyExists(worktreePath);
+      if (exists) {
+        return ok(worktreePath);
+      }
 
-    await createWorktreeCopy(repositoryPath, threadId, worktreePath);
-    return worktreePath;
+      await createWorktreeCopy(repositoryPath, threadId, worktreePath);
+      return ok(worktreePath);
+    } catch (error) {
+      return err({
+        type: "WORKTREE_CREATE_FAILED",
+        threadId,
+        error: `worktreeの作成に失敗しました: ${error}`,
+      });
+    }
   }
 
-  async removeWorktree(threadId: string): Promise<void> {
+  async removeWorktree(
+    threadId: string,
+  ): Promise<Result<void, WorkspaceError>> {
     const worktreePath = this.getWorktreePath(threadId);
 
     try {
       const stat = await Deno.stat(worktreePath);
       if (!stat.isDirectory) {
-        return;
+        return ok(undefined);
       }
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return;
+        return ok(undefined);
       }
-      throw error;
+      return err({
+        type: "WORKTREE_REMOVE_FAILED",
+        threadId,
+        error: `worktreeの状態確認に失敗しました: ${error}`,
+      });
     }
 
     try {
       await Deno.remove(worktreePath, { recursive: true });
+      return ok(undefined);
     } catch (removeError) {
       console.warn(
         `ディレクトリの強制削除に失敗しました (${threadId}): ${removeError}`,
       );
+      return err({
+        type: "WORKTREE_REMOVE_FAILED",
+        threadId,
+        error: `worktreeの削除に失敗しました: ${removeError}`,
+      });
     }
   }
 
-  async cleanupWorktree(threadId: string): Promise<void> {
+  async cleanupWorktree(
+    threadId: string,
+  ): Promise<Result<void, WorkspaceError>> {
     const worktreePath = this.getWorktreePath(threadId);
 
     try {
       await Deno.remove(worktreePath, { recursive: true });
+      return ok(undefined);
     } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) {
-        console.warn(
-          `worktreeコピーディレクトリの削除に失敗しました: ${error}`,
-        );
+      if (error instanceof Deno.errors.NotFound) {
+        return ok(undefined);
       }
+      console.warn(
+        `worktreeコピーディレクトリの削除に失敗しました: ${error}`,
+      );
+      return err({
+        type: "WORKTREE_REMOVE_FAILED",
+        threadId,
+        error: `worktreeのクリーンアップに失敗しました: ${error}`,
+      });
     }
   }
 }

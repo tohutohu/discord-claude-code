@@ -126,7 +126,12 @@ export class WorkspaceManager {
     await ensureDir(this.config.workersDir);
 
     // Initialize all managers
-    await this.threadManager.initialize();
+    const threadInitResult = await this.threadManager.initialize();
+    if (threadInitResult.isErr()) {
+      throw new Error(
+        `ThreadManagerの初期化に失敗しました: ${threadInitResult.error.error}`,
+      );
+    }
     await this.sessionManager.initialize();
     await this.auditLogger.initialize();
     await this.patManager.initialize();
@@ -152,15 +157,31 @@ export class WorkspaceManager {
   // Private path methods removed - now handled by individual managers
 
   async saveThreadInfo(threadInfo: ThreadInfo): Promise<void> {
-    await this.threadManager.saveThreadInfo(threadInfo);
+    const result = await this.threadManager.saveThreadInfo(threadInfo);
+    if (result.isErr()) {
+      throw new Error(
+        `スレッド情報の保存に失敗しました: ${result.error.error}`,
+      );
+    }
   }
 
   async loadThreadInfo(threadId: string): Promise<ThreadInfo | null> {
-    return await this.threadManager.loadThreadInfo(threadId);
+    const result = await this.threadManager.loadThreadInfo(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `スレッド情報の読み込みに失敗しました: ${result.error.error}`,
+      );
+    }
+    return result.value;
   }
 
   async updateThreadLastActive(threadId: string): Promise<void> {
-    await this.threadManager.updateThreadLastActive(threadId);
+    const result = await this.threadManager.updateThreadLastActive(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `最終アクティブ時刻の更新に失敗しました: ${result.error.error}`,
+      );
+    }
   }
 
   async appendAuditLog(auditEntry: AuditEntry): Promise<void> {
@@ -180,22 +201,43 @@ export class WorkspaceManager {
   }
 
   async getAllThreadInfos(): Promise<ThreadInfo[]> {
-    return await this.threadManager.getAllThreadInfos();
+    const result = await this.threadManager.getAllThreadInfos();
+    if (result.isErr()) {
+      throw new Error(
+        `スレッド情報の一覧取得に失敗しました: ${result.error.error}`,
+      );
+    }
+    return result.value;
   }
 
   async ensureWorktree(
     threadId: string,
     repositoryPath: string,
   ): Promise<string> {
-    return await this.threadManager.ensureWorktree(threadId, repositoryPath);
+    const result = await this.threadManager.ensureWorktree(
+      threadId,
+      repositoryPath,
+    );
+    if (result.isErr()) {
+      throw new Error(`worktreeの作成に失敗しました: ${result.error.error}`);
+    }
+    return result.value;
   }
 
   async removeWorktree(threadId: string): Promise<void> {
-    await this.threadManager.removeWorktree(threadId);
+    const result = await this.threadManager.removeWorktree(threadId);
+    if (result.isErr()) {
+      throw new Error(`worktreeの削除に失敗しました: ${result.error.error}`);
+    }
   }
 
   async cleanupWorktree(threadId: string): Promise<void> {
-    await this.threadManager.cleanupWorktree(threadId);
+    const result = await this.threadManager.cleanupWorktree(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `worktreeのクリーンアップに失敗しました: ${result.error.error}`,
+      );
+    }
   }
 
   async getLocalRepositories(): Promise<string[]> {
