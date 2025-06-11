@@ -121,7 +121,7 @@ export class RateLimitManager {
         // タイマーを設定
         this.scheduleAutoResume(threadId, workerState.rateLimitTimestamp);
 
-        return `自動継続が設定されました。${resumeTimeStr}頃に「続けて」というプロンプトで自動的にセッションを再開します。`;
+        return `自動継続が設定されました。${resumeTimeStr}頃にキューに溜まったメッセージを自動的に処理します。`;
       }
       // 手動再開を選択
       workerState.autoResumeAfterRateLimit = false;
@@ -237,11 +237,8 @@ export class RateLimitManager {
           });
         }
       } else {
-        // キューが空の場合は「続けて」を送信
-        if (this.onAutoResumeMessage) {
-          this.logVerbose("キューが空のため「続けて」を送信", { threadId });
-          await this.onAutoResumeMessage(threadId, "続けて");
-        }
+        // キューが空の場合は何もしない
+        this.logVerbose("キューが空のため処理をスキップ", { threadId });
       }
     } catch (error) {
       this.logVerbose("自動再開の実行でエラー", {
