@@ -349,18 +349,7 @@ Deno.test("Worker - VERBOSEモードで翻訳結果がログに出力される",
 
     const mockExecutor = new MockClaudeCommandExecutor([
       JSON.stringify({ type: "session", session_id: "test-session" }),
-      JSON.stringify({
-        type: "assistant",
-        message: {
-          content: [{ type: "text", text: "Done!" }],
-        },
-      }),
-      JSON.stringify({
-        type: "result",
-        result: "Done!",
-        subtype: "test",
-        is_error: false,
-      }),
+      JSON.stringify({ type: "result", result: "Done!" }),
     ]);
 
     // consoleログをキャプチャ
