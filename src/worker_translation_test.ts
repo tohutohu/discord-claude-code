@@ -384,18 +384,38 @@ Deno.test("Worker - VERBOSEモードで翻訳結果がログに出力される",
     await workspaceManager.initialize();
 
     const mockExecutor = new MockClaudeCommandExecutor([
-      JSON.stringify({ type: "session", session_id: "test-session" }),
-      JSON.stringify({ type: "result", result: "Done!" }),
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "test-session",
+        tools: [],
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg_004",
+          type: "message",
+          role: "assistant",
+          model: "claude-3-opus",
+          content: [{ type: "text", text: "Error handling has been added." }],
+          stop_reason: "end_turn",
+        },
+        session_id: "test-session",
+      }),
+      JSON.stringify({
+        type: "result",
+        result: "Error handling has been added.",
+        subtype: "success",
+        is_error: false,
+        session_id: "test-session",
+      }),
     ]);
 
     // consoleログをキャプチャ
     const originalLog = console.log;
     const logs: string[] = [];
-    console.log = (message: string, ...args: unknown[]) => {
-      logs.push(message);
-      if (args.length > 0) {
-        logs.push(...args.map((arg) => String(arg)));
-      }
+    console.log = (...args: unknown[]) => {
+      logs.push(...args.map((arg) => String(arg)));
     };
 
     try {
@@ -438,7 +458,7 @@ Deno.test("Worker - VERBOSEモードで翻訳結果がログに出力される",
       // 結果が正常に返されることを確認
       assertEquals(result.isOk(), true);
       if (result.isOk()) {
-        assertEquals(result.value, "Done!");
+        assertEquals(result.value, "Error handling has been added.");
       }
 
       // 翻訳結果がログに記録されているか確認
@@ -447,11 +467,6 @@ Deno.test("Worker - VERBOSEモードで翻訳結果がログに出力される",
         log.includes("元のメッセージ:") ||
         log.includes("翻訳後:")
       );
-
-      // デバッグ用：ログの内容を確認
-      if (!hasTranslationLog) {
-        console.error("Captured logs:", logs);
-      }
 
       assertEquals(hasTranslationLog, true);
     } finally {
