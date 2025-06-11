@@ -157,7 +157,7 @@ export class Worker implements IWorker {
       if (error instanceof ClaudeCodeRateLimitError) {
         return err({
           type: "RATE_LIMIT",
-          retryAfter: error.retryAfter,
+          retryAt: error.retryAt,
           timestamp: error.timestamp,
         });
       }

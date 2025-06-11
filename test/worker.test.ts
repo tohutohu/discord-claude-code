@@ -142,7 +142,9 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
 
     // Result型の確認
     assertEquals(result.isOk(), true);
-    assertEquals(result._unsafeUnwrap(), mockResponse);
+    if (result.isOk()) {
+      assertEquals(result.value, mockResponse);
+    }
   } finally {
     // クリーンアップ
   }
@@ -260,12 +262,12 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
       },
     );
 
-    // Result型の確認
-    assertEquals(result.isOk(), true);
-
     // ストリーミングされたメッセージを確認
     assertEquals(progressMessages.length > 0, true);
-    assertEquals(result._unsafeUnwrap(), "モックレスポンス");
+    assertEquals(result.isOk(), true);
+    if (result.isOk()) {
+      assertEquals(result.value, "モックレスポンス");
+    }
   } finally {
     // クリーンアップ
   }

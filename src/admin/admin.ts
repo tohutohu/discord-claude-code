@@ -255,7 +255,7 @@ export class Admin implements IAdmin {
       if (errorMessage.includes("rate limit")) {
         return err({
           type: "RATE_LIMIT",
-          retryAfter: 300000, // 5分
+          retryAt: 300000, // 5分
           timestamp: Date.now(),
         });
       } else if (errorMessage.includes("Worker not found")) {

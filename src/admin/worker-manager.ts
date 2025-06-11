@@ -292,6 +292,11 @@ export class WorkerManager {
                 repositoryFullName: threadInfo.repositoryFullName,
                 error: setRepoResult.error.type,
               });
+              // リポジトリ設定に失敗した場合、Worker作成を中断
+              this.workers.delete(threadId);
+              throw new Error(
+                `Failed to restore repository for thread ${threadId}: ${setRepoResult.error.type}`,
+              );
             } else {
               this.logVerbose("リポジトリ情報復旧完了", {
                 threadId,

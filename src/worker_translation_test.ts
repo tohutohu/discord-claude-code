@@ -173,18 +173,19 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
 
     const result = await worker.processMessage("認証機能を実装してください");
 
-    // Result型の確認
+    // 結果が正常に返されることを確認
     assertEquals(result.isOk(), true);
-
-    // Claudeに渡されたプロンプトが翻訳されているか確認
-    assertEquals(
-      mockExecutor.lastPrompt,
-      "Implement authentication functionality",
-    );
-    assertEquals(
-      result._unsafeUnwrap(),
-      "Authentication has been implemented.",
-    );
+    if (result.isOk()) {
+      // Claudeに渡されたプロンプトが翻訳されているか確認
+      assertEquals(
+        mockExecutor.lastPrompt,
+        "Implement authentication functionality",
+      );
+      assertEquals(
+        result.value,
+        "Authentication has been implemented.",
+      );
+    }
   } finally {
     await mockServer.stop();
     await Deno.remove(tempDir, { recursive: true });
@@ -248,12 +249,13 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
 
     const result = await worker.processMessage("認証機能を実装してください");
 
-    // Result型の確認
+    // 結果が正常に返されることを確認
     assertEquals(result.isOk(), true);
-
-    // Claudeに渡されたプロンプトが翻訳されていないことを確認
-    assertEquals(mockExecutor.lastPrompt, "認証機能を実装してください");
-    assertEquals(result._unsafeUnwrap(), "認証機能を実装しました。");
+    if (result.isOk()) {
+      // Claudeに渡されたプロンプトが翻訳されていないことを確認
+      assertEquals(mockExecutor.lastPrompt, "認証機能を実装してください");
+      assertEquals(result.value, "認証機能を実装しました。");
+    }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
@@ -321,15 +323,16 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
       "エラーハンドリングを追加してください",
     );
 
-    // Result型の確認
+    // 結果が正常に返されることを確認
     assertEquals(result.isOk(), true);
-
-    // 翻訳が失敗し、元のメッセージが使用されることを確認
-    assertEquals(
-      mockExecutor.lastPrompt,
-      "エラーハンドリングを追加してください",
-    );
-    assertEquals(result._unsafeUnwrap(), "エラーハンドリングを追加しました。");
+    if (result.isOk()) {
+      // 翻訳が失敗し、元のメッセージが使用されることを確認
+      assertEquals(
+        mockExecutor.lastPrompt,
+        "エラーハンドリングを追加してください",
+      );
+      assertEquals(result.value, "エラーハンドリングを追加しました。");
+    }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
@@ -407,8 +410,11 @@ Deno.test("Worker - VERBOSEモードで翻訳結果がログに出力される",
         "エラーハンドリングを追加してください",
       );
 
-      // Result型の確認
+      // 結果が正常に返されることを確認
       assertEquals(result.isOk(), true);
+      if (result.isOk()) {
+        assertEquals(result.value, "Done!");
+      }
 
       // 翻訳結果がログに記録されているか確認
       const hasTranslationLog = logs.some((log) =>

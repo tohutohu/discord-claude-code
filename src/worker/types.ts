@@ -3,7 +3,7 @@ export type WorkerError =
   | { type: "REPOSITORY_NOT_SET" }
   | { type: "CONFIGURATION_INCOMPLETE" }
   | { type: "CLAUDE_EXECUTION_FAILED"; error: string }
-  | { type: "RATE_LIMIT"; retryAfter: number; timestamp: number }
+  | { type: "RATE_LIMIT"; retryAt: number; timestamp: number }
   | { type: "TRANSLATION_FAILED"; error: string }
   | { type: "SESSION_LOG_FAILED"; operation: string; error: string }
   | { type: "DEVCONTAINER_START_FAILED"; error: string }
@@ -14,7 +14,7 @@ export type WorkerError =
 export interface ClaudeResponse {
   content: string;
   isRateLimit?: boolean;
-  retryAfter?: number;
+  retryAt?: number;
   timestamp?: number;
 }
 
