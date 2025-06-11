@@ -5,6 +5,10 @@ import { SessionManager } from "./workspace/session-manager.ts";
 import { AuditLogger } from "./workspace/audit-logger.ts";
 import { PatManager } from "./workspace/pat-manager.ts";
 import { QueueManager } from "./workspace/queue-manager.ts";
+import {
+  validateAdminStateSafe,
+  validateWorkerStateSafe,
+} from "./workspace/schemas/admin-schema.ts";
 
 export interface WorkspaceConfig {
   baseDir: string;
@@ -357,7 +361,29 @@ export class WorkspaceManager {
     try {
       const filePath = this.getAdminStateFilePath();
       const content = await Deno.readTextFile(filePath);
-      return JSON.parse(content) as AdminState;
+      const parsed = JSON.parse(content);
+      const result = validateAdminStateSafe(parsed);
+
+      if (!result.success) {
+        console.error(`Admin state validation failed: ${result.error.message}`);
+        // バックワードコンパチビリティのため、最小限の修復を試みる
+        if (parsed && typeof parsed === "object") {
+          const repaired: AdminState = {
+            activeThreadIds: Array.isArray(parsed.activeThreadIds)
+              ? parsed.activeThreadIds.filter((id: unknown) =>
+                typeof id === "string"
+              )
+              : [],
+            lastUpdated: typeof parsed.lastUpdated === "string"
+              ? parsed.lastUpdated
+              : new Date().toISOString(),
+          };
+          return repaired;
+        }
+        return null;
+      }
+
+      return result.data;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return null;
@@ -406,7 +432,49 @@ export class WorkspaceManager {
     try {
       const filePath = this.getWorkerStateFilePath(threadId);
       const content = await Deno.readTextFile(filePath);
-      return JSON.parse(content) as WorkerState;
+      const parsed = JSON.parse(content);
+      const result = validateWorkerStateSafe(parsed);
+
+      if (!result.success) {
+        console.error(
+          `Worker state validation failed for thread ${threadId}: ${result.error.message}`,
+        );
+        // バックワードコンパチビリティのため、最小限の修復を試みる
+        if (parsed && typeof parsed === "object") {
+          const now = new Date().toISOString();
+          const repaired: WorkerState = {
+            workerName: parsed.workerName || `worker-${threadId}`,
+            threadId: parsed.threadId || threadId,
+            threadName: parsed.threadName,
+            repository: parsed.repository,
+            repositoryLocalPath: parsed.repositoryLocalPath,
+            worktreePath: parsed.worktreePath,
+            devcontainerConfig: {
+              useDevcontainer: parsed.devcontainerConfig?.useDevcontainer ??
+                false,
+              useFallbackDevcontainer:
+                parsed.devcontainerConfig?.useFallbackDevcontainer ?? false,
+              hasDevcontainerFile:
+                parsed.devcontainerConfig?.hasDevcontainerFile ?? false,
+              hasAnthropicsFeature:
+                parsed.devcontainerConfig?.hasAnthropicsFeature ?? false,
+              containerId: parsed.devcontainerConfig?.containerId,
+              isStarted: parsed.devcontainerConfig?.isStarted ?? false,
+            },
+            sessionId: parsed.sessionId,
+            status: parsed.status || "active",
+            rateLimitTimestamp: parsed.rateLimitTimestamp,
+            autoResumeAfterRateLimit: parsed.autoResumeAfterRateLimit,
+            queuedMessages: parsed.queuedMessages,
+            createdAt: parsed.createdAt || now,
+            lastActiveAt: parsed.lastActiveAt || now,
+          };
+          return repaired;
+        }
+        return null;
+      }
+
+      return result.data;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return null;
