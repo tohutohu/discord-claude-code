@@ -4,7 +4,8 @@
     "npm:@discordeno/bot@21.0.0": "21.0.0",
     "npm:@discordeno/types@21.0.0": "21.0.0",
     "npm:@google/genai@1": "1.4.0_@modelcontextprotocol+sdk@1.12.1__express@5.1.0__zod@3.25.56_zod@3.25.56",
-    "npm:discord.js@^14.16.3": "14.19.3"
+    "npm:discord.js@^14.16.3": "14.19.3",
+    "npm:neverthrow@8.2.0": "8.2.0"
   },
   "npm": {
     "@discordeno/bot@21.0.0": {
@@ -123,6 +124,11 @@
         "zod",
         "zod-to-json-schema"
       ]
+    },
+    "@rollup/rollup-linux-x64-gnu@4.42.0": {
+      "integrity": "sha512-Gfm6cV6mj3hCUY8TqWa63DB8Mx3NADoFwiJrMpoZ1uESbK8FQV3LXkhfry+8bOniq9pqY1OdsjFWNsSbfjPugw==",
+      "os": ["linux"],
+      "cpu": ["x64"]
     },
     "@sapphire/async-queue@1.5.5": {
       "integrity": "sha512-cvGzxbba6sav2zZkH8GPf2oGk9yYoD5qrNWdu9fRehifgnFZJMV+nuy2nON2roRO4yQQ+v7MK/Pktl/HgfsUXg=="
@@ -555,6 +561,12 @@
     },
     "negotiator@1.0.0": {
       "integrity": "sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg=="
+    },
+    "neverthrow@8.2.0": {
+      "integrity": "sha512-kOCT/1MCPAxY5iUV3wytNFUMUolzuwd/VF/1KCx7kf6CutrOsTie+84zTGTpgQycjvfLdBBdvBvFLqFD2c0wkQ==",
+      "optionalDependencies": [
+        "@rollup/rollup-linux-x64-gnu"
+      ]
     },
     "node-fetch@2.7.0": {
       "integrity": "sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==",
@@ -1311,7 +1323,8 @@
   "workspace": {
     "dependencies": [
       "npm:@google/genai@1",
-      "npm:discord.js@^14.16.3"
+      "npm:discord.js@^14.16.3",
+      "npm:neverthrow@8.2.0"
     ]
   }
 }

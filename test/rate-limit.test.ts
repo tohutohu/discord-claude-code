@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
+import { assert, assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { Admin } from "../src/admin.ts";
 import {
   ClaudeCodeRateLimitError,
@@ -81,7 +81,8 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
   const timestamp = Math.floor(Date.now() / 1000);
 
   // Workerを作成してスレッド情報を準備
-  await admin.createWorker(threadId);
+  const createWorkerResult = await admin.createWorker(threadId);
+  assert(createWorkerResult.isOk());
 
   // レートリミット情報を保存
   const workerState = await workspaceManager.loadWorkerState(threadId);
@@ -91,29 +92,32 @@ Deno.test("レートリミット自動継続ボタンハンドリング", async 
   }
 
   // 「はい」ボタンの処理
-  const yesResult = await admin.handleButtonInteraction(
+  const yesResultOrErr = await admin.handleButtonInteraction(
     threadId,
     `rate_limit_auto_yes_${threadId}`,
   );
-  assertStringIncludes(yesResult, "自動継続が設定されました");
+  assert(yesResultOrErr.isOk());
+  assertStringIncludes(yesResultOrErr.value, "自動継続が設定されました");
 
   // WorkerStateが更新されていることを確認
   const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
   assertEquals(updatedWorkerState?.autoResumeAfterRateLimit, true);
 
   // 「いいえ」ボタンの処理
-  const noResult = await admin.handleButtonInteraction(
+  const noResultOrErr = await admin.handleButtonInteraction(
     threadId,
     `rate_limit_auto_no_${threadId}`,
   );
-  assertStringIncludes(noResult, "手動での再開が選択されました");
+  assert(noResultOrErr.isOk());
+  assertStringIncludes(noResultOrErr.value, "手動での再開が選択されました");
 
   // WorkerStateが更新されていることを確認
   const finalWorkerState = await workspaceManager.loadWorkerState(threadId);
   assertEquals(finalWorkerState?.autoResumeAfterRateLimit, false);
 
   // スレッドを終了してタイマーをクリア
-  await admin.terminateThread(threadId);
+  const terminateResult = await admin.terminateThread(threadId);
+  assert(terminateResult.isOk());
 
   await Deno.remove(baseDir, { recursive: true });
 });
@@ -138,7 +142,8 @@ Deno.test.ignore(
     const futureTimestamp = Math.floor((Date.now() + 30 * 1000) / 1000);
 
     // Workerを作成してスレッド情報を準備
-    await admin.createWorker(threadId);
+    const createWorkerResult = await admin.createWorker(threadId);
+    assert(createWorkerResult.isOk());
 
     // レートリミット情報を保存（自動継続有効）
     const workerState = await workspaceManager.loadWorkerState(threadId);
@@ -199,7 +204,8 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   const pastTimestamp = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
 
   // Workerを作成してスレッド情報を準備
-  await admin.createWorker(threadId);
+  const createWorkerResult = await admin.createWorker(threadId);
+  assert(createWorkerResult.isOk());
 
   // レートリミット情報を保存（自動継続有効）
   const workerState = await workspaceManager.loadWorkerState(threadId);
@@ -221,7 +227,8 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   });
 
   // 新しいAdminインスタンスで復旧をテスト（コールバックは引き継がれないのでadminを使用）
-  await admin.restoreActiveThreads();
+  const restoreResult = await admin.restoreActiveThreads();
+  assert(restoreResult.isOk());
 
   // 即座に自動再開が実行されたことを確認
   assertEquals(autoResumeCallbackCalled, true);
@@ -234,7 +241,8 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   assertEquals(updatedWorkerState?.autoResumeAfterRateLimit, undefined);
 
   // クリーンアップ
-  await admin.terminateThread(threadId);
+  const terminateResult = await admin.terminateThread(threadId);
+  assert(terminateResult.isOk());
   await Deno.remove(baseDir, { recursive: true });
 });
 
@@ -258,7 +266,8 @@ Deno.test.ignore(
     const futureTimestamp = Math.floor((Date.now() + 30 * 1000) / 1000);
 
     // Workerを作成してスレッド情報を準備
-    await admin.createWorker(threadId);
+    const createWorkerResult = await admin.createWorker(threadId);
+    assert(createWorkerResult.isOk());
 
     // レートリミット情報を保存（自動継続無効）
     const workerState = await workspaceManager.loadWorkerState(threadId);
