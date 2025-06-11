@@ -2,11 +2,12 @@ import type { IWorker } from "../worker.ts";
 import { Worker } from "../worker.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { AdminState, AuditEntry, ThreadInfo } from "../workspace.ts";
-import type { DiscordMessage, IAdmin } from "./types.ts";
+import type { AdminError, DiscordMessage, IAdmin } from "./types.ts";
 import { WorkerManager } from "./worker-manager.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
 import { DevcontainerManager } from "./devcontainer-manager.ts";
 import { MessageRouter } from "./message-router.ts";
+import { err, ok, Result } from "neverthrow";
 
 export class Admin implements IAdmin {
   private state: AdminState;
@@ -61,12 +62,12 @@ export class Admin implements IAdmin {
   /**
    * 既存のアクティブなスレッドを復旧する
    */
-  async restoreActiveThreads(): Promise<void> {
+  async restoreActiveThreads(): Promise<Result<void, AdminError>> {
     this.logVerbose("アクティブスレッド復旧開始");
 
     try {
       if (!this.checkActiveThreads()) {
-        return;
+        return ok(undefined);
       }
 
       this.logVerbose("復旧対象スレッド発見", {
@@ -84,11 +85,18 @@ export class Admin implements IAdmin {
       this.logVerbose("アクティブスレッド復旧完了", {
         restoredCount: this.workerManager.getWorkerCount(),
       });
+
+      return ok(undefined);
     } catch (error) {
       this.logVerbose("アクティブスレッド復旧でエラー", {
         error: (error as Error).message,
       });
       console.error("アクティブスレッドの復旧でエラーが発生しました:", error);
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "restoreActiveThreads",
+        error: (error as Error).message,
+      });
     }
   }
 
@@ -188,24 +196,39 @@ export class Admin implements IAdmin {
     );
   }
 
-  async createWorker(threadId: string): Promise<IWorker> {
-    const worker = await this.workerManager.createWorker(threadId);
+  async createWorker(threadId: string): Promise<Result<IWorker, AdminError>> {
+    try {
+      const worker = await this.workerManager.createWorker(threadId);
 
-    // アクティブスレッドリストに追加
-    await this.addActiveThread(threadId);
-    this.logVerbose("アクティブスレッドリストに追加完了", { threadId });
+      // アクティブスレッドリストに追加
+      await this.addActiveThread(threadId);
+      this.logVerbose("アクティブスレッドリストに追加完了", { threadId });
 
-    // 監査ログに記録
-    await this.logAuditEntry(threadId, "worker_created", {
-      workerName: worker.getName(),
-    });
-    this.logVerbose("監査ログ記録完了", { threadId, action: "worker_created" });
+      // 監査ログに記録
+      await this.logAuditEntry(threadId, "worker_created", {
+        workerName: worker.getName(),
+      });
+      this.logVerbose("監査ログ記録完了", {
+        threadId,
+        action: "worker_created",
+      });
 
-    return worker;
+      return ok(worker);
+    } catch (error) {
+      return err({
+        type: "WORKER_CREATE_FAILED",
+        threadId,
+        reason: (error as Error).message,
+      });
+    }
   }
 
-  getWorker(threadId: string): IWorker | null {
-    return this.workerManager.getWorker(threadId);
+  getWorker(threadId: string): Result<IWorker, AdminError> {
+    const worker = this.workerManager.getWorker(threadId);
+    if (!worker) {
+      return err({ type: "WORKER_NOT_FOUND", threadId });
+    }
+    return ok(worker);
   }
 
   async routeMessage(
@@ -215,78 +238,120 @@ export class Admin implements IAdmin {
     onReaction?: (emoji: string) => Promise<void>,
     messageId?: string,
     authorId?: string,
-  ): Promise<string | DiscordMessage> {
-    return this.messageRouter.routeMessage(
-      threadId,
-      message,
-      onProgress,
-      onReaction,
-      messageId,
-      authorId,
-    );
+  ): Promise<Result<string | DiscordMessage, AdminError>> {
+    try {
+      const result = await this.messageRouter.routeMessage(
+        threadId,
+        message,
+        onProgress,
+        onReaction,
+        messageId,
+        authorId,
+      );
+      return ok(result);
+    } catch (error) {
+      // エラーの種類に応じて適切なAdminError型を返す
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes("rate limit")) {
+        return err({
+          type: "RATE_LIMIT",
+          retryAfter: 300000, // 5分
+          timestamp: Date.now(),
+        });
+      } else if (errorMessage.includes("Worker not found")) {
+        return err({ type: "WORKER_NOT_FOUND", threadId });
+      } else {
+        return err({
+          type: "PERMISSION_ERROR",
+          message: errorMessage,
+        });
+      }
+    }
   }
 
   async handleButtonInteraction(
     threadId: string,
     customId: string,
-  ): Promise<string> {
-    // devcontainer関連のボタン処理
-    if (customId.startsWith(`devcontainer_yes_${threadId}`)) {
-      const worker = this.workerManager.getWorker(threadId);
-      if (!worker) {
-        return "Workerが見つかりません。";
+  ): Promise<Result<string, AdminError>> {
+    try {
+      // devcontainer関連のボタン処理
+      if (customId.startsWith(`devcontainer_yes_${threadId}`)) {
+        const workerResult = this.getWorker(threadId);
+        if (workerResult.isErr()) {
+          return err(workerResult.error);
+        }
+        const result = await this.devcontainerManager
+          .handleDevcontainerYesButton(
+            threadId,
+            workerResult.value as Worker,
+          );
+        return ok(result);
       }
-      return this.devcontainerManager.handleDevcontainerYesButton(
-        threadId,
-        worker as Worker,
-      );
-    }
 
-    if (customId.startsWith(`devcontainer_no_${threadId}`)) {
-      const worker = this.workerManager.getWorker(threadId);
-      if (!worker) {
-        return "Workerが見つかりません。";
+      if (customId.startsWith(`devcontainer_no_${threadId}`)) {
+        const workerResult = this.getWorker(threadId);
+        if (workerResult.isErr()) {
+          return err(workerResult.error);
+        }
+        const result = await this.devcontainerManager
+          .handleDevcontainerNoButton(
+            threadId,
+            workerResult.value as Worker,
+          );
+        return ok(result);
       }
-      return this.devcontainerManager.handleDevcontainerNoButton(
-        threadId,
-        worker as Worker,
-      );
-    }
 
-    // レートリミット自動継続ボタン処理
-    if (customId.startsWith(`rate_limit_auto_yes_${threadId}`)) {
-      return this.rateLimitManager.handleRateLimitAutoButton(threadId, true);
-    }
-
-    if (customId.startsWith(`rate_limit_auto_no_${threadId}`)) {
-      return this.rateLimitManager.handleRateLimitAutoButton(threadId, false);
-    }
-
-    // ローカル環境選択ボタン処理
-    if (customId.startsWith(`local_env_${threadId}`)) {
-      const worker = this.workerManager.getWorker(threadId);
-      if (!worker) {
-        return "Workerが見つかりません。";
+      // レートリミット自動継続ボタン処理
+      if (customId.startsWith(`rate_limit_auto_yes_${threadId}`)) {
+        const result = await this.rateLimitManager.handleRateLimitAutoButton(
+          threadId,
+          true,
+        );
+        return ok(result);
       }
-      return this.devcontainerManager.handleLocalEnvButton(
-        threadId,
-        worker as Worker,
-      );
-    }
 
-    // fallback devcontainer選択ボタン処理
-    if (customId.startsWith(`fallback_devcontainer_${threadId}`)) {
-      const worker = this.workerManager.getWorker(threadId);
-      if (!worker) {
-        return "Workerが見つかりません。";
+      if (customId.startsWith(`rate_limit_auto_no_${threadId}`)) {
+        const result = await this.rateLimitManager.handleRateLimitAutoButton(
+          threadId,
+          false,
+        );
+        return ok(result);
       }
-      return this.devcontainerManager.handleFallbackDevcontainerButton(
-        threadId,
-        worker as Worker,
-      );
-    }
 
-    return "未知のボタンが押されました。";
+      // ローカル環境選択ボタン処理
+      if (customId.startsWith(`local_env_${threadId}`)) {
+        const workerResult = this.getWorker(threadId);
+        if (workerResult.isErr()) {
+          return err(workerResult.error);
+        }
+        const result = await this.devcontainerManager.handleLocalEnvButton(
+          threadId,
+          workerResult.value as Worker,
+        );
+        return ok(result);
+      }
+
+      // fallback devcontainer選択ボタン処理
+      if (customId.startsWith(`fallback_devcontainer_${threadId}`)) {
+        const workerResult = this.getWorker(threadId);
+        if (workerResult.isErr()) {
+          return err(workerResult.error);
+        }
+        const result = await this.devcontainerManager
+          .handleFallbackDevcontainerButton(
+            threadId,
+            workerResult.value as Worker,
+          );
+        return ok(result);
+      }
+
+      return ok("未知のボタンが押されました。");
+    } catch (error) {
+      return err({
+        type: "PERMISSION_ERROR",
+        message: (error as Error).message,
+      });
+    }
   }
 
   /**
@@ -395,75 +460,88 @@ export class Admin implements IAdmin {
     return this.rateLimitManager.createRateLimitMessage(threadId, timestamp);
   }
 
-  async terminateThread(threadId: string): Promise<void> {
-    this.logVerbose("スレッド終了処理開始", {
-      threadId,
-      currentWorkerCount: this.workerManager.getWorkerCount(),
-    });
-
-    const worker = this.workerManager.removeWorker(threadId);
-
-    if (worker) {
-      this.logVerbose("Worker発見、終了処理実行", {
+  async terminateThread(threadId: string): Promise<Result<void, AdminError>> {
+    try {
+      this.logVerbose("スレッド終了処理開始", {
         threadId,
-        workerName: worker.getName(),
-        hasRepository: !!worker.getRepository(),
-        repositoryFullName: worker.getRepository()?.fullName,
+        currentWorkerCount: this.workerManager.getWorkerCount(),
       });
 
-      this.logVerbose("worktree削除開始", { threadId });
-      await this.workspaceManager.removeWorktree(threadId);
+      const worker = this.workerManager.removeWorker(threadId);
 
-      this.logVerbose("自動再開タイマークリア", { threadId });
-      this.rateLimitManager.clearAutoResumeTimer(threadId);
+      if (worker) {
+        this.logVerbose("Worker発見、終了処理実行", {
+          threadId,
+          workerName: worker.getName(),
+          hasRepository: !!worker.getRepository(),
+          repositoryFullName: worker.getRepository()?.fullName,
+        });
 
-      // WorkerStateをアーカイブ状態に更新
-      const workerState = await this.workspaceManager.loadWorkerState(threadId);
-      if (workerState) {
-        this.logVerbose("WorkerStateをアーカイブ状態に更新", { threadId });
-        workerState.status = "archived";
-        workerState.lastActiveAt = new Date().toISOString();
-        await this.workspaceManager.saveWorkerState(workerState);
-      }
+        this.logVerbose("worktree削除開始", { threadId });
+        await this.workspaceManager.removeWorktree(threadId);
 
-      // ThreadInfoもアーカイブ状態に更新
-      const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
-      if (threadInfo) {
-        this.logVerbose("ThreadInfoをアーカイブ状態に更新", { threadId });
-        threadInfo.status = "archived";
-        threadInfo.lastActiveAt = new Date().toISOString();
-        await this.workspaceManager.saveThreadInfo(threadInfo);
-      }
+        this.logVerbose("自動再開タイマークリア", { threadId });
+        this.rateLimitManager.clearAutoResumeTimer(threadId);
 
-      // アクティブスレッドリストから削除
-      await this.removeActiveThread(threadId);
-      this.logVerbose("アクティブスレッドリストから削除完了", { threadId });
-
-      await this.logAuditEntry(threadId, "thread_terminated", {
-        workerName: worker.getName(),
-        repository: worker.getRepository()?.fullName,
-      });
-
-      this.logVerbose("スレッド終了処理完了", {
-        threadId,
-        remainingWorkerCount: this.workerManager.getWorkerCount(),
-      });
-    } else {
-      this.logVerbose("Worker見つからず、終了処理スキップ", { threadId });
-    }
-
-    // Discordスレッドをクローズ
-    if (this.onThreadClose) {
-      this.logVerbose("Discordスレッドクローズコールバック実行", { threadId });
-      try {
-        await this.onThreadClose(threadId);
-        this.logVerbose("Discordスレッドクローズ成功", { threadId });
-      } catch (error) {
-        console.error(
-          `Discordスレッドのクローズに失敗しました (${threadId}):`,
-          error,
+        // WorkerStateをアーカイブ状態に更新
+        const workerState = await this.workspaceManager.loadWorkerState(
+          threadId,
         );
+        if (workerState) {
+          this.logVerbose("WorkerStateをアーカイブ状態に更新", { threadId });
+          workerState.status = "archived";
+          workerState.lastActiveAt = new Date().toISOString();
+          await this.workspaceManager.saveWorkerState(workerState);
+        }
+
+        // ThreadInfoもアーカイブ状態に更新
+        const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+        if (threadInfo) {
+          this.logVerbose("ThreadInfoをアーカイブ状態に更新", { threadId });
+          threadInfo.status = "archived";
+          threadInfo.lastActiveAt = new Date().toISOString();
+          await this.workspaceManager.saveThreadInfo(threadInfo);
+        }
+
+        // アクティブスレッドリストから削除
+        await this.removeActiveThread(threadId);
+        this.logVerbose("アクティブスレッドリストから削除完了", { threadId });
+
+        await this.logAuditEntry(threadId, "thread_terminated", {
+          workerName: worker.getName(),
+          repository: worker.getRepository()?.fullName,
+        });
+
+        this.logVerbose("スレッド終了処理完了", {
+          threadId,
+          remainingWorkerCount: this.workerManager.getWorkerCount(),
+        });
+      } else {
+        this.logVerbose("Worker見つからず、終了処理スキップ", { threadId });
       }
+
+      // Discordスレッドをクローズ
+      if (this.onThreadClose) {
+        this.logVerbose("Discordスレッドクローズコールバック実行", {
+          threadId,
+        });
+        try {
+          await this.onThreadClose(threadId);
+          this.logVerbose("Discordスレッドクローズ成功", { threadId });
+        } catch (error) {
+          console.error(
+            `Discordスレッドのクローズに失敗しました (${threadId}):`,
+            error,
+          );
+        }
+      }
+
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        type: "PERMISSION_ERROR",
+        message: (error as Error).message,
+      });
     }
   }
 

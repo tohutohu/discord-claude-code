@@ -1,4 +1,4 @@
-import { assertEquals, assertExists } from "std/assert/mod.ts";
+import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { Admin } from "./admin.ts";
 import { AdminState, WorkspaceManager } from "../workspace.ts";
 
@@ -17,14 +17,16 @@ Deno.test("Admin - 基本的な初期化とWorker作成", async () => {
     const threadId = "test-thread-1";
 
     // Workerを作成
-    const worker = await admin.createWorker(threadId);
-    assertExists(worker);
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+    const worker = workerResult.value;
     assertEquals(typeof worker.getName(), "string");
 
     // Workerを取得
-    const retrievedWorker = admin.getWorker(threadId);
-    assertExists(retrievedWorker);
-    assertEquals(worker.getName(), retrievedWorker?.getName());
+    const retrievedWorkerResult = admin.getWorker(threadId);
+    assert(retrievedWorkerResult.isOk());
+    const retrievedWorker = retrievedWorkerResult.value;
+    assertEquals(worker.getName(), retrievedWorker.getName());
 
     // Admin状態が更新されていることを確認
     await admin.save();
@@ -51,14 +53,17 @@ Deno.test("Admin - スレッドの終了処理", async () => {
     const threadId = "test-thread-2";
 
     // Workerを作成
-    await admin.createWorker(threadId);
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
 
     // スレッドを終了
-    await admin.terminateThread(threadId);
+    const terminateResult = await admin.terminateThread(threadId);
+    assert(terminateResult.isOk());
 
     // Workerが削除されていることを確認
-    const worker = admin.getWorker(threadId);
-    assertEquals(worker, null);
+    const getWorkerResult = admin.getWorker(threadId);
+    assert(getWorkerResult.isErr());
+    assertEquals(getWorkerResult.error.type, "WORKER_NOT_FOUND");
 
     // Admin状態からも削除されていることを確認
     await admin.save();

@@ -1,3 +1,13 @@
+// エラー型定義
+export type AdminError =
+  | { type: "RATE_LIMIT"; retryAfter: number; timestamp: number }
+  | { type: "WORKER_NOT_FOUND"; threadId: string }
+  | { type: "WORKER_CREATE_FAILED"; threadId: string; reason: string }
+  | { type: "DEVCONTAINER_SETUP_FAILED"; threadId: string; error: string }
+  | { type: "PERMISSION_ERROR"; message: string }
+  | { type: "THREAD_TERMINATED"; threadId: string }
+  | { type: "WORKSPACE_ERROR"; operation: string; error: string };
+
 // Discord関連の型定義
 export interface DiscordButtonComponent {
   type: 2;
@@ -19,8 +29,14 @@ export interface DiscordMessage {
 
 // Admin関連のインターフェース
 export interface IAdmin {
-  createWorker(threadId: string): Promise<import("../worker.ts").IWorker>;
-  getWorker(threadId: string): import("../worker.ts").IWorker | null;
+  createWorker(
+    threadId: string,
+  ): Promise<
+    import("neverthrow").Result<import("../worker.ts").IWorker, AdminError>
+  >;
+  getWorker(
+    threadId: string,
+  ): import("neverthrow").Result<import("../worker.ts").IWorker, AdminError>;
   routeMessage(
     threadId: string,
     message: string,
@@ -28,12 +44,19 @@ export interface IAdmin {
     onReaction?: (emoji: string) => Promise<void>,
     messageId?: string,
     authorId?: string,
-  ): Promise<string | DiscordMessage>;
-  handleButtonInteraction(threadId: string, customId: string): Promise<string>;
+  ): Promise<import("neverthrow").Result<string | DiscordMessage, AdminError>>;
+  handleButtonInteraction(
+    threadId: string,
+    customId: string,
+  ): Promise<import("neverthrow").Result<string, AdminError>>;
   createInitialMessage(threadId: string): DiscordMessage;
   createRateLimitMessage(threadId: string, timestamp: number): string;
-  terminateThread(threadId: string): Promise<void>;
-  restoreActiveThreads(): Promise<void>;
+  terminateThread(
+    threadId: string,
+  ): Promise<import("neverthrow").Result<void, AdminError>>;
+  restoreActiveThreads(): Promise<
+    import("neverthrow").Result<void, AdminError>
+  >;
   setAutoResumeCallback(
     callback: (threadId: string, message: string) => Promise<void>,
   ): void;
