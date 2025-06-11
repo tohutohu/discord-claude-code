@@ -1,7 +1,7 @@
 import type { IWorker } from "../worker.ts";
 import { Worker } from "../worker.ts";
 import { WorkspaceManager } from "../workspace.ts";
-import type { AdminState, AuditEntry } from "../workspace.ts";
+import type { AdminState, AuditEntry, ThreadInfo } from "../workspace.ts";
 import type { DiscordMessage, IAdmin } from "./types.ts";
 import { WorkerManager } from "./worker-manager.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
@@ -65,8 +65,7 @@ export class Admin implements IAdmin {
     this.logVerbose("アクティブスレッド復旧開始");
 
     try {
-      if (this.state.activeThreadIds.length === 0) {
-        this.logVerbose("アクティブスレッドリストが空");
+      if (!this.checkActiveThreads()) {
         return;
       }
 
@@ -76,62 +75,7 @@ export class Admin implements IAdmin {
       });
 
       for (const threadId of [...this.state.activeThreadIds]) {
-        try {
-          // スレッド情報を読み込む
-          const threadInfo = await this.workspaceManager.loadThreadInfo(
-            threadId,
-          );
-          if (!threadInfo) {
-            this.logVerbose("スレッド情報が見つからない", { threadId });
-            // アクティブリストから削除（失敗しても復旧ループを止めない）
-            try {
-              await this.removeActiveThread(threadId);
-            } catch (error) {
-              this.logVerbose("アクティブリストからの削除に失敗", {
-                threadId,
-                error: (error as Error).message,
-              });
-            }
-            continue;
-          }
-
-          // アーカイブ済みの場合はスキップ
-          if (threadInfo.status === "archived") {
-            this.logVerbose("アーカイブ済みスレッドをスキップ", { threadId });
-            try {
-              await this.removeActiveThread(threadId);
-            } catch (error) {
-              this.logVerbose("アクティブリストからの削除に失敗", {
-                threadId,
-                error: (error as Error).message,
-              });
-            }
-            continue;
-          }
-
-          await this.workerManager.restoreThread(threadInfo);
-
-          // 監査ログに記録
-          const workerState = await this.workspaceManager.loadWorkerState(
-            threadId,
-          );
-          if (workerState) {
-            await this.logAuditEntry(threadId, "thread_restored", {
-              workerName: workerState.workerName,
-              repositoryFullName: workerState.repository?.fullName,
-              fromWorkerState: true,
-            });
-          }
-        } catch (error) {
-          this.logVerbose("スレッド復旧失敗", {
-            threadId,
-            error: (error as Error).message,
-          });
-          console.error(
-            `スレッド ${threadId} の復旧に失敗しました:`,
-            error,
-          );
-        }
+        await this.restoreSingleThread(threadId);
       }
 
       // レートリミット自動継続タイマーを復旧
@@ -146,6 +90,102 @@ export class Admin implements IAdmin {
       });
       console.error("アクティブスレッドの復旧でエラーが発生しました:", error);
     }
+  }
+
+  /**
+   * アクティブスレッドの存在を確認する
+   */
+  private checkActiveThreads(): boolean {
+    if (this.state.activeThreadIds.length === 0) {
+      this.logVerbose("アクティブスレッドリストが空");
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * スレッド情報を読み込んで検証する
+   */
+  private async loadAndValidateThreadInfo(
+    threadId: string,
+  ): Promise<ThreadInfo | null> {
+    const threadInfo = await this.workspaceManager.loadThreadInfo(threadId);
+
+    if (!threadInfo) {
+      this.logVerbose("スレッド情報が見つからない", { threadId });
+      await this.removeActiveThreadSafely(threadId);
+      return null;
+    }
+
+    if (threadInfo.status === "archived") {
+      this.logVerbose("アーカイブ済みスレッドをスキップ", { threadId });
+      await this.removeActiveThreadSafely(threadId);
+      return null;
+    }
+
+    return threadInfo;
+  }
+
+  /**
+   * アクティブリストからスレッドを安全に削除する
+   */
+  private async removeActiveThreadSafely(threadId: string): Promise<void> {
+    try {
+      await this.removeActiveThread(threadId);
+    } catch (error) {
+      this.logVerbose("アクティブリストからの削除に失敗", {
+        threadId,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  /**
+   * 単一スレッドを復旧する
+   */
+  private async restoreSingleThread(threadId: string): Promise<void> {
+    try {
+      const threadInfo = await this.loadAndValidateThreadInfo(threadId);
+      if (!threadInfo) {
+        return;
+      }
+
+      await this.workerManager.restoreThread(threadInfo);
+      await this.recordThreadRestoration(threadId);
+    } catch (error) {
+      await this.handleThreadRestoreError(threadId, error);
+    }
+  }
+
+  /**
+   * スレッド復旧の監査ログを記録する
+   */
+  private async recordThreadRestoration(threadId: string): Promise<void> {
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    if (workerState) {
+      await this.logAuditEntry(threadId, "thread_restored", {
+        workerName: workerState.workerName,
+        repositoryFullName: workerState.repository?.fullName,
+        fromWorkerState: true,
+      });
+    }
+  }
+
+  /**
+   * スレッド復旧エラーをハンドリングする
+   */
+  private async handleThreadRestoreError(
+    threadId: string,
+    error: unknown,
+  ): Promise<void> {
+    this.logVerbose("スレッド復旧失敗", {
+      threadId,
+      error: (error as Error).message,
+    });
+    console.error(
+      `スレッド ${threadId} の復旧に失敗しました:`,
+      error,
+    );
   }
 
   async createWorker(threadId: string): Promise<IWorker> {

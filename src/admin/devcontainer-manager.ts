@@ -38,82 +38,13 @@ export class DevcontainerManager {
       repositoryPath,
     });
 
-    const devcontainerInfo = await checkDevcontainerConfig(repositoryPath);
-    this.logVerbose("devcontainer.json存在確認完了", {
+    const devcontainerInfo = await this.checkDevcontainerExistence(
+      repositoryPath,
       threadId,
-      configExists: devcontainerInfo.configExists,
-      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature,
-    });
+    );
 
     if (!devcontainerInfo.configExists) {
-      this.logVerbose("devcontainer.json未発見", {
-        threadId,
-      });
-
-      // devcontainer CLIの確認
-      const hasDevcontainerCli = await checkDevcontainerCli();
-
-      if (!hasDevcontainerCli) {
-        // devcontainer CLI未インストールの場合は通常のローカル環境で実行
-        const config = {
-          useDevcontainer: false,
-          hasDevcontainerFile: false,
-          hasAnthropicsFeature: false,
-          isStarted: false,
-        };
-        await this.saveDevcontainerConfig(threadId, config);
-
-        return {
-          hasDevcontainer: false,
-          message:
-            "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
-          components: [
-            {
-              type: 1,
-              components: [
-                {
-                  type: 2,
-                  style: 1,
-                  label: "権限チェックあり",
-                  custom_id: `permissions_no_skip_${threadId}`,
-                },
-                {
-                  type: 2,
-                  style: 2,
-                  label: "権限チェックスキップ",
-                  custom_id: `permissions_skip_${threadId}`,
-                },
-              ],
-            },
-          ],
-        };
-      }
-
-      // devcontainer CLIがインストールされている場合はfallback devcontainerの選択肢を提供
-      return {
-        hasDevcontainer: false,
-        message:
-          "devcontainer.jsonが見つかりませんでした。\n\n以下のオプションから選択してください：\n1. 通常のローカル環境でClaudeを実行\n2. fallback devcontainerを使用（標準的な開発環境をコンテナで提供）",
-        components: [
-          {
-            type: 1,
-            components: [
-              {
-                type: 2,
-                style: 2,
-                label: "ローカル環境で実行",
-                custom_id: `local_env_${threadId}`,
-              },
-              {
-                type: 2,
-                style: 1,
-                label: "fallback devcontainerを使用",
-                custom_id: `fallback_devcontainer_${threadId}`,
-              },
-            ],
-          },
-        ],
-      };
+      return await this.handleNoDevcontainerCase(threadId);
     }
 
     // devcontainer CLIの確認
@@ -124,57 +55,128 @@ export class DevcontainerManager {
     });
 
     if (!hasDevcontainerCli) {
-      this.logVerbose("devcontainer CLI未インストール、ローカル環境で実行", {
+      return await this.handleNoCliCase(
         threadId,
-      });
+        devcontainerInfo.hasAnthropicsFeature ?? false,
+      );
+    }
 
-      // devcontainer設定情報を保存（CLI未インストール）
+    return await this.prepareDevcontainerResponse(
+      threadId,
+      devcontainerInfo.hasAnthropicsFeature ?? false,
+    );
+  }
+
+  /**
+   * devcontainer.jsonの存在を確認する
+   */
+  private async checkDevcontainerExistence(
+    repositoryPath: string,
+    threadId: string,
+  ): Promise<{
+    configExists: boolean;
+    hasAnthropicsFeature?: boolean;
+  }> {
+    const devcontainerInfo = await checkDevcontainerConfig(repositoryPath);
+    this.logVerbose("devcontainer.json存在確認完了", {
+      threadId,
+      configExists: devcontainerInfo.configExists,
+      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature,
+    });
+    return devcontainerInfo;
+  }
+
+  /**
+   * devcontainer.jsonが存在しない場合の処理
+   */
+  private async handleNoDevcontainerCase(
+    threadId: string,
+  ): Promise<{
+    hasDevcontainer: boolean;
+    message: string;
+    components?: DiscordActionRow[];
+  }> {
+    this.logVerbose("devcontainer.json未発見", {
+      threadId,
+    });
+
+    // devcontainer CLIの確認
+    const hasDevcontainerCli = await checkDevcontainerCli();
+
+    if (!hasDevcontainerCli) {
+      // devcontainer CLI未インストールの場合
       const config = {
         useDevcontainer: false,
-        hasDevcontainerFile: true,
-        hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature ?? false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
         isStarted: false,
       };
       await this.saveDevcontainerConfig(threadId, config);
 
-      return {
-        hasDevcontainer: true,
-        message:
-          "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
-        components: [
-          {
-            type: 1,
-            components: [
-              {
-                type: 2,
-                style: 1,
-                label: "権限チェックあり",
-                custom_id: `permissions_no_skip_${threadId}`,
-              },
-              {
-                type: 2,
-                style: 2,
-                label: "権限チェックスキップ",
-                custom_id: `permissions_skip_${threadId}`,
-              },
-            ],
-          },
-        ],
-        warning:
-          "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",
-      };
+      return this.createLocalEnvResponse(threadId);
     }
 
+    // devcontainer CLIがインストールされている場合
+    return this.createFallbackDevcontainerResponse(threadId);
+  }
+
+  /**
+   * devcontainer CLIがインストールされていない場合の処理
+   */
+  private async handleNoCliCase(
+    threadId: string,
+    hasAnthropicsFeature: boolean,
+  ): Promise<{
+    hasDevcontainer: boolean;
+    message: string;
+    components?: DiscordActionRow[];
+    warning?: string;
+  }> {
+    this.logVerbose("devcontainer CLI未インストール、ローカル環境で実行", {
+      threadId,
+    });
+
+    // devcontainer設定情報を保存（CLI未インストール）
+    const config = {
+      useDevcontainer: false,
+      hasDevcontainerFile: true,
+      hasAnthropicsFeature: hasAnthropicsFeature,
+      isStarted: false,
+    };
+    await this.saveDevcontainerConfig(threadId, config);
+
+    return {
+      hasDevcontainer: true,
+      message:
+        "devcontainer.jsonが見つかりましたが、devcontainer CLIがインストールされていません。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+      components: [this.createPermissionButtons(threadId)],
+      warning:
+        "devcontainer CLIをインストールしてください: npm install -g @devcontainers/cli",
+    };
+  }
+
+  /**
+   * devcontainer使用の選択肢を準備する
+   */
+  private async prepareDevcontainerResponse(
+    threadId: string,
+    hasAnthropicsFeature: boolean,
+  ): Promise<{
+    hasDevcontainer: boolean;
+    message: string;
+    components?: DiscordActionRow[];
+    warning?: string;
+  }> {
     // anthropics featureの確認
     let warningMessage = "";
-    if (!devcontainerInfo.hasAnthropicsFeature) {
+    if (!hasAnthropicsFeature) {
       warningMessage =
         "⚠️ 警告: anthropics/devcontainer-featuresが設定に含まれていません。Claude CLIが正常に動作しない可能性があります。";
     }
 
     this.logVerbose("devcontainer設定チェック完了、選択肢を提示", {
       threadId,
-      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature,
+      hasAnthropicsFeature: hasAnthropicsFeature,
       hasWarning: !!warningMessage,
     });
 
@@ -182,7 +184,7 @@ export class DevcontainerManager {
     const config = {
       useDevcontainer: false, // まだ選択されていない
       hasDevcontainerFile: true,
-      hasAnthropicsFeature: devcontainerInfo.hasAnthropicsFeature ?? false,
+      hasAnthropicsFeature: hasAnthropicsFeature,
       isStarted: false,
     };
     await this.saveDevcontainerConfig(threadId, config);
@@ -191,28 +193,110 @@ export class DevcontainerManager {
       hasDevcontainer: true,
       message:
         `devcontainer.jsonが見つかりました。devcontainer内でClaudeを実行しますか？\n\n**確認事項:**\n- devcontainer CLI: ✅ 利用可能\n- Anthropics features: ${
-          devcontainerInfo.hasAnthropicsFeature ? "✅" : "❌"
+          hasAnthropicsFeature ? "✅" : "❌"
         }\n\n下のボタンで選択してください：`,
+      components: [this.createDevcontainerButtons(threadId)],
+      warning: warningMessage,
+    };
+  }
+
+  /**
+   * ローカル環境の選択肢を作成する
+   */
+  private createLocalEnvResponse(
+    threadId: string,
+  ): {
+    hasDevcontainer: boolean;
+    message: string;
+    components: DiscordActionRow[];
+  } {
+    return {
+      hasDevcontainer: false,
+      message:
+        "devcontainer.jsonが見つかりませんでした。通常のローカル環境でClaudeを実行します。\n\n`--dangerously-skip-permissions`オプションを使用しますか？（権限チェックをスキップします。注意して使用してください）",
+      components: [this.createPermissionButtons(threadId)],
+    };
+  }
+
+  /**
+   * fallback devcontainerの選択肢を作成する
+   */
+  private createFallbackDevcontainerResponse(
+    threadId: string,
+  ): {
+    hasDevcontainer: boolean;
+    message: string;
+    components: DiscordActionRow[];
+  } {
+    return {
+      hasDevcontainer: false,
+      message:
+        "devcontainer.jsonが見つかりませんでした。\n\n以下のオプションから選択してください：\n1. 通常のローカル環境でClaudeを実行\n2. fallback devcontainerを使用（標準的な開発環境をコンテナで提供）",
       components: [
         {
           type: 1,
           components: [
             {
               type: 2,
-              style: 1,
-              label: "devcontainer使用",
-              custom_id: `devcontainer_yes_${threadId}`,
+              style: 2,
+              label: "ローカル環境で実行",
+              custom_id: `local_env_${threadId}`,
             },
             {
               type: 2,
-              style: 2,
-              label: "ローカル環境",
-              custom_id: `devcontainer_no_${threadId}`,
+              style: 1,
+              label: "fallback devcontainerを使用",
+              custom_id: `fallback_devcontainer_${threadId}`,
             },
           ],
         },
       ],
-      warning: warningMessage,
+    };
+  }
+
+  /**
+   * 権限チェック選択ボタンを作成する
+   */
+  private createPermissionButtons(threadId: string): DiscordActionRow {
+    return {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 1,
+          label: "権限チェックあり",
+          custom_id: `permissions_no_skip_${threadId}`,
+        },
+        {
+          type: 2,
+          style: 2,
+          label: "権限チェックスキップ",
+          custom_id: `permissions_skip_${threadId}`,
+        },
+      ],
+    };
+  }
+
+  /**
+   * devcontainer使用選択ボタンを作成する
+   */
+  private createDevcontainerButtons(threadId: string): DiscordActionRow {
+    return {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 1,
+          label: "devcontainer使用",
+          custom_id: `devcontainer_yes_${threadId}`,
+        },
+        {
+          type: 2,
+          style: 2,
+          label: "ローカル環境",
+          custom_id: `devcontainer_no_${threadId}`,
+        },
+      ],
     };
   }
 

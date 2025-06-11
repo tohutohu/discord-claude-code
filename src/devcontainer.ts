@@ -107,6 +107,264 @@ export async function checkDevcontainerCli(): Promise<boolean> {
 }
 
 /**
+ * devcontainer起動用の環境変数を準備する
+ */
+function prepareEnvironment(ghToken?: string): Record<string, string> {
+  const env: Record<string, string> = {
+    ...Deno.env.toObject(),
+    DOCKER_DEFAULT_PLATFORM: "linux/amd64",
+  };
+
+  // GitHub PATが提供されている場合は環境変数に設定
+  if (ghToken) {
+    env.GH_TOKEN = ghToken;
+    env.GITHUB_TOKEN = ghToken; // 互換性のため両方設定
+  }
+
+  return env;
+}
+
+/**
+ * devcontainerコマンドを作成する
+ */
+function createDevcontainerCommand(
+  repositoryPath: string,
+  env: Record<string, string>,
+): Deno.Command {
+  return new Deno.Command("devcontainer", {
+    args: [
+      "up",
+      "--workspace-folder",
+      repositoryPath,
+      "--log-level",
+      "debug",
+      "--log-format",
+      "json",
+    ],
+    stdout: "piped",
+    stderr: "piped",
+    cwd: repositoryPath,
+    env,
+  });
+}
+
+/**
+ * 進捗タイマーを設定する
+ */
+function setupProgressTimer(
+  logBuffer: string[],
+  maxLogLines: number,
+  onProgress?: (message: string) => Promise<void>,
+): number {
+  const progressUpdateInterval = DEVCONTAINER.PROGRESS_UPDATE_INTERVAL_MS;
+  return setInterval(async () => {
+    if (onProgress && logBuffer.length > 0) {
+      const recentLogs = logBuffer.slice(-maxLogLines);
+      const logMessage = "🐳 起動中...\n```\n" + recentLogs.join("\n") +
+        "\n```";
+      await onProgress(logMessage).catch(console.error);
+    }
+  }, progressUpdateInterval);
+}
+
+/**
+ * JSONログからメッセージを抽出する
+ */
+function extractLogMessage(logEntry: Record<string, unknown>): {
+  message: string;
+  timestamp: string;
+} {
+  const message = String(
+    logEntry.message || logEntry.msg || JSON.stringify(logEntry),
+  );
+  const timestamp = String(logEntry.timestamp || logEntry.time || "");
+  return { message, timestamp };
+}
+
+/**
+ * 進捗メッセージのアイコンを決定する
+ */
+function getProgressIcon(message: string): string {
+  const lowercaseMessage = message.toLowerCase();
+  if (
+    lowercaseMessage.includes("pulling") ||
+    lowercaseMessage.includes("downloading")
+  ) {
+    return "⬇️";
+  } else if (lowercaseMessage.includes("extracting")) {
+    return "📦";
+  } else if (lowercaseMessage.includes("building")) {
+    return "🔨";
+  } else if (
+    lowercaseMessage.includes("creating") ||
+    lowercaseMessage.includes("starting")
+  ) {
+    return "🚀";
+  } else if (
+    lowercaseMessage.includes("complete") ||
+    lowercaseMessage.includes("success")
+  ) {
+    return "✅";
+  }
+  return "🐳";
+}
+
+/**
+ * 重要なイベントかどうかを判定する
+ */
+function isImportantEvent(message: string): boolean {
+  const lowercaseMessage = message.toLowerCase();
+  const keywords = [
+    "pulling",
+    "downloading",
+    "extracting",
+    "building",
+    "creating",
+    "starting",
+    "running",
+    "container",
+    "image",
+    "layer",
+    "waiting",
+    "complete",
+    "success",
+  ];
+  return keywords.some((keyword) => lowercaseMessage.includes(keyword));
+}
+
+/**
+ * stdout行を処理する
+ */
+async function processStdoutLine(
+  line: string,
+  logBuffer: string[],
+  maxLogLines: number,
+  lastProgressUpdate: { time: number },
+  onProgress?: (message: string) => Promise<void>,
+): Promise<void> {
+  try {
+    const logEntry = JSON.parse(line);
+    const { message, timestamp } = extractLogMessage(logEntry);
+
+    // 読みやすい形式でバッファに追加
+    const formattedLog = timestamp ? `[${timestamp}] ${message}` : message;
+    logBuffer.push(formattedLog);
+
+    // バッファサイズを制限
+    if (logBuffer.length > maxLogLines * 2) {
+      logBuffer.splice(0, logBuffer.length - maxLogLines);
+    }
+
+    // 重要なイベントは即座に通知
+    if (isImportantEvent(message)) {
+      const now = Date.now();
+      if (
+        now - lastProgressUpdate.time > DEVCONTAINER.PROGRESS_NOTIFY_INTERVAL_MS
+      ) { // 1秒以上経過していれば更新
+        lastProgressUpdate.time = now;
+        if (onProgress) {
+          const icon = getProgressIcon(message);
+          await onProgress(`${icon} ${message}`).catch(console.error);
+        }
+      }
+    }
+  } catch {
+    // JSON以外の行はそのまま追加
+    logBuffer.push(line);
+    if (logBuffer.length > maxLogLines * 2) {
+      logBuffer.splice(0, logBuffer.length - maxLogLines);
+    }
+  }
+}
+
+/**
+ * ストリーム出力を処理する
+ */
+async function processStreamOutput(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  logBuffer: string[],
+  maxLogLines: number,
+  lastProgressUpdate: { time: number },
+  onProgress?: (message: string) => Promise<void>,
+): Promise<string> {
+  let output = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        output += chunk;
+
+        // JSON形式のログをパースして処理
+        const lines = chunk.split("\n").filter((line) => line.trim());
+        for (const line of lines) {
+          await processStdoutLine(
+            line,
+            logBuffer,
+            maxLogLines,
+            lastProgressUpdate,
+            onProgress,
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error("stdout読み取りエラー:", error);
+  } finally {
+    reader.releaseLock();
+  }
+  return output;
+}
+
+/**
+ * stderrストリームを読み取る
+ */
+async function readStderrStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+): Promise<string> {
+  let errorOutput = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: true });
+        errorOutput += chunk;
+      }
+    }
+  } catch (error) {
+    console.error("stderr読み取りエラー:", error);
+  } finally {
+    reader.releaseLock();
+  }
+  return errorOutput;
+}
+
+/**
+ * コンテナIDを抽出する
+ */
+function extractContainerId(output: string): string | undefined {
+  const containerIdMatch = output.match(/container\s+id:\s*([a-f0-9]+)/i);
+  return containerIdMatch?.[1];
+}
+
+/**
+ * 最終メッセージをフォーマットする
+ */
+function formatFinalMessage(
+  logBuffer: string[],
+  containerId?: string,
+): string {
+  const finalLogs = logBuffer.slice(-10).join("\n");
+  return `✅ devcontainerが正常に起動しました\n\n**最終ログ:**\n\`\`\`\n${finalLogs}\n\`\`\`${
+    containerId ? `\n🆔 コンテナID: ${containerId}` : ""
+  }`;
+}
+
+/**
  * devcontainerを起動する
  */
 export async function startDevcontainer(
@@ -129,178 +387,38 @@ export async function startDevcontainer(
       await onProgress("🔧 devcontainer upコマンドを実行中...");
     }
 
-    const env: Record<string, string> = {
-      ...Deno.env.toObject(),
-      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-    };
-
-    // GitHub PATが提供されている場合は環境変数に設定
-    if (ghToken) {
-      env.GH_TOKEN = ghToken;
-      env.GITHUB_TOKEN = ghToken; // 互換性のため両方設定
-    }
-
-    const command = new Deno.Command("devcontainer", {
-      args: [
-        "up",
-        "--workspace-folder",
-        repositoryPath,
-        "--log-level",
-        "debug",
-        "--log-format",
-        "json",
-      ],
-      stdout: "piped",
-      stderr: "piped",
-      cwd: repositoryPath,
-      env,
-    });
-
+    const env = prepareEnvironment(ghToken);
+    const command = createDevcontainerCommand(repositoryPath, env);
     const process = command.spawn();
+
     const decoder = new TextDecoder();
-    let output = "";
-    let errorOutput = "";
     const logBuffer: string[] = [];
     const maxLogLines = DEVCONTAINER.MAX_LOG_LINES;
-    let lastProgressUpdate = Date.now();
-    const progressUpdateInterval = DEVCONTAINER.PROGRESS_UPDATE_INTERVAL_MS; // 2秒
+    const lastProgressUpdate = { time: Date.now() };
 
     // stdoutとstderrをストリーミングで読み取る
     const stdoutReader = process.stdout.getReader();
     const stderrReader = process.stderr.getReader();
 
     // 定期的なログ更新タイマー
-    const progressTimer = setInterval(async () => {
-      if (onProgress && logBuffer.length > 0) {
-        const recentLogs = logBuffer.slice(-maxLogLines);
-        const logMessage = "🐳 起動中...\n```\n" + recentLogs.join("\n") +
-          "\n```";
-        await onProgress(logMessage).catch(console.error);
-      }
-    }, progressUpdateInterval);
+    const progressTimer = setupProgressTimer(
+      logBuffer,
+      maxLogLines,
+      onProgress,
+    );
 
-    // stdoutの読み取り
-    const stdoutPromise = (async () => {
-      try {
-        while (true) {
-          const { done, value } = await stdoutReader.read();
-          if (done) break;
-          if (value) {
-            const chunk = decoder.decode(value, { stream: true });
-            output += chunk;
-
-            // JSON形式のログをパースして処理
-            const lines = chunk.split("\n").filter((line) => line.trim());
-            for (const line of lines) {
-              try {
-                const logEntry = JSON.parse(line);
-                // ログエントリから意味のあるメッセージを抽出
-                const message = logEntry.message || logEntry.msg || line;
-                const timestamp = logEntry.timestamp || logEntry.time || "";
-
-                // 読みやすい形式でバッファに追加
-                const formattedLog = timestamp
-                  ? `[${timestamp}] ${message}`
-                  : message;
-                logBuffer.push(formattedLog);
-
-                // バッファサイズを制限
-                if (logBuffer.length > maxLogLines * 2) {
-                  logBuffer.splice(0, logBuffer.length - maxLogLines);
-                }
-
-                // 重要なイベントは即座に通知
-                const lowercaseMessage = message.toLowerCase();
-                if (
-                  lowercaseMessage.includes("pulling") ||
-                  lowercaseMessage.includes("downloading") ||
-                  lowercaseMessage.includes("extracting") ||
-                  lowercaseMessage.includes("building") ||
-                  lowercaseMessage.includes("creating") ||
-                  lowercaseMessage.includes("starting") ||
-                  lowercaseMessage.includes("running") ||
-                  lowercaseMessage.includes("container") ||
-                  lowercaseMessage.includes("image") ||
-                  lowercaseMessage.includes("layer") ||
-                  lowercaseMessage.includes("waiting") ||
-                  lowercaseMessage.includes("complete") ||
-                  lowercaseMessage.includes("success")
-                ) {
-                  const now = Date.now();
-                  if (
-                    now - lastProgressUpdate >
-                      DEVCONTAINER.PROGRESS_NOTIFY_INTERVAL_MS
-                  ) { // 1秒以上経過していれば更新
-                    lastProgressUpdate = now;
-                    if (onProgress) {
-                      // 特定のイベントにアイコンを付与
-                      let icon = "🐳";
-                      if (
-                        lowercaseMessage.includes("pulling") ||
-                        lowercaseMessage.includes("downloading")
-                      ) {
-                        icon = "⬇️";
-                      } else if (lowercaseMessage.includes("extracting")) {
-                        icon = "📦";
-                      } else if (lowercaseMessage.includes("building")) {
-                        icon = "🔨";
-                      } else if (
-                        lowercaseMessage.includes("creating") ||
-                        lowercaseMessage.includes("starting")
-                      ) {
-                        icon = "🚀";
-                      } else if (
-                        lowercaseMessage.includes("complete") ||
-                        lowercaseMessage.includes("success")
-                      ) {
-                        icon = "✅";
-                      }
-                      await onProgress(`${icon} ${message}`).catch(
-                        console.error,
-                      );
-                    }
-                  }
-                }
-              } catch {
-                // JSON以外の行はそのまま追加
-                logBuffer.push(line);
-                if (logBuffer.length > maxLogLines * 2) {
-                  logBuffer.splice(0, logBuffer.length - maxLogLines);
-                }
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error("stdout読み取りエラー:", error);
-      } finally {
-        stdoutReader.releaseLock();
-      }
-    })();
-
-    // stderrの読み取り
-    const stderrPromise = (async () => {
-      try {
-        while (true) {
-          const { done, value } = await stderrReader.read();
-          if (done) break;
-          if (value) {
-            const chunk = decoder.decode(value, { stream: true });
-            errorOutput += chunk;
-          }
-        }
-      } catch (error) {
-        console.error("stderr読み取りエラー:", error);
-      } finally {
-        stderrReader.releaseLock();
-      }
-    })();
-
-    // プロセスの終了とストリーミング読み取りの完了を待つ
-    const [{ code }] = await Promise.all([
+    // ストリーム読み取りを並列実行
+    const [{ code }, output, errorOutput] = await Promise.all([
       process.status,
-      stdoutPromise,
-      stderrPromise,
+      processStreamOutput(
+        stdoutReader,
+        decoder,
+        logBuffer,
+        maxLogLines,
+        lastProgressUpdate,
+        onProgress,
+      ),
+      readStderrStream(stderrReader, decoder),
     ]);
 
     // タイマーをクリア
@@ -318,18 +436,12 @@ export async function startDevcontainer(
       };
     }
 
-    // コンテナIDを取得（出力から抽出）
-    const containerIdMatch = output.match(/container\s+id:\s*([a-f0-9]+)/i);
-    const containerId = containerIdMatch?.[1];
+    // コンテナIDを取得
+    const containerId = extractContainerId(output);
 
     // 最終的なログサマリーを送信
     if (onProgress) {
-      const finalLogs = logBuffer.slice(-10).join("\n");
-      await onProgress(
-        `✅ devcontainerが正常に起動しました\n\n**最終ログ:**\n\`\`\`\n${finalLogs}\n\`\`\`${
-          containerId ? `\n🆔 コンテナID: ${containerId}` : ""
-        }`,
-      );
+      await onProgress(formatFinalMessage(logBuffer, containerId));
     }
 
     return {
