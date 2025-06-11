@@ -2,6 +2,7 @@ import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import type { ThreadInfo } from "../workspace.ts";
 import { createWorktreeCopy, isWorktreeCopyExists } from "../git-utils.ts";
+import { validateThreadInfoSafe } from "./schemas/thread-schema.ts";
 
 export class ThreadManager {
   private readonly threadsDir: string;
@@ -34,7 +35,11 @@ export class ThreadManager {
     try {
       const filePath = this.getThreadFilePath(threadId);
       const content = await Deno.readTextFile(filePath);
-      return JSON.parse(content) as ThreadInfo;
+      const result = validateThreadInfoSafe(JSON.parse(content));
+      if (!result.success) {
+        throw new Error(`Invalid thread info for ${threadId}: ${result.error}`);
+      }
+      return result.data;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return null;

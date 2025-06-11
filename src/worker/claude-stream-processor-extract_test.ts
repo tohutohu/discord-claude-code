@@ -179,9 +179,9 @@ Deno.test("extractTodoListUpdate - fallback処理でテキストからTODOリス
 "name": "TodoWrite",
 "input": {
   "todos": [
-    {"status": "completed", "content": "機能の実装を完了"},
-    {"status": "in_progress", "content": "テストを作成中"},
-    {"status": "pending", "content": "ドキュメントを更新"}
+    {"id": "1", "status": "completed", "content": "機能の実装を完了", "priority": "high"},
+    {"id": "2", "status": "in_progress", "content": "テストを作成中", "priority": "high"},
+    {"id": "3", "status": "pending", "content": "ドキュメントを更新", "priority": "medium"}
   ]
 }`;
 

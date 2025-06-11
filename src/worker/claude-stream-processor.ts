@@ -1,5 +1,30 @@
 import { MessageFormatter } from "./message-formatter.ts";
 
+/**
+ * JSON解析エラー
+ */
+export class JsonParseError extends Error {
+  public readonly line: string;
+  public override readonly cause: unknown;
+
+  constructor(line: string, cause: unknown) {
+    super(`Failed to parse JSON: ${cause}`);
+    this.name = "JsonParseError";
+    this.line = line;
+    this.cause = cause;
+  }
+}
+
+/**
+ * スキーマ検証エラー
+ */
+export class SchemaValidationError extends Error {
+  constructor(public readonly data: unknown, message: string) {
+    super(`Schema validation failed: ${message}`);
+    this.name = "SchemaValidationError";
+  }
+}
+
 // Claude Code SDK message schema based on https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
 export type ClaudeStreamMessage =
   | {
@@ -92,6 +117,158 @@ export class ClaudeStreamProcessor {
 
   constructor(formatter: MessageFormatter) {
     this.formatter = formatter;
+  }
+
+  /**
+   * JSONライン文字列を安全に解析して型検証を行う
+   * @param line JSON文字列の行
+   * @returns パースされ、検証されたClaudeStreamMessage
+   * @throws {JsonParseError} JSON解析に失敗した場合
+   * @throws {SchemaValidationError} スキーマ検証に失敗した場合
+   */
+  parseJsonLine(line: string): ClaudeStreamMessage {
+    // JSON解析
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch (error) {
+      throw new JsonParseError(line, error);
+    }
+
+    // 基本的な型チェック
+    if (typeof parsed !== "object" || parsed === null) {
+      throw new SchemaValidationError(parsed, "Parsed value is not an object");
+    }
+
+    // 型ガード付き検証
+    const validated = this.validateClaudeStreamMessage(parsed);
+    if (!validated) {
+      throw new SchemaValidationError(
+        parsed,
+        "Unknown message type or invalid structure",
+      );
+    }
+
+    return validated;
+  }
+
+  /**
+   * オブジェクトがClaudeStreamMessageの有効な型かを検証する
+   */
+  private validateClaudeStreamMessage(
+    data: unknown,
+  ): ClaudeStreamMessage | null {
+    if (!this.isObject(data) || !("type" in data)) {
+      return null;
+    }
+
+    switch (data.type) {
+      case "assistant":
+        return this.validateAssistantMessage(data)
+          ? data as ClaudeStreamMessage
+          : null;
+      case "user":
+        return this.validateUserMessage(data)
+          ? data as ClaudeStreamMessage
+          : null;
+      case "result":
+        return this.validateResultMessage(data)
+          ? data as ClaudeStreamMessage
+          : null;
+      case "system":
+        return this.validateSystemMessage(data)
+          ? data as ClaudeStreamMessage
+          : null;
+      case "error":
+        return this.validateErrorMessage(data)
+          ? data as ClaudeStreamMessage
+          : null;
+      default:
+        return null;
+    }
+  }
+
+  private isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private validateAssistantMessage(data: unknown): boolean {
+    if (!this.isObject(data)) return false;
+    if (data.type !== "assistant") return false;
+    if (!this.isObject(data.message)) return false;
+
+    const message = data.message;
+    if (typeof message.id !== "string") return false;
+    if (typeof message.type !== "string") return false;
+    if (typeof message.role !== "string") return false;
+    if (typeof message.model !== "string") return false;
+    if (!Array.isArray(message.content)) return false;
+    if (typeof message.stop_reason !== "string") return false;
+    if (typeof data.session_id !== "string") return false;
+
+    return true;
+  }
+
+  private validateUserMessage(data: unknown): boolean {
+    if (!this.isObject(data)) return false;
+    if (data.type !== "user") return false;
+    if (!this.isObject(data.message)) return false;
+
+    const message = data.message;
+    if (typeof message.id !== "string") return false;
+    if (typeof message.type !== "string") return false;
+    if (typeof message.role !== "string") return false;
+    if (typeof message.model !== "string") return false;
+    if (!Array.isArray(message.content)) return false;
+    if (typeof message.stop_reason !== "string") return false;
+    if (typeof data.session_id !== "string") return false;
+
+    return true;
+  }
+
+  private validateResultMessage(data: unknown): boolean {
+    if (!this.isObject(data)) return false;
+    if (data.type !== "result") return false;
+    if (typeof data.subtype !== "string") return false;
+    if (typeof data.is_error !== "boolean") return false;
+    if (typeof data.session_id !== "string") return false;
+
+    // オプショナルフィールドの検証
+    if ("result" in data && typeof data.result !== "string") return false;
+    if ("cost_usd" in data && typeof data.cost_usd !== "number") return false;
+    if ("duration_ms" in data && typeof data.duration_ms !== "number") {
+      return false;
+    }
+    if ("num_turns" in data && typeof data.num_turns !== "number") return false;
+
+    return true;
+  }
+
+  private validateSystemMessage(data: unknown): boolean {
+    if (!this.isObject(data)) return false;
+    if (data.type !== "system") return false;
+    if (typeof data.subtype !== "string") return false;
+    if (typeof data.session_id !== "string") return false;
+
+    // オプショナルフィールドの検証
+    if ("tools" in data && !Array.isArray(data.tools)) return false;
+    if ("mcp_servers" in data && !Array.isArray(data.mcp_servers)) return false;
+
+    return true;
+  }
+
+  private validateErrorMessage(data: unknown): boolean {
+    if (!this.isObject(data)) return false;
+    if (data.type !== "error") return false;
+    if (typeof data.is_error !== "boolean") return false;
+
+    // オプショナルフィールドの検証
+    if ("result" in data && typeof data.result !== "string") return false;
+    if ("session_id" in data && typeof data.session_id !== "string") {
+      return false;
+    }
+
+    return true;
   }
 
   /**

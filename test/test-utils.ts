@@ -147,6 +147,8 @@ export function createMockClaudeCommandExecutor(
       // JSONレスポンスを作成（改行で終わる必要がある）
       const jsonResponse = JSON.stringify({
         type: "result",
+        subtype: "success",
+        is_error: false,
         result: response,
         session_id: "mock-session-id",
       }) + "\n";
@@ -232,12 +234,31 @@ export function createMockStreamingClaudeCommandExecutor(
         } else {
           // 通常のテキストレスポンスの場合は、JSON形式に変換
           const jsonLines = [
-            JSON.stringify({ type: "session", session_id: "mock-session-id" }),
+            JSON.stringify({
+              type: "system",
+              subtype: "init",
+              session_id: "mock-session-id",
+              tools: [],
+            }),
             JSON.stringify({
               type: "assistant",
-              message: { content: [{ type: "text", text: response }] },
+              message: {
+                id: "msg_mock",
+                type: "message",
+                role: "assistant",
+                model: "claude-3-opus",
+                content: [{ type: "text", text: response }],
+                stop_reason: "end_turn",
+              },
+              session_id: "mock-session-id",
             }),
-            JSON.stringify({ type: "result", result: response }),
+            JSON.stringify({
+              type: "result",
+              subtype: "success",
+              is_error: false,
+              result: response,
+              session_id: "mock-session-id",
+            }),
           ];
 
           for (const jsonLine of jsonLines) {

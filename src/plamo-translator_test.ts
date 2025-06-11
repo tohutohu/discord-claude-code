@@ -29,6 +29,33 @@ class MockTranslationServer {
           const content = userMessage.content;
           let translated = content;
 
+          // テスト用の特殊なケース
+          if (content === "INVALID_JSON_RESPONSE") {
+            return new Response(
+              "Invalid JSON",
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          } else if (content === "INVALID_RESPONSE_FORMAT") {
+            return new Response(
+              JSON.stringify({ invalid: "format" }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          } else if (content === "EMPTY_CHOICES") {
+            return new Response(
+              JSON.stringify({ choices: [] }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+
           // より現実的な翻訳ロジック
           if (content === "認証機能を実装してください") {
             translated = "Implement authentication functionality";
@@ -122,4 +149,49 @@ Deno.test("PLaMoTranslator - 末尾スラッシュの正規化", () => {
     translator1["baseUrl"],
     translator2["baseUrl"],
   );
+});
+
+Deno.test("PLaMoTranslator - 不正なJSONレスポンスの処理", async () => {
+  const mockServer = new MockTranslationServer(8767);
+  await mockServer.start();
+
+  try {
+    const translator = new PLaMoTranslator("http://localhost:8767");
+
+    // 不正なJSONが返される場合、元のテキストを返す
+    const result = await translator.translate("INVALID_JSON_RESPONSE");
+    assertEquals(result, "INVALID_JSON_RESPONSE");
+  } finally {
+    await mockServer.stop();
+  }
+});
+
+Deno.test("PLaMoTranslator - 不正なレスポンス形式の処理", async () => {
+  const mockServer = new MockTranslationServer(8768);
+  await mockServer.start();
+
+  try {
+    const translator = new PLaMoTranslator("http://localhost:8768");
+
+    // 期待されるフォーマットと異なる場合、元のテキストを返す
+    const result = await translator.translate("INVALID_RESPONSE_FORMAT");
+    assertEquals(result, "INVALID_RESPONSE_FORMAT");
+  } finally {
+    await mockServer.stop();
+  }
+});
+
+Deno.test("PLaMoTranslator - 空のchoices配列の処理", async () => {
+  const mockServer = new MockTranslationServer(8769);
+  await mockServer.start();
+
+  try {
+    const translator = new PLaMoTranslator("http://localhost:8769");
+
+    // choicesが空の場合、元のテキストを返す
+    const result = await translator.translate("EMPTY_CHOICES");
+    assertEquals(result, "EMPTY_CHOICES");
+  } finally {
+    await mockServer.stop();
+  }
 });

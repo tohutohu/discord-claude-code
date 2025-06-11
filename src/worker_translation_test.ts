@@ -121,21 +121,33 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
     await workspaceManager.initialize();
 
     const mockExecutor = new MockClaudeCommandExecutor([
-      JSON.stringify({ type: "session", session_id: "test-session" }),
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "test-session",
+        tools: [],
+      }),
       JSON.stringify({
         type: "assistant",
         message: {
+          id: "msg_001",
+          type: "message",
+          role: "assistant",
+          model: "claude-3-opus",
           content: [{
             type: "text",
             text: "Authentication has been implemented.",
           }],
+          stop_reason: "end_turn",
         },
+        session_id: "test-session",
       }),
       JSON.stringify({
         type: "result",
         result: "Authentication has been implemented.",
-        subtype: "test",
+        subtype: "success",
         is_error: false,
+        session_id: "test-session",
       }),
     ]);
 
@@ -193,18 +205,30 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
     await workspaceManager.initialize();
 
     const mockExecutor = new MockClaudeCommandExecutor([
-      JSON.stringify({ type: "session", session_id: "test-session" }),
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "test-session",
+        tools: [],
+      }),
       JSON.stringify({
         type: "assistant",
         message: {
+          id: "msg_002",
+          type: "message",
+          role: "assistant",
+          model: "claude-3-opus",
           content: [{ type: "text", text: "認証機能を実装しました。" }],
+          stop_reason: "end_turn",
         },
+        session_id: "test-session",
       }),
       JSON.stringify({
         type: "result",
         result: "認証機能を実装しました。",
-        subtype: "test",
+        subtype: "success",
         is_error: false,
+        session_id: "test-session",
       }),
     ]);
 
@@ -258,21 +282,33 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
     await workspaceManager.initialize();
 
     const mockExecutor = new MockClaudeCommandExecutor([
-      JSON.stringify({ type: "session", session_id: "test-session" }),
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        session_id: "test-session",
+        tools: [],
+      }),
       JSON.stringify({
         type: "assistant",
         message: {
+          id: "msg_003",
+          type: "message",
+          role: "assistant",
+          model: "claude-3-opus",
           content: [{
             type: "text",
             text: "エラーハンドリングを追加しました。",
           }],
+          stop_reason: "end_turn",
         },
+        session_id: "test-session",
       }),
       JSON.stringify({
         type: "result",
         result: "エラーハンドリングを追加しました。",
-        subtype: "test",
+        subtype: "success",
         is_error: false,
+        session_id: "test-session",
       }),
     ]);
 
