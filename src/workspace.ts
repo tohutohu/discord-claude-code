@@ -185,7 +185,11 @@ export class WorkspaceManager {
   }
 
   async appendAuditLog(auditEntry: AuditEntry): Promise<void> {
-    await this.auditLogger.appendAuditLog(auditEntry);
+    const result = await this.auditLogger.appendAuditLog(auditEntry);
+    if (result.isErr()) {
+      // 監査ログの失敗は運用に影響を与えないため、エラーログのみ出力
+      console.error("監査ログの記録に失敗しました:", result.error);
+    }
   }
 
   async saveRawSessionJsonl(
@@ -298,11 +302,30 @@ export class WorkspaceManager {
   async loadRepositoryPat(
     repositoryFullName: string,
   ): Promise<RepositoryPatInfo | null> {
-    return await this.patManager.loadRepositoryPat(repositoryFullName);
+    const result = await this.patManager.loadRepositoryPat(repositoryFullName);
+    if (result.isErr()) {
+      const error = result.error;
+      if (error.type === "PAT_NOT_FOUND") {
+        throw new Error(
+          `PAT not found for repository: ${error.repositoryFullName}`,
+        );
+      }
+      throw new Error(`Failed to load PAT: ${JSON.stringify(error)}`);
+    }
+    return result.value;
   }
 
   async deleteRepositoryPat(repositoryFullName: string): Promise<void> {
-    await this.patManager.deleteRepositoryPat(repositoryFullName);
+    const result = await this.patManager.deleteRepositoryPat(
+      repositoryFullName,
+    );
+    if (result.isErr()) {
+      const error = result.error;
+      if ("error" in error) {
+        throw new Error(`Failed to delete PAT: ${error.error}`);
+      }
+      throw new Error(`Failed to delete PAT: ${JSON.stringify(error)}`);
+    }
 
     // 監査ログに記録
     try {
@@ -321,7 +344,15 @@ export class WorkspaceManager {
   }
 
   async listRepositoryPats(): Promise<RepositoryPatInfo[]> {
-    return await this.patManager.listRepositoryPats();
+    const result = await this.patManager.listRepositoryPats();
+    if (result.isErr()) {
+      const error = result.error;
+      if ("error" in error) {
+        throw new Error(`Failed to list PATs: ${error.error}`);
+      }
+      throw new Error(`Failed to list PATs: ${JSON.stringify(error)}`);
+    }
+    return result.value;
   }
 
   // Queue file path method removed - now handled by QueueManager

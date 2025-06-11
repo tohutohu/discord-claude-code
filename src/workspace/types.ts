@@ -8,6 +8,27 @@ export type WorkspaceError =
     sessionId: string;
     error: string;
   }
+  | {
+    type: "SESSION_LOAD_FAILED";
+    repositoryFullName: string;
+    sessionId: string;
+    error: string;
+  }
+  | {
+    type: "SESSION_LIST_FAILED";
+    repositoryFullName: string;
+    error: string;
+  }
+  | {
+    type: "SESSION_DELETE_FAILED";
+    repositoryFullName: string;
+    sessionId: string;
+    error: string;
+  }
+  | {
+    type: "SESSION_INITIALIZATION_FAILED";
+    error: string;
+  }
   | { type: "AUDIT_LOG_FAILED"; action: string; error: string }
   | { type: "PAT_NOT_FOUND"; repositoryFullName: string }
   | { type: "PAT_SAVE_FAILED"; repositoryFullName: string; error: string }

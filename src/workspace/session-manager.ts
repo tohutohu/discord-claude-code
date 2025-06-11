@@ -1,5 +1,7 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
+import { err, ok, Result } from "neverthrow";
+import type { WorkspaceError } from "./types.ts";
 
 export interface SessionLog {
   timestamp: string;
@@ -15,8 +17,16 @@ export class SessionManager {
     this.sessionsDir = join(baseDir, "sessions");
   }
 
-  async initialize(): Promise<void> {
-    await ensureDir(this.sessionsDir);
+  async initialize(): Promise<Result<void, WorkspaceError>> {
+    try {
+      await ensureDir(this.sessionsDir);
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        type: "SESSION_INITIALIZATION_FAILED",
+        error: `SessionManagerの初期化に失敗しました: ${error}`,
+      });
+    }
   }
 
   private getRepositorySessionDirPath(repositoryFullName: string): string {
@@ -38,50 +48,60 @@ export class SessionManager {
     repositoryFullName: string,
     sessionId: string,
     rawJsonlContent: string,
-  ): Promise<void> {
-    const repositorySessionDir = this.getRepositorySessionDirPath(
-      repositoryFullName,
-    );
-    await ensureDir(repositorySessionDir);
-
-    // 既存のファイルを探す
-    let existingFilePath: string | null = null;
+  ): Promise<Result<void, WorkspaceError>> {
     try {
-      for await (const entry of Deno.readDir(repositorySessionDir)) {
-        if (entry.isFile && entry.name.endsWith(`_${sessionId}.jsonl`)) {
-          existingFilePath = join(repositorySessionDir, entry.name);
-          break;
+      const repositorySessionDir = this.getRepositorySessionDirPath(
+        repositoryFullName,
+      );
+      await ensureDir(repositorySessionDir);
+
+      // 既存のファイルを探す
+      let existingFilePath: string | null = null;
+      try {
+        for await (const entry of Deno.readDir(repositorySessionDir)) {
+          if (entry.isFile && entry.name.endsWith(`_${sessionId}.jsonl`)) {
+            existingFilePath = join(repositorySessionDir, entry.name);
+            break;
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) {
+          throw error;
         }
       }
-    } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) {
-        throw error;
-      }
-    }
 
-    let filePath: string;
-    if (existingFilePath) {
-      // 既存ファイルに追記
-      filePath = existingFilePath;
-      await Deno.writeTextFile(filePath, `\n${rawJsonlContent}`, {
-        append: true,
-      });
-    } else {
-      // 新規ファイル作成
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      filePath = this.getRawSessionFilePath(
+      let filePath: string;
+      if (existingFilePath) {
+        // 既存ファイルに追記
+        filePath = existingFilePath;
+        await Deno.writeTextFile(filePath, `\n${rawJsonlContent}`, {
+          append: true,
+        });
+      } else {
+        // 新規ファイル作成
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        filePath = this.getRawSessionFilePath(
+          repositoryFullName,
+          timestamp,
+          sessionId,
+        );
+        await Deno.writeTextFile(filePath, rawJsonlContent);
+      }
+      return ok(undefined);
+    } catch (error) {
+      return err({
+        type: "SESSION_SAVE_FAILED",
         repositoryFullName,
-        timestamp,
         sessionId,
-      );
-      await Deno.writeTextFile(filePath, rawJsonlContent);
+        error: `セッションログの保存に失敗しました: ${error}`,
+      });
     }
   }
 
   async loadSessionLogs(
     repositoryFullName: string,
     sessionId: string,
-  ): Promise<SessionLog[]> {
+  ): Promise<Result<SessionLog[], WorkspaceError>> {
     const repositorySessionDir = this.getRepositorySessionDirPath(
       repositoryFullName,
     );
@@ -97,7 +117,7 @@ export class SessionManager {
       }
 
       if (!sessionFilePath) {
-        return [];
+        return ok([]);
       }
 
       const content = await Deno.readTextFile(sessionFilePath);
@@ -105,16 +125,23 @@ export class SessionManager {
         line.length > 0
       );
 
-      return lines.map((line) => JSON.parse(line) as SessionLog);
+      return ok(lines.map((line) => JSON.parse(line) as SessionLog));
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return [];
+        return ok([]);
       }
-      throw error;
+      return err({
+        type: "SESSION_LOAD_FAILED",
+        repositoryFullName,
+        sessionId,
+        error: `セッションログの読み込みに失敗しました: ${error}`,
+      });
     }
   }
 
-  async getSessionIds(repositoryFullName: string): Promise<string[]> {
+  async getSessionIds(
+    repositoryFullName: string,
+  ): Promise<Result<string[], WorkspaceError>> {
     const repositorySessionDir = this.getRepositorySessionDirPath(
       repositoryFullName,
     );
@@ -132,19 +159,23 @@ export class SessionManager {
         }
       }
 
-      return Array.from(sessionIds).sort();
+      return ok(Array.from(sessionIds).sort());
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
-        return [];
+        return ok([]);
       }
-      throw error;
+      return err({
+        type: "SESSION_LIST_FAILED",
+        repositoryFullName,
+        error: `セッションID一覧の取得に失敗しました: ${error}`,
+      });
     }
   }
 
   async deleteSessionLogs(
     repositoryFullName: string,
     sessionId: string,
-  ): Promise<void> {
+  ): Promise<Result<void, WorkspaceError>> {
     const repositorySessionDir = this.getRepositorySessionDirPath(
       repositoryFullName,
     );
@@ -157,10 +188,17 @@ export class SessionManager {
           break;
         }
       }
+      return ok(undefined);
     } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) {
-        throw error;
+      if (error instanceof Deno.errors.NotFound) {
+        return ok(undefined);
       }
+      return err({
+        type: "SESSION_DELETE_FAILED",
+        repositoryFullName,
+        sessionId,
+        error: `セッションログの削除に失敗しました: ${error}`,
+      });
     }
   }
 }
