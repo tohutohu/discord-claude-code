@@ -1,6 +1,7 @@
 // 新しいWorkerモジュールから必要な型とクラスを再エクスポート
 // メインのWorkerクラスとインターフェース
-export { type IWorker, Worker } from "./worker/worker.ts";
+export { Worker } from "./worker/worker.ts";
+export type { IWorker, WorkerError } from "./worker/types.ts";
 
 // Claude実行関連
 export type { ClaudeCommandExecutor } from "./worker/claude-executor.ts";

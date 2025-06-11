@@ -1,6 +1,6 @@
 // エラー型定義
 export type AdminError =
-  | { type: "RATE_LIMIT"; retryAfter: number; timestamp: number }
+  | { type: "RATE_LIMIT"; retryAt: number; timestamp: number }
   | { type: "WORKER_NOT_FOUND"; threadId: string }
   | { type: "WORKER_CREATE_FAILED"; threadId: string; reason: string }
   | { type: "DEVCONTAINER_SETUP_FAILED"; threadId: string; error: string }

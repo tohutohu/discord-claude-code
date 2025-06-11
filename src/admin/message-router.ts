@@ -194,12 +194,44 @@ export class MessageRouter {
       onReaction,
     );
 
+    if (result.isErr()) {
+      const error = result.error;
+      if (error.type === "RATE_LIMIT") {
+        throw new ClaudeCodeRateLimitError(error.timestamp);
+      } else if (error.type === "REPOSITORY_NOT_SET") {
+        return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+      } else if (error.type === "CONFIGURATION_INCOMPLETE") {
+        let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
+        message += "**実行環境を選択してください:**\n";
+        message +=
+          "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
+        message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
+        message += "設定が完了すると、Claude Codeを実行できるようになります。";
+        return message;
+      } else {
+        // その他のエラーの場合
+        switch (error.type) {
+          case "CLAUDE_EXECUTION_FAILED":
+          case "WORKSPACE_ERROR":
+          case "STREAM_PROCESSING_ERROR":
+          case "TRANSLATION_FAILED":
+          case "SESSION_LOG_FAILED":
+          case "DEVCONTAINER_START_FAILED":
+            return `エラーが発生しました: ${error.error}`;
+          default:
+            // Never型になるはずなので、全てのケースがカバーされている
+            return error satisfies never;
+        }
+      }
+    }
+
+    const responseText = result.value;
     this.logVerbose("メッセージ処理完了", {
       threadId,
-      responseLength: result.length,
+      responseLength: responseText.length,
     });
 
-    return result;
+    return responseText;
   }
 
   /**

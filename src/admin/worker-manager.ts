@@ -282,15 +282,28 @@ export class WorkerManager {
           const repository = parseRepository(threadInfo.repositoryFullName);
 
           if (repository) {
-            await worker.setRepository(
+            const setRepoResult = await worker.setRepository(
               repository,
               threadInfo.repositoryLocalPath,
             );
-            this.logVerbose("リポジトリ情報復旧完了", {
-              threadId,
-              repositoryFullName: threadInfo.repositoryFullName,
-              worktreePath: threadInfo.worktreePath,
-            });
+            if (setRepoResult.isErr()) {
+              this.logVerbose("リポジトリ情報復旧失敗", {
+                threadId,
+                repositoryFullName: threadInfo.repositoryFullName,
+                error: setRepoResult.error.type,
+              });
+              // リポジトリ設定に失敗した場合、Worker作成を中断
+              this.workers.delete(threadId);
+              throw new Error(
+                `Failed to restore repository for thread ${threadId}: ${setRepoResult.error.type}`,
+              );
+            } else {
+              this.logVerbose("リポジトリ情報復旧完了", {
+                threadId,
+                repositoryFullName: threadInfo.repositoryFullName,
+                worktreePath: threadInfo.worktreePath,
+              });
+            }
           }
         } catch (error) {
           this.logVerbose("リポジトリ情報復旧失敗", {
