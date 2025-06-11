@@ -130,10 +130,46 @@ export class WorkspaceManager {
     await ensureDir(this.config.workersDir);
 
     // Initialize all managers
-    await this.threadManager.initialize();
-    await this.sessionManager.initialize();
-    await this.auditLogger.initialize();
-    await this.patManager.initialize();
+    const threadInitResult = await this.threadManager.initialize();
+    if (threadInitResult.isErr()) {
+      throw new Error(
+        `ThreadManagerの初期化に失敗しました: ${
+          "error" in threadInitResult.error
+            ? threadInitResult.error.error
+            : JSON.stringify(threadInitResult.error)
+        }`,
+      );
+    }
+    const sessionInitResult = await this.sessionManager.initialize();
+    if (sessionInitResult.isErr()) {
+      throw new Error(
+        `SessionManagerの初期化に失敗しました: ${
+          "error" in sessionInitResult.error
+            ? sessionInitResult.error.error
+            : JSON.stringify(sessionInitResult.error)
+        }`,
+      );
+    }
+    const auditInitResult = await this.auditLogger.initialize();
+    if (auditInitResult.isErr()) {
+      throw new Error(
+        `AuditLoggerの初期化に失敗しました: ${
+          "error" in auditInitResult.error
+            ? auditInitResult.error.error
+            : JSON.stringify(auditInitResult.error)
+        }`,
+      );
+    }
+    const patInitResult = await this.patManager.initialize();
+    if (patInitResult.isErr()) {
+      throw new Error(
+        `PatManagerの初期化に失敗しました: ${
+          "error" in patInitResult.error
+            ? patInitResult.error.error
+            : JSON.stringify(patInitResult.error)
+        }`,
+      );
+    }
     await this.queueManager.initialize();
   }
 
@@ -156,19 +192,51 @@ export class WorkspaceManager {
   // Private path methods removed - now handled by individual managers
 
   async saveThreadInfo(threadInfo: ThreadInfo): Promise<void> {
-    await this.threadManager.saveThreadInfo(threadInfo);
+    const result = await this.threadManager.saveThreadInfo(threadInfo);
+    if (result.isErr()) {
+      throw new Error(
+        `スレッド情報の保存に失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
   }
 
   async loadThreadInfo(threadId: string): Promise<ThreadInfo | null> {
-    return await this.threadManager.loadThreadInfo(threadId);
+    const result = await this.threadManager.loadThreadInfo(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `スレッド情報の読み込みに失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
+    return result.value;
   }
 
   async updateThreadLastActive(threadId: string): Promise<void> {
-    await this.threadManager.updateThreadLastActive(threadId);
+    const result = await this.threadManager.updateThreadLastActive(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `最終アクティブ時刻の更新に失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
   }
 
   async appendAuditLog(auditEntry: AuditEntry): Promise<void> {
-    await this.auditLogger.appendAuditLog(auditEntry);
+    const result = await this.auditLogger.appendAuditLog(auditEntry);
+    if (result.isErr()) {
+      // 監査ログの失敗は運用に影響を与えないため、エラーログのみ出力
+      console.error("監査ログの記録に失敗しました:", result.error);
+    }
   }
 
   async saveRawSessionJsonl(
@@ -184,22 +252,63 @@ export class WorkspaceManager {
   }
 
   async getAllThreadInfos(): Promise<ThreadInfo[]> {
-    return await this.threadManager.getAllThreadInfos();
+    const result = await this.threadManager.getAllThreadInfos();
+    if (result.isErr()) {
+      throw new Error(
+        `スレッド情報の一覧取得に失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
+    return result.value;
   }
 
   async ensureWorktree(
     threadId: string,
     repositoryPath: string,
   ): Promise<string> {
-    return await this.threadManager.ensureWorktree(threadId, repositoryPath);
+    const result = await this.threadManager.ensureWorktree(
+      threadId,
+      repositoryPath,
+    );
+    if (result.isErr()) {
+      throw new Error(
+        `worktreeの作成に失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
+    return result.value;
   }
 
   async removeWorktree(threadId: string): Promise<void> {
-    await this.threadManager.removeWorktree(threadId);
+    const result = await this.threadManager.removeWorktree(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `worktreeの削除に失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
   }
 
   async cleanupWorktree(threadId: string): Promise<void> {
-    await this.threadManager.cleanupWorktree(threadId);
+    const result = await this.threadManager.cleanupWorktree(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `worktreeのクリーンアップに失敗しました: ${
+          "error" in result.error
+            ? result.error.error
+            : JSON.stringify(result.error)
+        }`,
+      );
+    }
   }
 
   async getLocalRepositories(): Promise<string[]> {
@@ -260,11 +369,30 @@ export class WorkspaceManager {
   async loadRepositoryPat(
     repositoryFullName: string,
   ): Promise<RepositoryPatInfo | null> {
-    return await this.patManager.loadRepositoryPat(repositoryFullName);
+    const result = await this.patManager.loadRepositoryPat(repositoryFullName);
+    if (result.isErr()) {
+      const error = result.error;
+      if (error.type === "PAT_NOT_FOUND") {
+        throw new Error(
+          `PAT not found for repository: ${error.repositoryFullName}`,
+        );
+      }
+      throw new Error(`Failed to load PAT: ${JSON.stringify(error)}`);
+    }
+    return result.value;
   }
 
   async deleteRepositoryPat(repositoryFullName: string): Promise<void> {
-    await this.patManager.deleteRepositoryPat(repositoryFullName);
+    const result = await this.patManager.deleteRepositoryPat(
+      repositoryFullName,
+    );
+    if (result.isErr()) {
+      const error = result.error;
+      if ("error" in error) {
+        throw new Error(`Failed to delete PAT: ${error.error}`);
+      }
+      throw new Error(`Failed to delete PAT: ${JSON.stringify(error)}`);
+    }
 
     // 監査ログに記録
     try {
@@ -283,7 +411,15 @@ export class WorkspaceManager {
   }
 
   async listRepositoryPats(): Promise<RepositoryPatInfo[]> {
-    return await this.patManager.listRepositoryPats();
+    const result = await this.patManager.listRepositoryPats();
+    if (result.isErr()) {
+      const error = result.error;
+      if ("error" in error) {
+        throw new Error(`Failed to list PATs: ${error.error}`);
+      }
+      throw new Error(`Failed to list PATs: ${JSON.stringify(error)}`);
+    }
+    return result.value;
   }
 
   // Queue file path method removed - now handled by QueueManager

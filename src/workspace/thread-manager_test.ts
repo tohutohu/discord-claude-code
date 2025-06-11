@@ -7,7 +7,8 @@ Deno.test("ThreadManager - スレッド情報の保存と読み込み", async ()
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new ThreadManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const threadInfo: ThreadInfo = {
       threadId: "test-thread-123",
@@ -19,10 +20,12 @@ Deno.test("ThreadManager - スレッド情報の保存と読み込み", async ()
       status: "active",
     };
 
-    await manager.saveThreadInfo(threadInfo);
+    const saveResult = await manager.saveThreadInfo(threadInfo);
+    assertEquals(saveResult.isOk(), true);
 
-    const loaded = await manager.loadThreadInfo(threadInfo.threadId);
-    assertEquals(loaded, threadInfo);
+    const loadResult = await manager.loadThreadInfo(threadInfo.threadId);
+    assertEquals(loadResult.isOk(), true);
+    assertEquals(loadResult._unsafeUnwrap(), threadInfo);
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -32,10 +35,12 @@ Deno.test("ThreadManager - 存在しないスレッド情報の読み込み", as
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new ThreadManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
-    const result = await manager.loadThreadInfo("non-existent");
-    assertEquals(result, null);
+    const loadResult = await manager.loadThreadInfo("non-existent");
+    assertEquals(loadResult.isOk(), true);
+    assertEquals(loadResult._unsafeUnwrap(), null);
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -45,7 +50,8 @@ Deno.test("ThreadManager - 最終アクティブ時刻の更新", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new ThreadManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const threadInfo: ThreadInfo = {
       threadId: "test-thread-456",
@@ -57,11 +63,20 @@ Deno.test("ThreadManager - 最終アクティブ時刻の更新", async () => {
       status: "active",
     };
 
-    await manager.saveThreadInfo(threadInfo);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    await manager.updateThreadLastActive(threadInfo.threadId);
+    const saveResult = await manager.saveThreadInfo(threadInfo);
+    assertEquals(saveResult.isOk(), true);
 
-    const updated = await manager.loadThreadInfo(threadInfo.threadId);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updateResult = await manager.updateThreadLastActive(
+      threadInfo.threadId,
+    );
+    assertEquals(updateResult.isOk(), true);
+
+    const loadResult = await manager.loadThreadInfo(threadInfo.threadId);
+    assertEquals(loadResult.isOk(), true);
+
+    const updated = loadResult._unsafeUnwrap();
     assertExists(updated);
     assertEquals(updated.threadId, threadInfo.threadId);
     assertEquals(updated.createdAt, threadInfo.createdAt);
@@ -76,7 +91,8 @@ Deno.test("ThreadManager - すべてのスレッド情報の取得", async () =>
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new ThreadManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const threadInfos: ThreadInfo[] = [
       {
@@ -109,10 +125,14 @@ Deno.test("ThreadManager - すべてのスレッド情報の取得", async () =>
     ];
 
     for (const info of threadInfos) {
-      await manager.saveThreadInfo(info);
+      const saveResult = await manager.saveThreadInfo(info);
+      assertEquals(saveResult.isOk(), true);
     }
 
-    const all = await manager.getAllThreadInfos();
+    const getAllResult = await manager.getAllThreadInfos();
+    assertEquals(getAllResult.isOk(), true);
+
+    const all = getAllResult._unsafeUnwrap();
     assertEquals(all.length, 3);
     // 最新のlastActiveAtが最初に来る
     assertEquals(all[0].threadId, "thread-2");
@@ -129,8 +149,9 @@ Deno.test("ThreadManager - ディレクトリが存在しない場合の getAllT
     const manager = new ThreadManager(testBaseDir);
     // initializeを呼ばずに getAllThreadInfos を呼ぶ
 
-    const all = await manager.getAllThreadInfos();
-    assertEquals(all, []);
+    const getAllResult = await manager.getAllThreadInfos();
+    assertEquals(getAllResult.isOk(), true);
+    assertEquals(getAllResult._unsafeUnwrap(), []);
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -151,7 +172,8 @@ Deno.test("ThreadManager - worktreeのクリーンアップ", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new ThreadManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const threadId = "test-thread";
     const worktreePath = manager.getWorktreePath(threadId);
@@ -162,7 +184,8 @@ Deno.test("ThreadManager - worktreeのクリーンアップ", async () => {
     assertEquals(statBefore.isDirectory, true);
 
     // クリーンアップ
-    await manager.cleanupWorktree(threadId);
+    const cleanupResult = await manager.cleanupWorktree(threadId);
+    assertEquals(cleanupResult.isOk(), true);
 
     // worktreeが削除されたことを確認
     let exists = true;
@@ -183,10 +206,12 @@ Deno.test("ThreadManager - 存在しないworktreeのクリーンアップ", asy
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new ThreadManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     // 存在しないworktreeをクリーンアップしてもエラーにならない
-    await manager.cleanupWorktree("non-existent-thread");
+    const cleanupResult = await manager.cleanupWorktree("non-existent-thread");
+    assertEquals(cleanupResult.isOk(), true);
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }

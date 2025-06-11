@@ -1,4 +1,4 @@
-import { assertEquals } from "std/assert/mod.ts";
+import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { AuditLogger } from "./audit-logger.ts";
 import type { AuditEntry } from "../workspace.ts";
 
@@ -6,7 +6,9 @@ Deno.test("AuditLogger - ログの追記と読み込み", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
     const entry1: AuditEntry = {
       timestamp: new Date().toISOString(),
@@ -22,12 +24,23 @@ Deno.test("AuditLogger - ログの追記と読み込み", async () => {
       details: { messageId: "msg-789" },
     };
 
-    await logger.appendAuditLog(entry1);
-    await logger.appendAuditLog(entry2);
+    const appendResult1 = await logger.appendAuditLog(entry1);
+    assertExists(appendResult1.isOk());
+    assertEquals(appendResult1.isOk(), true);
+
+    const appendResult2 = await logger.appendAuditLog(entry2);
+    assertExists(appendResult2.isOk());
+    assertEquals(appendResult2.isOk(), true);
 
     const today = new Date().toISOString().split("T")[0];
-    const logs = await logger.getAuditLogs(today);
+    const logsResult = await logger.getAuditLogs(today);
+    assertExists(logsResult.isOk());
+    assertEquals(logsResult.isOk(), true);
 
+    if (!logsResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    const logs = logsResult.value;
     assertEquals(logs.length, 2);
     assertEquals(logs[0].threadId, entry1.threadId);
     assertEquals(logs[0].action, entry1.action);
@@ -42,10 +55,18 @@ Deno.test("AuditLogger - 存在しない日付のログ読み込み", async () =
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
-    const logs = await logger.getAuditLogs("2099-12-31");
-    assertEquals(logs, []);
+    const logsResult = await logger.getAuditLogs("2099-12-31");
+    assertExists(logsResult.isOk());
+    assertEquals(logsResult.isOk(), true);
+
+    if (!logsResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    assertEquals(logsResult.value, []);
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -55,7 +76,9 @@ Deno.test("AuditLogger - 日付一覧の取得", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
     // 複数の日付のログを作成（内部で日付ディレクトリを作成）
     const date1 = "2024-01-15";
@@ -67,7 +90,14 @@ Deno.test("AuditLogger - 日付一覧の取得", async () => {
     await Deno.mkdir(`${testBaseDir}/audit/${date2}`, { recursive: true });
     await Deno.mkdir(`${testBaseDir}/audit/${date3}`, { recursive: true });
 
-    const dates = await logger.getAuditLogDates();
+    const datesResult = await logger.getAuditLogDates();
+    assertExists(datesResult.isOk());
+    assertEquals(datesResult.isOk(), true);
+
+    if (!datesResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    const dates = datesResult.value;
     assertEquals(dates.length, 3);
     // 新しい日付順
     assertEquals(dates[0], date2);
@@ -82,35 +112,49 @@ Deno.test("AuditLogger - スレッドIDでのフィルタリング", async () =>
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
     const targetThreadId = "thread-target";
     const otherThreadId = "thread-other";
 
-    await logger.appendAuditLog({
+    const appendResult1 = await logger.appendAuditLog({
       timestamp: new Date().toISOString(),
       threadId: targetThreadId,
       action: "action1",
       details: {},
     });
+    assertExists(appendResult1.isOk());
+    assertEquals(appendResult1.isOk(), true);
 
-    await logger.appendAuditLog({
+    const appendResult2 = await logger.appendAuditLog({
       timestamp: new Date().toISOString(),
       threadId: otherThreadId,
       action: "action2",
       details: {},
     });
+    assertExists(appendResult2.isOk());
+    assertEquals(appendResult2.isOk(), true);
 
-    await logger.appendAuditLog({
+    const appendResult3 = await logger.appendAuditLog({
       timestamp: new Date().toISOString(),
       threadId: targetThreadId,
       action: "action3",
       details: {},
     });
+    assertExists(appendResult3.isOk());
+    assertEquals(appendResult3.isOk(), true);
 
     const today = new Date().toISOString().split("T")[0];
-    const logs = await logger.getAuditLogsByThread(targetThreadId, today);
+    const logsResult = await logger.getAuditLogsByThread(targetThreadId, today);
+    assertExists(logsResult.isOk());
+    assertEquals(logsResult.isOk(), true);
 
+    if (!logsResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    const logs = logsResult.value;
     assertEquals(logs.length, 2);
     assertEquals(logs[0].threadId, targetThreadId);
     assertEquals(logs[1].threadId, targetThreadId);
@@ -123,35 +167,49 @@ Deno.test("AuditLogger - アクションでのフィルタリング", async () =
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
     const targetAction = "worker_created";
     const otherAction = "message_received";
 
-    await logger.appendAuditLog({
+    const appendResult1 = await logger.appendAuditLog({
       timestamp: new Date().toISOString(),
       threadId: "thread1",
       action: targetAction,
       details: {},
     });
+    assertExists(appendResult1.isOk());
+    assertEquals(appendResult1.isOk(), true);
 
-    await logger.appendAuditLog({
+    const appendResult2 = await logger.appendAuditLog({
       timestamp: new Date().toISOString(),
       threadId: "thread2",
       action: otherAction,
       details: {},
     });
+    assertExists(appendResult2.isOk());
+    assertEquals(appendResult2.isOk(), true);
 
-    await logger.appendAuditLog({
+    const appendResult3 = await logger.appendAuditLog({
       timestamp: new Date().toISOString(),
       threadId: "thread3",
       action: targetAction,
       details: {},
     });
+    assertExists(appendResult3.isOk());
+    assertEquals(appendResult3.isOk(), true);
 
     const today = new Date().toISOString().split("T")[0];
-    const logs = await logger.getAuditLogsByAction(targetAction, today);
+    const logsResult = await logger.getAuditLogsByAction(targetAction, today);
+    assertExists(logsResult.isOk());
+    assertEquals(logsResult.isOk(), true);
 
+    if (!logsResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    const logs = logsResult.value;
     assertEquals(logs.length, 2);
     assertEquals(logs[0].action, targetAction);
     assertEquals(logs[1].action, targetAction);
@@ -164,7 +222,9 @@ Deno.test("AuditLogger - 古いログのクリーンアップ", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
     // 複数の日付のディレクトリを作成
     const today = new Date();
@@ -190,9 +250,18 @@ Deno.test("AuditLogger - 古いログのクリーンアップ", async () => {
     });
 
     // 7日以上前のログをクリーンアップ
-    await logger.cleanupOldAuditLogs(7);
+    const cleanupResult = await logger.cleanupOldAuditLogs(7);
+    assertExists(cleanupResult.isOk());
+    assertEquals(cleanupResult.isOk(), true);
 
-    const dates = await logger.getAuditLogDates();
+    const datesResult = await logger.getAuditLogDates();
+    assertExists(datesResult.isOk());
+    assertEquals(datesResult.isOk(), true);
+
+    if (!datesResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    const dates = datesResult.value;
     assertEquals(dates.length, 1);
     assertEquals(dates[0], recentDateStr);
   } finally {
@@ -204,7 +273,9 @@ Deno.test("AuditLogger - 空行を含むログの処理", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const logger = new AuditLogger(testBaseDir);
-    await logger.initialize();
+    const initResult = await logger.initialize();
+    assertExists(initResult.isOk());
+    assertEquals(initResult.isOk(), true);
 
     const entry: AuditEntry = {
       timestamp: new Date().toISOString(),
@@ -213,14 +284,23 @@ Deno.test("AuditLogger - 空行を含むログの処理", async () => {
       details: { data: "test" },
     };
 
-    await logger.appendAuditLog(entry);
+    const appendResult = await logger.appendAuditLog(entry);
+    assertExists(appendResult.isOk());
+    assertEquals(appendResult.isOk(), true);
 
     // 手動で空行を追加
     const today = new Date().toISOString().split("T")[0];
     const filePath = `${testBaseDir}/audit/${today}/activity.jsonl`;
     await Deno.writeTextFile(filePath, "\n\n", { append: true });
 
-    const logs = await logger.getAuditLogs(today);
+    const logsResult = await logger.getAuditLogs(today);
+    assertExists(logsResult.isOk());
+    assertEquals(logsResult.isOk(), true);
+
+    if (!logsResult.isOk()) {
+      throw new Error("Unexpected error");
+    }
+    const logs = logsResult.value;
     // 空行は除外される
     assertEquals(logs.length, 1);
     assertEquals(logs[0].action, entry.action);

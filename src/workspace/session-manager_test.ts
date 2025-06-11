@@ -6,7 +6,8 @@ Deno.test("SessionManager - セッションログの保存と読み込み", asyn
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const repositoryFullName = "test-org/test-repo";
     const sessionId = "test-session-123";
@@ -26,26 +27,35 @@ Deno.test("SessionManager - セッションログの保存と読み込み", asyn
     });
 
     // 新規作成
-    await manager.saveRawSessionJsonl(
+    const saveResult1 = await manager.saveRawSessionJsonl(
       repositoryFullName,
       sessionId,
       jsonlContent1,
     );
+    assertEquals(saveResult1.isOk(), true);
 
     // 追記
-    await manager.saveRawSessionJsonl(
+    const saveResult2 = await manager.saveRawSessionJsonl(
       repositoryFullName,
       sessionId,
       jsonlContent2,
     );
+    assertEquals(saveResult2.isOk(), true);
 
     // 読み込み
-    const logs = await manager.loadSessionLogs(repositoryFullName, sessionId);
-    assertEquals(logs.length, 2);
-    assertEquals(logs[0].type, "request");
-    assertEquals(logs[0].content, "test request");
-    assertEquals(logs[1].type, "response");
-    assertEquals(logs[1].content, "test response");
+    const loadResult = await manager.loadSessionLogs(
+      repositoryFullName,
+      sessionId,
+    );
+    assertEquals(loadResult.isOk(), true);
+    if (loadResult.isOk()) {
+      const logs = loadResult.value;
+      assertEquals(logs.length, 2);
+      assertEquals(logs[0].type, "request");
+      assertEquals(logs[0].content, "test request");
+      assertEquals(logs[1].type, "response");
+      assertEquals(logs[1].content, "test response");
+    }
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -55,13 +65,17 @@ Deno.test("SessionManager - 存在しないセッションの読み込み", asyn
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
-    const logs = await manager.loadSessionLogs(
+    const loadResult = await manager.loadSessionLogs(
       "test-org/test-repo",
       "non-existent",
     );
-    assertEquals(logs, []);
+    assertEquals(loadResult.isOk(), true);
+    if (loadResult.isOk()) {
+      assertEquals(loadResult.value, []);
+    }
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -71,21 +85,46 @@ Deno.test("SessionManager - セッションIDの一覧取得", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const repositoryFullName = "test-org/test-repo";
 
     // 複数のセッションを作成
-    await manager.saveRawSessionJsonl(repositoryFullName, "session-1", "{}");
-    await manager.saveRawSessionJsonl(repositoryFullName, "session-2", "{}");
-    await manager.saveRawSessionJsonl(repositoryFullName, "session-3", "{}");
+    const saveResult1 = await manager.saveRawSessionJsonl(
+      repositoryFullName,
+      "session-1",
+      "{}",
+    );
+    assertEquals(saveResult1.isOk(), true);
+    const saveResult2 = await manager.saveRawSessionJsonl(
+      repositoryFullName,
+      "session-2",
+      "{}",
+    );
+    assertEquals(saveResult2.isOk(), true);
+    const saveResult3 = await manager.saveRawSessionJsonl(
+      repositoryFullName,
+      "session-3",
+      "{}",
+    );
+    assertEquals(saveResult3.isOk(), true);
 
     // 同じセッションに追記
-    await manager.saveRawSessionJsonl(repositoryFullName, "session-1", "{}");
+    const saveResult4 = await manager.saveRawSessionJsonl(
+      repositoryFullName,
+      "session-1",
+      "{}",
+    );
+    assertEquals(saveResult4.isOk(), true);
 
-    const sessionIds = await manager.getSessionIds(repositoryFullName);
-    assertEquals(sessionIds.length, 3);
-    assertEquals(sessionIds, ["session-1", "session-2", "session-3"]);
+    const getResult = await manager.getSessionIds(repositoryFullName);
+    assertEquals(getResult.isOk(), true);
+    if (getResult.isOk()) {
+      const sessionIds = getResult.value;
+      assertEquals(sessionIds.length, 3);
+      assertEquals(sessionIds, ["session-1", "session-2", "session-3"]);
+    }
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -95,10 +134,14 @@ Deno.test("SessionManager - 存在しないリポジトリのセッションID�
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
-    const sessionIds = await manager.getSessionIds("non-existent/repo");
-    assertEquals(sessionIds, []);
+    const getResult = await manager.getSessionIds("non-existent/repo");
+    assertEquals(getResult.isOk(), true);
+    if (getResult.isOk()) {
+      assertEquals(getResult.value, []);
+    }
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -108,25 +151,41 @@ Deno.test("SessionManager - セッションログの削除", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const repositoryFullName = "test-org/test-repo";
     const sessionId = "test-session-456";
 
     // セッション作成
-    await manager.saveRawSessionJsonl(repositoryFullName, sessionId, "{}");
+    const saveResult = await manager.saveRawSessionJsonl(
+      repositoryFullName,
+      sessionId,
+      "{}",
+    );
+    assertEquals(saveResult.isOk(), true);
 
     // 削除前の確認
-    let sessionIds = await manager.getSessionIds(repositoryFullName);
-    assertEquals(sessionIds.length, 1);
-    assertEquals(sessionIds[0], sessionId);
+    let getResult = await manager.getSessionIds(repositoryFullName);
+    assertEquals(getResult.isOk(), true);
+    if (getResult.isOk()) {
+      assertEquals(getResult.value.length, 1);
+      assertEquals(getResult.value[0], sessionId);
+    }
 
     // 削除
-    await manager.deleteSessionLogs(repositoryFullName, sessionId);
+    const deleteResult = await manager.deleteSessionLogs(
+      repositoryFullName,
+      sessionId,
+    );
+    assertEquals(deleteResult.isOk(), true);
 
     // 削除後の確認
-    sessionIds = await manager.getSessionIds(repositoryFullName);
-    assertEquals(sessionIds.length, 0);
+    getResult = await manager.getSessionIds(repositoryFullName);
+    assertEquals(getResult.isOk(), true);
+    if (getResult.isOk()) {
+      assertEquals(getResult.value.length, 0);
+    }
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -136,10 +195,15 @@ Deno.test("SessionManager - 存在しないセッションの削除", async () =
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     // 存在しないセッションを削除してもエラーにならない
-    await manager.deleteSessionLogs("test-org/test-repo", "non-existent");
+    const deleteResult = await manager.deleteSessionLogs(
+      "test-org/test-repo",
+      "non-existent",
+    );
+    assertEquals(deleteResult.isOk(), true);
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
@@ -149,7 +213,8 @@ Deno.test("SessionManager - 空行を含むJSONLの処理", async () => {
   const testBaseDir = await Deno.makeTempDir();
   try {
     const manager = new SessionManager(testBaseDir);
-    await manager.initialize();
+    const initResult = await manager.initialize();
+    assertEquals(initResult.isOk(), true);
 
     const repositoryFullName = "test-org/test-repo";
     const sessionId = "test-session-789";
@@ -189,11 +254,18 @@ Deno.test("SessionManager - 空行を含むJSONLの処理", async () => {
 
     await Deno.writeTextFile(sessionFilePath, content);
 
-    const logs = await manager.loadSessionLogs(repositoryFullName, sessionId);
-    // 空行は除外される
-    assertEquals(logs.length, 2);
-    assertEquals(logs[0].content, "1");
-    assertEquals(logs[1].content, "2");
+    const loadResult = await manager.loadSessionLogs(
+      repositoryFullName,
+      sessionId,
+    );
+    assertEquals(loadResult.isOk(), true);
+    if (loadResult.isOk()) {
+      const logs = loadResult.value;
+      // 空行は除外される
+      assertEquals(logs.length, 2);
+      assertEquals(logs[0].content, "1");
+      assertEquals(logs[1].content, "2");
+    }
   } finally {
     await Deno.remove(testBaseDir, { recursive: true });
   }
