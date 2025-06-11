@@ -140,9 +140,36 @@ export class WorkspaceManager {
         }`,
       );
     }
-    await this.sessionManager.initialize();
-    await this.auditLogger.initialize();
-    await this.patManager.initialize();
+    const sessionInitResult = await this.sessionManager.initialize();
+    if (sessionInitResult.isErr()) {
+      throw new Error(
+        `SessionManagerの初期化に失敗しました: ${
+          "error" in sessionInitResult.error
+            ? sessionInitResult.error.error
+            : JSON.stringify(sessionInitResult.error)
+        }`,
+      );
+    }
+    const auditInitResult = await this.auditLogger.initialize();
+    if (auditInitResult.isErr()) {
+      throw new Error(
+        `AuditLoggerの初期化に失敗しました: ${
+          "error" in auditInitResult.error
+            ? auditInitResult.error.error
+            : JSON.stringify(auditInitResult.error)
+        }`,
+      );
+    }
+    const patInitResult = await this.patManager.initialize();
+    if (patInitResult.isErr()) {
+      throw new Error(
+        `PatManagerの初期化に失敗しました: ${
+          "error" in patInitResult.error
+            ? patInitResult.error.error
+            : JSON.stringify(patInitResult.error)
+        }`,
+      );
+    }
     await this.queueManager.initialize();
   }
 
