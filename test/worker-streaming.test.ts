@@ -50,11 +50,14 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
 
     const result = await worker.processMessage("test", onProgress);
 
+    // Result型の確認
+    assertEquals(result.isOk(), true);
+
     // Verify progress updates were made
     assertEquals(progressUpdates.length > 0, true);
 
     // The final result should be returned (最終的な結果のみ)
-    assertEquals(result, "完了しました。");
+    assertEquals(result._unsafeUnwrap(), "完了しました。");
 
     // Verify some progress messages
     const hasWelcomeMessage = progressUpdates.some((msg) =>
@@ -103,16 +106,17 @@ Deno.test("Worker - エラー時のストリーミング処理", async () => {
       progressUpdates.push(content);
     };
 
-    try {
-      await worker.processMessage("error test", onProgress);
-      assertEquals(true, false, "Should throw an error");
-    } catch (error) {
-      // Error is expected
-      assertEquals(error instanceof Error, true);
+    const result = await worker.processMessage("error test", onProgress);
 
-      // Verify that some progress was made before error
-      assertEquals(progressUpdates.length >= 0, true);
-    }
+    // JSONエラーレスポンスは正常に処理され、エラーメッセージとして返される
+    assertEquals(result.isOk(), true);
+    assertEquals(
+      result._unsafeUnwrap(),
+      "Claude からの応答を取得できませんでした。",
+    );
+
+    // Verify that some progress was made before error
+    assertEquals(progressUpdates.length >= 0, true);
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
@@ -153,8 +157,11 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
     // No progress callback provided
     const result = await worker.processMessage("no callback test");
 
+    // Result型の確認
+    assertEquals(result.isOk(), true);
+
     // Should still work without progress callback
-    assertEquals(result, "完了");
+    assertEquals(result._unsafeUnwrap(), "完了");
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }

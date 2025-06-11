@@ -14,20 +14,8 @@ import {
   DefaultClaudeCommandExecutor,
   DevcontainerClaudeExecutor,
 } from "./claude-executor.ts";
-
-export interface IWorker {
-  processMessage(
-    message: string,
-    onProgress?: (content: string) => Promise<void>,
-    onReaction?: (emoji: string) => Promise<void>,
-  ): Promise<string>;
-  getName(): string;
-  getRepository(): GitRepository | null;
-  setRepository(repository: GitRepository, localPath: string): Promise<void>;
-  setThreadId(threadId: string): void;
-  isUsingDevcontainer(): boolean;
-  save(): Promise<void>;
-}
+import type { IWorker, WorkerError } from "./types.ts";
+import { err, ok, Result } from "neverthrow";
 
 export class Worker implements IWorker {
   private state: WorkerState;
@@ -69,7 +57,7 @@ export class Worker implements IWorker {
     message: string,
     onProgress: (content: string) => Promise<void> = async () => {},
     onReaction?: (emoji: string) => Promise<void>,
-  ): Promise<string> {
+  ): Promise<Result<string, WorkerError>> {
     this.logVerbose("メッセージ処理開始", {
       messageLength: message.length,
       hasRepository: !!this.state.repository,
@@ -94,7 +82,7 @@ export class Worker implements IWorker {
 
     if (!this.state.repository || !this.state.worktreePath) {
       this.logVerbose("リポジトリまたはworktreeパスが未設定");
-      return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+      return err({ type: "REPOSITORY_NOT_SET" });
     }
 
     // devcontainerの選択が完了していない場合は設定を促すメッセージを返す
@@ -104,14 +92,7 @@ export class Worker implements IWorker {
         useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
       });
 
-      let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
-      message += "**実行環境を選択してください:**\n";
-      message +=
-        "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
-      message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
-      message += "設定が完了すると、Claude Codeを実行できるようになります。";
-
-      return message;
+      return err({ type: "CONFIGURATION_INCOMPLETE" });
     }
 
     try {
@@ -171,10 +152,14 @@ export class Worker implements IWorker {
       });
 
       this.logVerbose("メッセージ処理完了");
-      return formattedResponse;
+      return ok(formattedResponse);
     } catch (error) {
       if (error instanceof ClaudeCodeRateLimitError) {
-        throw error; // レートリミットエラーはそのまま投げる
+        return err({
+          type: "RATE_LIMIT",
+          retryAfter: error.retryAfter,
+          timestamp: error.timestamp,
+        });
       }
       this.logVerbose("メッセージ処理エラー", {
         errorMessage: (error as Error).message,
@@ -184,9 +169,10 @@ export class Worker implements IWorker {
         `Worker ${this.state.workerName} - Claude実行エラー:`,
         error,
       );
-      const errorMessage = `エラーが発生しました: ${(error as Error).message}`;
-
-      return errorMessage;
+      return err({
+        type: "CLAUDE_EXECUTION_FAILED",
+        error: (error as Error).message,
+      });
     }
   }
 
@@ -450,9 +436,7 @@ export class Worker implements IWorker {
       });
 
       // 非同期でWorker状態を保存
-      this.save().catch((error) => {
-        console.error("Worker状態の保存に失敗しました:", error);
-      });
+      this.saveAsync();
     }
 
     // 生のjsonlを保存
@@ -534,7 +518,7 @@ export class Worker implements IWorker {
   async setRepository(
     repository: GitRepository,
     localPath: string,
-  ): Promise<void> {
+  ): Promise<Result<void, WorkerError>> {
     this.logVerbose("リポジトリ設定開始", {
       repositoryFullName: repository.fullName,
       localPath,
@@ -614,7 +598,12 @@ export class Worker implements IWorker {
     });
 
     // Worker状態を保存
-    await this.save();
+    const saveResult = await this.save();
+    if (saveResult.isErr()) {
+      return saveResult;
+    }
+
+    return ok(undefined);
   }
 
   setThreadId(threadId: string): void {
@@ -627,12 +616,14 @@ export class Worker implements IWorker {
    * 非同期で状態を保存し、エラーをログに記録する
    */
   private saveAsync(): void {
-    this.save().catch((error) => {
-      this.logVerbose("Worker状態の保存に失敗", {
-        error: (error as Error).message,
-        threadId: this.state.threadId,
-      });
-      console.error("Worker状態の保存に失敗しました:", error);
+    this.save().then((result) => {
+      if (result.isErr()) {
+        this.logVerbose("Worker状態の保存に失敗", {
+          error: result.error,
+          threadId: this.state.threadId,
+        });
+        console.error("Worker状態の保存に失敗しました:", result.error);
+      }
     });
   }
 
@@ -797,7 +788,17 @@ export class Worker implements IWorker {
       }
 
       // Worker状態を保存
-      await this.save();
+      const saveResult = await this.save();
+      if (saveResult.isErr()) {
+        const errorType = saveResult.error.type;
+        const errorDetail = errorType === "WORKSPACE_ERROR"
+          ? saveResult.error.error
+          : errorType;
+        return {
+          success: false,
+          error: `Worker状態の保存に失敗: ${errorDetail}`,
+        };
+      }
     }
 
     return result;
@@ -806,10 +807,10 @@ export class Worker implements IWorker {
   /**
    * Worker状態を永続化する
    */
-  async save(): Promise<void> {
+  async save(): Promise<Result<void, WorkerError>> {
     if (!this.state.threadId) {
       this.logVerbose("Worker状態保存スキップ: threadId未設定");
-      return;
+      return ok(undefined);
     }
 
     try {
@@ -819,8 +820,14 @@ export class Worker implements IWorker {
         threadId: this.state.threadId,
         workerName: this.state.workerName,
       });
+      return ok(undefined);
     } catch (error) {
       console.error("Worker状態の保存に失敗しました:", error);
+      return err({
+        type: "WORKSPACE_ERROR",
+        operation: "saveWorkerState",
+        error: (error as Error).message,
+      });
     }
   }
 

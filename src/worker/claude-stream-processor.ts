@@ -76,11 +76,13 @@ export type ClaudeStreamMessage =
 
 export class ClaudeCodeRateLimitError extends Error {
   public readonly timestamp: number;
+  public readonly retryAfter: number;
 
   constructor(timestamp: number) {
     super(`Claude AI usage limit reached|${timestamp}`);
     this.name = "ClaudeCodeRateLimitError";
     this.timestamp = timestamp;
+    this.retryAfter = timestamp;
   }
 }
 

@@ -10,7 +10,6 @@ import {
   createTestWorker,
   createTestWorkerState,
   createTestWorkspaceManager,
-  ERROR_MESSAGES,
 } from "./test-utils.ts";
 
 Deno.test("Worker - メッセージを受け取って返信する（リポジトリ未設定）", async () => {
@@ -21,9 +20,13 @@ Deno.test("Worker - メッセージを受け取って返信する（リポジト
   try {
     const worker = await createTestWorker(workerName, workspace, executor);
     const message = "テストメッセージです";
-    const reply = await worker.processMessage(message);
+    const result = await worker.processMessage(message);
 
-    assertEquals(reply, ERROR_MESSAGES.REPOSITORY_NOT_SET);
+    // Result型の確認
+    assertEquals(result.isErr(), true);
+    if (result.isErr()) {
+      assertEquals(result.error.type, "REPOSITORY_NOT_SET");
+    }
   } finally {
     // WorkspaceManagerのクリーンアップは省略（テストごとに独立）
   }
@@ -47,8 +50,13 @@ Deno.test("Worker - 空のメッセージも処理できる", async () => {
 
   try {
     const worker = await createTestWorker("test-worker", workspace, executor);
-    const reply = await worker.processMessage("");
-    assertEquals(reply, ERROR_MESSAGES.REPOSITORY_NOT_SET);
+    const result = await worker.processMessage("");
+
+    // Result型の確認
+    assertEquals(result.isErr(), true);
+    if (result.isErr()) {
+      assertEquals(result.error.type, "REPOSITORY_NOT_SET");
+    }
   } finally {
     // クリーンアップ
   }
@@ -103,11 +111,13 @@ Deno.test("Worker - 設定未完了時の定型メッセージ", async () => {
 
     // 設定が未完了の状態でメッセージを送信
     const message = "リポジトリについて教えて";
-    const reply = await worker.processMessage(message);
+    const result = await worker.processMessage(message);
 
-    // 設定を促すメッセージが返されることを確認
-    assertEquals(reply.includes("Claude Code実行環境の設定が必要です"), true);
-    assertEquals(reply.includes("/config devcontainer"), true);
+    // Result型の確認
+    assertEquals(result.isErr(), true);
+    if (result.isErr()) {
+      assertEquals(result.error.type, "CONFIGURATION_INCOMPLETE");
+    }
   } finally {
     // クリーンアップ
   }
@@ -128,9 +138,11 @@ Deno.test("Worker - リポジトリ設定後のメッセージ処理", async () 
     await worker.setRepository(repository, "/test/repo");
 
     const message = "リポジトリについて教えて";
-    const reply = await worker.processMessage(message);
+    const result = await worker.processMessage(message);
 
-    assertEquals(reply, mockResponse);
+    // Result型の確認
+    assertEquals(result.isOk(), true);
+    assertEquals(result._unsafeUnwrap(), mockResponse);
   } finally {
     // クリーンアップ
   }
@@ -182,7 +194,10 @@ Deno.test("Worker - verboseモードでログが出力される", async () => {
       undefined,
     );
     const message = "verbose test message";
-    await worker.processMessage(message);
+    const result = await worker.processMessage(message);
+
+    // Result型の確認 - リポジトリ未設定エラー
+    assertEquals(result.isErr(), true);
 
     // ログに worker名が含まれることを確認
     assertEquals(logOutput.includes("verbose-worker"), true);
@@ -202,7 +217,10 @@ Deno.test("Worker - verboseモード無効時はログが出力されない", as
       undefined,
       false,
     );
-    await worker.processMessage("quiet test message");
+    const result = await worker.processMessage("quiet test message");
+
+    // Result型の確認 - リポジトリ未設定エラー
+    assertEquals(result.isErr(), true);
 
     const hasWorkerLog = logs.some((log) =>
       log.includes("quiet-worker") && log.includes("メッセージ受信")
@@ -235,16 +253,19 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
     await worker.setRepository(repository, repoPath);
 
     const progressMessages: string[] = [];
-    const reply = await worker.processMessage(
+    const result = await worker.processMessage(
       "test",
       async (content: string) => {
         progressMessages.push(content);
       },
     );
 
+    // Result型の確認
+    assertEquals(result.isOk(), true);
+
     // ストリーミングされたメッセージを確認
     assertEquals(progressMessages.length > 0, true);
-    assertEquals(reply, "モックレスポンス");
+    assertEquals(result._unsafeUnwrap(), "モックレスポンス");
   } finally {
     // クリーンアップ
   }
@@ -269,15 +290,21 @@ Deno.test("Worker - エラーメッセージも正しく出力される", async 
     await worker.setRepository(repository, repoPath);
 
     const progressMessages: string[] = [];
-    const reply = await worker.processMessage(
+    const result = await worker.processMessage(
       "test message",
       async (content: string) => {
         progressMessages.push(content);
       },
     );
 
-    // エラーメッセージが返されることを確認
-    assertEquals(reply.includes("エラーが発生しました"), true);
+    // Result型の確認 - エラーの場合
+    assertEquals(result.isErr(), true);
+    if (result.isErr()) {
+      assertEquals(result.error.type, "CLAUDE_EXECUTION_FAILED");
+      if (result.error.type === "CLAUDE_EXECUTION_FAILED") {
+        assertEquals(result.error.error.includes("モックエラー"), true);
+      }
+    }
     assertEquals(progressMessages.length > 0, true);
   } finally {
     // クリーンアップ
