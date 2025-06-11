@@ -186,7 +186,7 @@ Deno.test.ignore(
   },
 );
 
-Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている場合", async () => {
+Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている場合（キューが空）", async () => {
   const baseDir = await Deno.makeTempDir({
     prefix: "test_rate_limit_restore_expired_",
   });
@@ -212,6 +212,67 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   if (workerState) {
     workerState.rateLimitTimestamp = pastTimestamp;
     workerState.autoResumeAfterRateLimit = true;
+    workerState.queuedMessages = []; // 空のキュー
+    await workspaceManager.saveWorkerState(workerState);
+  }
+
+  // 自動再開コールバックをモック
+  let autoResumeCallbackCalled = false;
+
+  admin.setAutoResumeCallback(async (_threadId: string, _message: string) => {
+    autoResumeCallbackCalled = true;
+  });
+
+  // 新しいAdminインスタンスで復旧をテスト（コールバックは引き継がれないのでadminを使用）
+  const restoreResult = await admin.restoreActiveThreads();
+  assert(restoreResult.isOk());
+
+  // キューが空の場合は自動再開コールバックが呼ばれないことを確認
+  assertEquals(autoResumeCallbackCalled, false);
+
+  // レートリミット情報がリセットされていることを確認
+  const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
+  assertEquals(updatedWorkerState?.rateLimitTimestamp, undefined);
+  assertEquals(updatedWorkerState?.autoResumeAfterRateLimit, undefined);
+
+  // クリーンアップ
+  const terminateResult = await admin.terminateThread(threadId);
+  assert(terminateResult.isOk());
+  await Deno.remove(baseDir, { recursive: true });
+});
+
+Deno.test("レートリミットタイマーの復旧 - キューにメッセージがある場合", async () => {
+  const baseDir = await Deno.makeTempDir({
+    prefix: "test_rate_limit_restore_with_queue_",
+  });
+  const workspaceManager = new WorkspaceManager(baseDir);
+  await workspaceManager.initialize();
+
+  const adminState = {
+    activeThreadIds: [],
+    lastUpdated: new Date().toISOString(),
+  };
+  const admin = new Admin(adminState, workspaceManager, undefined, undefined);
+  const threadId = "test-thread-restore-queue";
+
+  // 過去のタイムスタンプ（10分前）
+  const pastTimestamp = Math.floor((Date.now() - 10 * 60 * 1000) / 1000);
+
+  // Workerを作成してスレッド情報を準備
+  const createWorkerResult = await admin.createWorker(threadId);
+  assert(createWorkerResult.isOk());
+
+  // レートリミット情報を保存（自動継続有効、キューにメッセージあり）
+  const workerState = await workspaceManager.loadWorkerState(threadId);
+  if (workerState) {
+    workerState.rateLimitTimestamp = pastTimestamp;
+    workerState.autoResumeAfterRateLimit = true;
+    workerState.queuedMessages = [{
+      messageId: "test-message-1",
+      content: "テストメッセージ",
+      timestamp: Date.now(),
+      authorId: "test-author",
+    }];
     await workspaceManager.saveWorkerState(workerState);
   }
 
@@ -230,15 +291,16 @@ Deno.test("レートリミットタイマーの復旧 - 時間が過ぎている
   const restoreResult = await admin.restoreActiveThreads();
   assert(restoreResult.isOk());
 
-  // 即座に自動再開が実行されたことを確認
+  // キューからメッセージが処理されたことを確認
   assertEquals(autoResumeCallbackCalled, true);
   assertEquals(autoResumeThreadId, threadId);
-  assertEquals(autoResumeMessage, "続けて");
+  assertEquals(autoResumeMessage, "テストメッセージ");
 
   // レートリミット情報がリセットされていることを確認
   const updatedWorkerState = await workspaceManager.loadWorkerState(threadId);
   assertEquals(updatedWorkerState?.rateLimitTimestamp, undefined);
   assertEquals(updatedWorkerState?.autoResumeAfterRateLimit, undefined);
+  assertEquals(updatedWorkerState?.queuedMessages?.length, 0);
 
   // クリーンアップ
   const terminateResult = await admin.terminateThread(threadId);
