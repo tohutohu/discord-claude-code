@@ -6,6 +6,8 @@ import {
   ClaudeCodeRateLimitError,
   type ClaudeStreamMessage,
   ClaudeStreamProcessor,
+  JsonParseError,
+  SchemaValidationError,
 } from "./claude-stream-processor.ts";
 import { WorkerConfiguration } from "./worker-configuration.ts";
 import { SessionLogger } from "./session-logger.ts";
@@ -316,8 +318,14 @@ export class Worker implements IWorker {
       newSessionId?: string | null;
     }) => void,
   ): void {
+    // 空行はスキップ
+    if (!line.trim()) {
+      return;
+    }
+
     try {
-      const parsed = JSON.parse(line);
+      // 安全なJSON解析と型検証を使用
+      const parsed = streamProcessor.parseJsonLine(line);
       this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
         lineNumber: undefined,
         hasSessionId: !!parsed.session_id,
@@ -354,10 +362,26 @@ export class Worker implements IWorker {
       if (parseError instanceof ClaudeCodeRateLimitError) {
         throw parseError;
       }
-      this.logVerbose(`JSON解析エラー: ${parseError}`, {
-        line: line.substring(0, 100),
-      });
-      console.warn(`JSON解析エラー: ${parseError}, 行: ${line}`);
+
+      // エラーの種類に応じて詳細なログを出力
+      if (parseError instanceof JsonParseError) {
+        this.logVerbose("JSON解析エラー", {
+          linePreview: parseError.line.substring(0, 100),
+          cause: String(parseError.cause),
+        });
+        console.warn(`JSON解析エラー: ${parseError.message}`);
+      } else if (parseError instanceof SchemaValidationError) {
+        this.logVerbose("スキーマ検証エラー", {
+          data: JSON.stringify(parseError.data).substring(0, 200),
+          message: parseError.message,
+        });
+        console.warn(`スキーマ検証エラー: ${parseError.message}`);
+      } else {
+        this.logVerbose(`予期しないエラー: ${parseError}`, {
+          line: line.substring(0, 100),
+        });
+        console.warn(`予期しないエラー: ${parseError}`);
+      }
 
       // JSONとしてパースできなかった場合は全文を投稿
       if (onProgress && line.trim()) {

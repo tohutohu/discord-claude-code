@@ -13,11 +13,11 @@ Deno.test("Worker - ストリーミング進捗コールバックが呼ばれる
 
   try {
     const streamData = [
-      '{"type":"session","session_id":"test-session"}\n',
-      '{"type":"assistant","message":{"content":[{"type":"text","text":"こんにちは。"}]}}\n',
-      '{"type":"assistant","message":{"content":[{"type":"text","text":"テストメッセージです。\\n"}]}}\n',
-      '{"type":"assistant","message":{"content":[{"type":"text","text":"これは進捗表示のテストです。"}]}}\n',
-      '{"type":"result","result":"完了しました。"}\n',
+      '{"type":"system","subtype":"init","session_id":"test-session","tools":["Read","Write"]}\n',
+      '{"type":"assistant","message":{"id":"msg_001","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"こんにちは。"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"assistant","message":{"id":"msg_002","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"テストメッセージです。\\n"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"assistant","message":{"id":"msg_003","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"これは進捗表示のテストです。"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"result","subtype":"success","is_error":false,"result":"完了しました。","session_id":"test-session"}\n',
     ];
 
     const mockExecutor = createMockStreamingClaudeCommandExecutor();
@@ -124,9 +124,9 @@ Deno.test("Worker - 進捗コールバックなしでも動作する", async () 
 
   try {
     const streamData = [
-      '{"type":"session","session_id":"test-session"}\n',
-      '{"type":"assistant","message":{"content":[{"type":"text","text":"コールバックなしのテスト"}]}}\n',
-      '{"type":"result","result":"完了"}\n',
+      '{"type":"system","subtype":"init","session_id":"test-session","tools":[]}\n',
+      '{"type":"assistant","message":{"id":"msg_001","type":"message","role":"assistant","model":"claude-3-opus","content":[{"type":"text","text":"コールバックなしのテスト"}],"stop_reason":"end_turn"},"session_id":"test-session"}\n',
+      '{"type":"result","subtype":"success","is_error":false,"result":"完了","session_id":"test-session"}\n',
     ];
 
     const mockExecutor = createMockStreamingClaudeCommandExecutor();
