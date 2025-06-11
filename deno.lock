@@ -4,7 +4,8 @@
     "npm:@discordeno/bot@21.0.0": "21.0.0",
     "npm:@discordeno/types@21.0.0": "21.0.0",
     "npm:@google/genai@1": "1.4.0_@modelcontextprotocol+sdk@1.12.1__express@5.1.0__zod@3.25.56_zod@3.25.56",
-    "npm:discord.js@^14.16.3": "14.19.3"
+    "npm:discord.js@^14.16.3": "14.19.3",
+    "npm:zod@^3.24.1": "3.25.56"
   },
   "npm": {
     "@discordeno/bot@21.0.0": {
@@ -1311,7 +1312,8 @@
   "workspace": {
     "dependencies": [
       "npm:@google/genai@1",
-      "npm:discord.js@^14.16.3"
+      "npm:discord.js@^14.16.3",
+      "npm:zod@^3.24.1"
     ]
   }
 }
