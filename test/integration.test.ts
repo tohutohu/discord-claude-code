@@ -1,4 +1,7 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assert,
+  assertEquals,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   assertWorkerValid,
   createTestContext,
@@ -11,7 +14,14 @@ Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", asyn
 
   try {
     // Workerを作成
-    const worker = await admin.createWorker(threadId);
+    const workerResult = await admin.createWorker(threadId);
+    assert(
+      workerResult.isOk(),
+      `Worker作成に失敗: ${
+        workerResult.isErr() ? JSON.stringify(workerResult.error) : ""
+      }`,
+    );
+    const worker = workerResult.value;
     assertWorkerValid(worker);
 
     // メッセージを送信して返信を確認
@@ -22,12 +32,19 @@ Deno.test("統合テスト - Admin経由でWorkerとやり取りできる", asyn
     ];
 
     for (const message of messages) {
-      const reply = await admin.routeMessage(
+      const replyResult = await admin.routeMessage(
         threadId,
         message,
         undefined,
         undefined,
       );
+      assert(
+        replyResult.isOk(),
+        `メッセージ送信に失敗: ${
+          replyResult.isErr() ? JSON.stringify(replyResult.error) : ""
+        }`,
+      );
+      const reply = replyResult.value;
       assertEquals(reply, ERROR_MESSAGES.REPOSITORY_NOT_SET);
     }
   } finally {
@@ -43,7 +60,14 @@ Deno.test("統合テスト - 複数のスレッドを同時に処理できる", 
   try {
     // 複数のWorkerを作成
     for (const threadId of threadIds) {
-      const worker = await admin.createWorker(threadId);
+      const workerResult = await admin.createWorker(threadId);
+      assert(
+        workerResult.isOk(),
+        `Worker作成に失敗: ${
+          workerResult.isErr() ? JSON.stringify(workerResult.error) : ""
+        }`,
+      );
+      const worker = workerResult.value;
       workers.set(threadId, worker.getName());
     }
 
@@ -53,10 +77,17 @@ Deno.test("統合テスト - 複数のスレッドを同時に処理できる", 
       admin.routeMessage(threadId, message, undefined, undefined)
     );
 
-    const replies = await Promise.all(promises);
+    const replyResults = await Promise.all(promises);
 
     // 各返信が正しいものか確認
-    for (const reply of replies) {
+    for (const replyResult of replyResults) {
+      assert(
+        replyResult.isOk(),
+        `メッセージ送信に失敗: ${
+          replyResult.isErr() ? JSON.stringify(replyResult.error) : ""
+        }`,
+      );
+      const reply = replyResult.value;
       assertEquals(reply, ERROR_MESSAGES.REPOSITORY_NOT_SET);
     }
   } finally {

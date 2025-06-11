@@ -174,12 +174,19 @@ client.once(Events.ClientReady, async (readyClient) => {
           }
         };
 
-        const reply = await admin.routeMessage(
+        const replyResult = await admin.routeMessage(
           threadId,
           message,
           onProgress,
           onReaction,
         );
+
+        if (replyResult.isErr()) {
+          console.error("自動再開メッセージ処理エラー:", replyResult.error);
+          return;
+        }
+
+        const reply = replyResult.value;
 
         if (typeof reply === "string") {
           await (channel as TextChannel).send(reply);
@@ -210,8 +217,12 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   // アクティブなスレッドを復旧
   console.log("アクティブなスレッドを復旧しています...");
-  await admin.restoreActiveThreads();
-  console.log("スレッドの復旧が完了しました。");
+  const restoreResult = await admin.restoreActiveThreads();
+  if (restoreResult.isOk()) {
+    console.log("スレッドの復旧が完了しました。");
+  } else {
+    console.error("スレッドの復旧でエラーが発生しました:", restoreResult.error);
+  }
 
   // スラッシュコマンドを登録
   const rest = new REST({ version: "10" }).setToken(env.DISCORD_TOKEN);
@@ -251,10 +262,17 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
     await interaction.deferReply();
 
-    const result = await admin.handleButtonInteraction(
+    const resultOrError = await admin.handleButtonInteraction(
       threadId,
       interaction.customId,
     );
+
+    if (resultOrError.isErr()) {
+      await interaction.editReply(`エラー: ${resultOrError.error.type}`);
+      return;
+    }
+
+    const result = resultOrError.value;
 
     // devcontainerの起動処理を特別扱い
     if (result === "devcontainer_start_with_progress") {
@@ -353,7 +371,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         }
       } else {
         if (worker) {
-          (worker as Worker).setUseDevcontainer(false);
+          (worker as unknown as Worker).setUseDevcontainer(false);
         }
 
         // エラーメッセージでプログレスメッセージを更新
@@ -690,7 +708,12 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       }
 
       // Workerを作成してリポジトリ情報を設定
-      const worker = await admin.createWorker(thread.id);
+      const workerResult = await admin.createWorker(thread.id);
+      if (workerResult.isErr()) {
+        await interaction.editReply(`エラー: ${workerResult.error.type}`);
+        return;
+      }
+      const worker = workerResult.value;
       await worker.setRepository(repository, repositoryResult.path);
 
       // 更新状況に応じたメッセージを作成
@@ -762,8 +785,17 @@ client.on(Events.ThreadUpdate, async (oldThread, newThread) => {
 
     try {
       // Workerの終了処理
-      await admin.terminateThread(newThread.id);
-      console.log(`スレッド ${newThread.id} のWorkerとworktreeを削除しました`);
+      const terminateResult = await admin.terminateThread(newThread.id);
+      if (terminateResult.isOk()) {
+        console.log(
+          `スレッド ${newThread.id} のWorkerとworktreeを削除しました`,
+        );
+      } else {
+        console.error(
+          `スレッド ${newThread.id} の終了処理でエラー:`,
+          terminateResult.error,
+        );
+      }
     } catch (error) {
       console.error(`スレッド ${newThread.id} の終了処理でエラー:`, error);
     }
@@ -863,22 +895,24 @@ client.on(Events.MessageCreate, async (message) => {
     const parts = message.content.split(" ");
     if (parts.length >= 3) {
       const setting = parts[2].toLowerCase();
-      const worker = admin.getWorker(threadId);
+      const workerResult = admin.getWorker(threadId);
 
-      if (!worker) {
+      if (workerResult.isErr()) {
         await message.channel.send(
           "このスレッドはアクティブではありません。/start コマンドで新しいスレッドを開始してください。",
         );
         return;
       }
 
+      const worker = workerResult.value;
+
       if (setting === "on") {
-        (worker as Worker).setUseDevcontainer(true);
+        (worker as unknown as Worker).setUseDevcontainer(true);
         await message.channel.send(
           `<@${message.author.id}> devcontainer環境での実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`,
         );
       } else if (setting === "off") {
-        (worker as Worker).setUseDevcontainer(false);
+        (worker as unknown as Worker).setUseDevcontainer(false);
         await message.channel.send(
           `<@${message.author.id}> ホスト環境での実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`,
         );
@@ -921,7 +955,7 @@ client.on(Events.MessageCreate, async (message) => {
     };
 
     // AdminにメッセージをルーティングしてWorkerからの返信を取得
-    const reply = await admin.routeMessage(
+    const replyResult = await admin.routeMessage(
       threadId,
       message.content,
       onProgress,
@@ -929,6 +963,22 @@ client.on(Events.MessageCreate, async (message) => {
       message.id,
       message.author.id,
     );
+
+    if (replyResult.isErr()) {
+      const error = replyResult.error;
+      if (error.type === "WORKER_NOT_FOUND") {
+        // このスレッド用のWorkerがまだ作成されていない場合
+        await message.channel.send(
+          "このスレッドはアクティブではありません。/start コマンドで新しいスレッドを開始してください。",
+        );
+      } else {
+        console.error("メッセージ処理エラー:", error);
+        await message.channel.send("エラーが発生しました。");
+      }
+      return;
+    }
+
+    const reply = replyResult.value;
 
     // 最終的な返信を送信
     if (typeof reply === "string") {
@@ -942,15 +992,8 @@ client.on(Events.MessageCreate, async (message) => {
       });
     }
   } catch (error) {
-    if ((error as Error).message.includes("Worker not found")) {
-      // このスレッド用のWorkerがまだ作成されていない場合
-      await message.channel.send(
-        "このスレッドはアクティブではありません。/start コマンドで新しいスレッドを開始してください。",
-      );
-    } else {
-      console.error("メッセージ処理エラー:", error);
-      await message.channel.send("エラーが発生しました。");
-    }
+    console.error("メッセージ処理エラー:", error);
+    await message.channel.send("エラーが発生しました。");
   }
 });
 

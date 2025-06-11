@@ -1,4 +1,5 @@
 import {
+  assert,
   assertEquals,
   assertExists,
   assertNotEquals,
@@ -23,8 +24,9 @@ Deno.test("Admin - スレッドIDとWorkerを作成できる", async () => {
   const threadId = "thread-123";
 
   try {
-    const worker = await admin.createWorker(threadId);
-    assertWorkerValid(worker);
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+    assertWorkerValid(workerResult.value);
   } finally {
     await cleanup();
   }
@@ -35,10 +37,12 @@ Deno.test("Admin - 同じスレッドIDに対して同じWorkerを返す", async
   const threadId = "thread-456";
 
   try {
-    const worker1 = await admin.createWorker(threadId);
-    const worker2 = await admin.createWorker(threadId);
+    const workerResult1 = await admin.createWorker(threadId);
+    const workerResult2 = await admin.createWorker(threadId);
 
-    assertEquals(worker1.getName(), worker2.getName());
+    assert(workerResult1.isOk());
+    assert(workerResult2.isOk());
+    assertEquals(workerResult1.value.getName(), workerResult2.value.getName());
   } finally {
     await cleanup();
   }
@@ -50,11 +54,13 @@ Deno.test("Admin - 異なるスレッドIDに対して異なるWorkerを作成�
   const threadId2 = "thread-999";
 
   try {
-    const worker1 = await admin.createWorker(threadId1);
-    const worker2 = await admin.createWorker(threadId2);
+    const workerResult1 = await admin.createWorker(threadId1);
+    const workerResult2 = await admin.createWorker(threadId2);
 
-    assertWorkerValid(worker1);
-    assertWorkerValid(worker2);
+    assert(workerResult1.isOk());
+    assert(workerResult2.isOk());
+    assertWorkerValid(workerResult1.value);
+    assertWorkerValid(workerResult2.value);
     // 名前が異なることを確認（非常に稀に同じ名前になる可能性はあるが、実用上問題ない）
   } finally {
     await cleanup();
@@ -66,22 +72,30 @@ Deno.test("Admin - スレッドIDに基づいてWorkerを取得できる", async
   const threadId = "thread-111";
 
   try {
-    const createdWorker = await admin.createWorker(threadId);
-    const fetchedWorker = admin.getWorker(threadId);
+    const createdWorkerResult = await admin.createWorker(threadId);
+    assert(createdWorkerResult.isOk());
+    const createdWorker = createdWorkerResult.value;
 
-    assertExists(fetchedWorker);
-    assertEquals(createdWorker.getName(), fetchedWorker?.getName());
+    const fetchedWorkerResult = admin.getWorker(threadId);
+    assert(fetchedWorkerResult.isOk());
+    const fetchedWorker = fetchedWorkerResult.value;
+
+    assertEquals(createdWorker.getName(), fetchedWorker.getName());
   } finally {
     await cleanup();
   }
 });
 
-Deno.test("Admin - 存在しないスレッドIDの場合nullを返す", async () => {
+Deno.test("Admin - 存在しないスレッドIDの場合エラーを返す", async () => {
   const { admin, cleanup } = await createTestContext();
 
   try {
-    const worker = admin.getWorker("non-existent");
-    assertEquals(worker, null);
+    const workerResult = admin.getWorker("non-existent");
+    assert(workerResult.isErr());
+    assertEquals(workerResult.error.type, "WORKER_NOT_FOUND");
+    if (workerResult.error.type === "WORKER_NOT_FOUND") {
+      assertEquals(workerResult.error.threadId, "non-existent");
+    }
   } finally {
     await cleanup();
   }
@@ -93,16 +107,19 @@ Deno.test("Admin - スレッドにメッセージをルーティングできる"
   const message = "テストメッセージ";
 
   try {
-    await admin.createWorker(threadId);
-    const reply = await admin.routeMessage(
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+
+    const replyResult = await admin.routeMessage(
       threadId,
       message,
       undefined,
       undefined,
     );
 
-    assertExists(reply);
-    assertEquals(reply, ERROR_MESSAGES.REPOSITORY_NOT_SET);
+    assert(replyResult.isOk());
+    assertExists(replyResult.value);
+    assertEquals(replyResult.value, ERROR_MESSAGES.REPOSITORY_NOT_SET);
   } finally {
     await cleanup();
   }
@@ -113,13 +130,17 @@ Deno.test("Admin - 存在しないスレッドへのメッセージはエラー�
   const threadId = "non-existent";
 
   try {
-    await admin.routeMessage(threadId, "test", undefined, undefined);
-    assertEquals(true, false, "エラーが発生するはず");
-  } catch (error) {
-    assertEquals(
-      (error as Error).message,
-      ERROR_MESSAGES.WORKER_NOT_FOUND(threadId),
+    const result = await admin.routeMessage(
+      threadId,
+      "test",
+      undefined,
+      undefined,
     );
+    assert(result.isErr());
+    assertEquals(result.error.type, "WORKER_NOT_FOUND");
+    if (result.error.type === "WORKER_NOT_FOUND") {
+      assertEquals(result.error.threadId, threadId);
+    }
   } finally {
     await cleanup();
   }
@@ -153,14 +174,18 @@ Deno.test("Admin - スレッドクローズコールバックが呼ばれる", a
       callbackThreadId = tid;
     });
 
-    await admin.createWorker(threadId);
-    assertExists(admin.getWorker(threadId));
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+    const getWorkerResult = admin.getWorker(threadId);
+    assert(getWorkerResult.isOk());
 
-    await admin.terminateThread(threadId);
+    const terminateResult = await admin.terminateThread(threadId);
+    assert(terminateResult.isOk());
 
     assertEquals(callbackCalled, true);
     assertEquals(callbackThreadId, threadId);
-    assertEquals(admin.getWorker(threadId), null);
+    const getWorkerAfterTerminate = admin.getWorker(threadId);
+    assert(getWorkerAfterTerminate.isErr());
   } finally {
     await cleanup();
   }
@@ -176,7 +201,8 @@ Deno.test("Admin - 未知のボタンIDの場合は適切なメッセージを�
       "unknown_button",
     );
 
-    assertEquals(result, "未知のボタンが押されました。");
+    assert(result.isOk());
+    assertEquals(result.value, "未知のボタンが押されました。");
   } finally {
     await cleanup();
   }
@@ -369,7 +395,8 @@ Deno.test(
       const threadId = "verbose-test-thread";
 
       // Worker作成（ログが出力される）
-      await admin.createWorker(threadId);
+      const workerResult = await admin.createWorker(threadId);
+      assert(workerResult.isOk());
 
       // verboseログが出力されていることを確認
       // Admin初期化ログ
@@ -439,7 +466,8 @@ Deno.test("Admin - verboseモード無効時はログが出力されない", asy
     const threadId = "quiet-test-thread";
 
     // Worker作成
-    await admin.createWorker(threadId);
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
 
     // verboseログが出力されていないことを確認
     const verboseLogs = logMessages.filter((log) => log.includes("[Admin]"));
@@ -477,14 +505,15 @@ Deno.test(
       const threadId = "routing-test-thread";
 
       // Worker作成
-      await admin.createWorker(threadId);
+      const workerResult = await admin.createWorker(threadId);
+      assert(workerResult.isOk());
 
       // 存在しないスレッドへのメッセージをテスト
-      try {
-        await admin.routeMessage("non-existent-thread", "test message");
-      } catch (error) {
-        // エラーが期待される
-      }
+      const errorResult = await admin.routeMessage(
+        "non-existent-thread",
+        "test message",
+      );
+      assert(errorResult.isErr());
 
       // verboseログが出力されていることを確認
       // MessageRouterのルーティング開始ログ
@@ -510,8 +539,9 @@ Deno.test(
 
       // 正常なスレッドへのメッセージをテスト
       logMessages.length = 0; // ログをクリア
-      const response = await admin.routeMessage(threadId, "test message");
-      assertNotEquals(response, undefined);
+      const responseResult = await admin.routeMessage(threadId, "test message");
+      assert(responseResult.isOk());
+      assertNotEquals(responseResult.value, undefined);
 
       // 正常ルーティングのログ確認
       const normalRoutingLog = logMessages.find((log) =>
@@ -539,7 +569,8 @@ Deno.test("Admin - devcontainer設定情報を正しく保存・取得できる"
   const threadId = "devcontainer-config-test";
 
   // Worker作成
-  await admin.createWorker(threadId);
+  const workerResult = await admin.createWorker(threadId);
+  assert(workerResult.isOk());
 
   // devcontainer設定を保存
   const config = {
@@ -572,7 +603,8 @@ Deno.test("Admin - WorkerStateにdevcontainer設定が永続化される", async
   const threadId = "devcontainer-persist-test";
 
   // Worker作成
-  await admin.createWorker(threadId);
+  const workerResult = await admin.createWorker(threadId);
+  assert(workerResult.isOk());
 
   // devcontainer設定を保存
   const config = {
@@ -618,7 +650,8 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   const threadId = "restore-test-thread";
 
   // Worker作成
-  await admin1.createWorker(threadId);
+  const workerResult = await admin1.createWorker(threadId);
+  assert(workerResult.isOk());
 
   // devcontainer設定を保存
   const config = {
@@ -631,7 +664,8 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   await admin1.saveDevcontainerConfig(threadId, config);
 
   // Workerが存在することを確認
-  assertEquals(admin1.getWorker(threadId) !== null, true);
+  const getWorkerResult1 = admin1.getWorker(threadId);
+  assert(getWorkerResult1.isOk());
 
   // Admin状態を保存
   await admin1.save();
@@ -644,15 +678,16 @@ Deno.test("Admin - アクティブなスレッドを復旧できる", async () =
   const admin2 = new Admin(adminState2, workspace);
 
   // 復旧前はWorkerが存在しない
-  assertEquals(admin2.getWorker(threadId), null);
+  const getWorkerResult2 = admin2.getWorker(threadId);
+  assert(getWorkerResult2.isErr());
 
   // アクティブスレッドを復旧
   await admin2.restoreActiveThreads();
 
   // 復旧後はWorkerが存在する
-  const restoredWorker = admin2.getWorker(threadId);
-  assertEquals(restoredWorker !== null, true);
-  assertEquals(typeof restoredWorker?.getName(), "string");
+  const restoredWorkerResult = admin2.getWorker(threadId);
+  assert(restoredWorkerResult.isOk());
+  assertEquals(typeof restoredWorkerResult.value.getName(), "string");
 
   // devcontainer設定も復旧されている
   const restoredConfig = await admin2.getDevcontainerConfig(threadId);
@@ -692,7 +727,8 @@ Deno.test("Admin - アーカイブされたスレッドは復旧されない", a
   await admin.restoreActiveThreads();
 
   // アーカイブされたスレッドは復旧されない
-  assertEquals(admin.getWorker(threadId), null);
+  const workerResult = admin.getWorker(threadId);
+  assert(workerResult.isErr());
 });
 
 Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
@@ -739,8 +775,8 @@ Deno.test("Admin - 復旧時のエラーハンドリング", async () => {
     await admin.restoreActiveThreads();
 
     // worktreeが存在しないため、スレッドはアーカイブされ、Workerは作成されない
-    const worker = admin.getWorker(threadId);
-    assertEquals(worker, null);
+    const workerResult = admin.getWorker(threadId);
+    assert(workerResult.isErr());
 
     // スレッドがアーカイブされたことを確認
     const updatedThreadInfo = await workspace.loadThreadInfo(threadId);
@@ -784,7 +820,8 @@ Deno.test("Admin - worktreeが存在しないスレッドは復旧時にアー�
   await admin.restoreActiveThreads();
 
   // Workerは作成されない
-  assertEquals(admin.getWorker(threadId), null);
+  const workerResult = admin.getWorker(threadId);
+  assert(workerResult.isErr());
 
   // スレッドがアーカイブされたことを確認
   const updatedThreadInfo = await workspace.loadThreadInfo(threadId);
@@ -824,8 +861,8 @@ Deno.test("Admin - worktreeが存在するスレッドは正常に復旧され�
   await admin.restoreActiveThreads();
 
   // Workerが作成される
-  const worker = admin.getWorker(threadId);
-  assertEquals(worker !== null, true);
+  const workerResult = admin.getWorker(threadId);
+  assert(workerResult.isOk());
 
   // スレッドがアクティブのままであることを確認
   const updatedThreadInfo = await workspace.loadThreadInfo(threadId);
@@ -893,13 +930,11 @@ Deno.test("Admin - devcontainer設定がWorkerに正しく復旧される", asyn
   await admin.restoreActiveThreads();
 
   // Workerが作成される
-  const worker = admin.getWorker(threadId);
-  assertEquals(worker !== null, true);
+  const workerResult = admin.getWorker(threadId);
+  assert(workerResult.isOk());
 
   // Worker内のdevcontainer設定が復旧されていることを確認
-  if (worker) {
-    assertEquals(worker.isUsingDevcontainer(), true);
-  }
+  assertEquals(workerResult.value.isUsingDevcontainer(), true);
 
   // devcontainer設定がAdminからも取得できることを確認
   const restoredConfig = await admin.getDevcontainerConfig(threadId);
@@ -943,13 +978,11 @@ Deno.test("Admin - devcontainer設定未設定スレッドの復旧", async () =
   await admin.restoreActiveThreads();
 
   // Workerが作成される
-  const worker = admin.getWorker(threadId);
-  assertEquals(worker !== null, true);
+  const workerResult = admin.getWorker(threadId);
+  assert(workerResult.isOk());
 
   // Worker内のdevcontainer設定がデフォルト値であることを確認
-  if (worker) {
-    assertEquals(worker.isUsingDevcontainer(), false);
-  }
+  assertEquals(workerResult.value.isUsingDevcontainer(), false);
 
   // devcontainer設定がデフォルト値であることを確認
   const restoredConfig = await admin.getDevcontainerConfig(threadId);

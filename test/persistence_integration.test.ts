@@ -1,4 +1,5 @@
 import {
+  assert,
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
@@ -37,8 +38,8 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     const threadId = "integration-test-thread";
 
     // Worker作成
-    const worker1 = await admin1.createWorker(threadId);
-    assertExists(worker1);
+    const createWorkerResult = await admin1.createWorker(threadId);
+    assert(createWorkerResult.isOk());
 
     // devcontainer設定を保存
     const devcontainerConfig = {
@@ -61,14 +62,18 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     const admin2 = new Admin(adminState2, workspace, undefined, undefined);
 
     // 復旧前はWorkerが存在しない
-    assertEquals(admin2.getWorker(threadId), null);
+    const beforeRestoreResult = admin2.getWorker(threadId);
+    assert(beforeRestoreResult.isErr());
+    assertEquals(beforeRestoreResult.error.type, "WORKER_NOT_FOUND");
 
     // アクティブスレッドを復旧
-    await admin2.restoreActiveThreads();
+    const restoreResult = await admin2.restoreActiveThreads();
+    assert(restoreResult.isOk());
 
     // Phase 3: 復旧後の確認
-    const restoredWorker = admin2.getWorker(threadId);
-    assertExists(restoredWorker);
+    const restoredWorkerResult = admin2.getWorker(threadId);
+    assert(restoredWorkerResult.isOk());
+    const restoredWorker = restoredWorkerResult.value;
     assertEquals(typeof restoredWorker.getName(), "string");
 
     // devcontainer設定が正しく復旧されている
@@ -85,10 +90,13 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
     assertEquals(threadInfo.status, "active");
 
     // Phase 4: スレッド終了
-    await admin2.terminateThread(threadId);
+    const terminateResult = await admin2.terminateThread(threadId);
+    assert(terminateResult.isOk());
 
     // スレッドが終了状態になっている
-    assertEquals(admin2.getWorker(threadId), null);
+    const getWorkerResult = admin2.getWorker(threadId);
+    assert(getWorkerResult.isErr());
+    assertEquals(getWorkerResult.error.type, "WORKER_NOT_FOUND");
     const terminatedThreadInfo = await workspace.loadThreadInfo(threadId);
     assertEquals(terminatedThreadInfo?.status, "archived");
 
@@ -98,8 +106,11 @@ Deno.test("永続化統合テスト - スレッド作成から復旧まで完全
       lastUpdated: new Date().toISOString(),
     };
     const admin3 = new Admin(adminState3, workspace, undefined, undefined);
-    await admin3.restoreActiveThreads();
-    assertEquals(admin3.getWorker(threadId), null);
+    const restoreResult3 = await admin3.restoreActiveThreads();
+    assert(restoreResult3.isOk());
+    const getWorkerResult3 = admin3.getWorker(threadId);
+    assert(getWorkerResult3.isErr());
+    assertEquals(getWorkerResult3.error.type, "WORKER_NOT_FOUND");
   } finally {
     await cleanup();
   }
@@ -118,7 +129,8 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
     const threadIds = ["thread-1", "thread-2", "thread-3"];
 
     for (const threadId of threadIds) {
-      await admin1.createWorker(threadId);
+      const createWorkerResult = await admin1.createWorker(threadId);
+      assert(createWorkerResult.isOk());
 
       // 各スレッドに異なるdevcontainer設定
       const config = {
@@ -134,7 +146,8 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
     }
 
     // 1つのスレッドを終了
-    await admin1.terminateThread("thread-2");
+    const terminateResult = await admin1.terminateThread("thread-2");
+    assert(terminateResult.isOk());
 
     // Admin状態を保存
     await admin1.save();
@@ -145,13 +158,18 @@ Deno.test("永続化統合テスト - 複数スレッドの管理と復旧", asy
       lastUpdated: new Date().toISOString(),
     };
     const admin2 = new Admin(adminState2, workspace, undefined, undefined);
-    await admin2.restoreActiveThreads();
+    const restoreResult2 = await admin2.restoreActiveThreads();
+    assert(restoreResult2.isOk());
 
     // Phase 3: 復旧結果確認
     // アクティブなスレッドのみ復旧される
-    assertExists(admin2.getWorker("thread-1"));
-    assertEquals(admin2.getWorker("thread-2"), null); // 終了済み
-    assertExists(admin2.getWorker("thread-3"));
+    const worker1Result = admin2.getWorker("thread-1");
+    assert(worker1Result.isOk());
+    const worker2Result = admin2.getWorker("thread-2");
+    assert(worker2Result.isErr());
+    assertEquals(worker2Result.error.type, "WORKER_NOT_FOUND"); // 終了済み
+    const worker3Result = admin2.getWorker("thread-3");
+    assert(worker3Result.isOk());
 
     // 各スレッドの設定が正しく復旧されている
     const config1 = await admin2.getDevcontainerConfig("thread-1");
@@ -250,7 +268,8 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
 
     // 正常なスレッド
     const goodThreadId = "good-thread";
-    await admin1.createWorker(goodThreadId);
+    const createGoodWorkerResult = await admin1.createWorker(goodThreadId);
+    assert(createGoodWorkerResult.isOk());
     await admin1.saveDevcontainerConfig(goodThreadId, {
       useDevcontainer: false,
       hasDevcontainerFile: true,
@@ -301,16 +320,18 @@ Deno.test("永続化統合テスト - エラー耐性と部分復旧", async () 
     };
 
     try {
-      await admin2.restoreActiveThreads();
+      const restoreResultWithError = await admin2.restoreActiveThreads();
+      assert(restoreResultWithError.isOk());
 
       // Phase 3: 部分復旧の確認
       // 正常なスレッドは復旧される
-      const goodWorker = admin2.getWorker(goodThreadId);
-      assertExists(goodWorker);
+      const goodWorkerResult = admin2.getWorker(goodThreadId);
+      assert(goodWorkerResult.isOk());
 
       // 問題のあるスレッドはworktreeが存在しないためアーカイブされ、Workerは作成されない
-      const badWorker = admin2.getWorker(badThreadId);
-      assertEquals(badWorker, null);
+      const badWorkerResult = admin2.getWorker(badThreadId);
+      assert(badWorkerResult.isErr());
+      assertEquals(badWorkerResult.error.type, "WORKER_NOT_FOUND");
 
       // スレッドはアーカイブされている
       const badThreadInfo = await workspace.loadThreadInfo(badThreadId);
