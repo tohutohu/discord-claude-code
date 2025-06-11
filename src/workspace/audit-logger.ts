@@ -1,6 +1,7 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import type { AuditEntry } from "../workspace.ts";
+import { validateAuditEntrySafe } from "./schemas/audit-schema.ts";
 
 export class AuditLogger {
   private readonly auditDir: string;
@@ -45,7 +46,20 @@ export class AuditLogger {
         line.length > 0
       );
 
-      return lines.map((line) => JSON.parse(line) as AuditEntry);
+      const entries: AuditEntry[] = [];
+      for (const line of lines) {
+        try {
+          const result = validateAuditEntrySafe(JSON.parse(line));
+          if (result.success) {
+            entries.push(result.data);
+          } else {
+            console.error(`Invalid audit entry:`, result.error);
+          }
+        } catch (parseError) {
+          console.error(`Failed to parse audit log line:`, parseError);
+        }
+      }
+      return entries;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return [];

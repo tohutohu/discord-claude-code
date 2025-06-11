@@ -1,6 +1,7 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import type { RepositoryPatInfo } from "../workspace.ts";
+import { validateRepositoryPatInfoSafe } from "./schemas/pat-schema.ts";
 
 export class PatManager {
   private readonly patsDir: string;
@@ -30,7 +31,13 @@ export class PatManager {
     try {
       const filePath = this.getPatFilePath(repositoryFullName);
       const content = await Deno.readTextFile(filePath);
-      return JSON.parse(content) as RepositoryPatInfo;
+      const result = validateRepositoryPatInfoSafe(JSON.parse(content));
+      if (!result.success) {
+        throw new Error(
+          `Invalid PAT data for ${repositoryFullName}: ${result.error}`,
+        );
+      }
+      return result.data;
     } catch (error) {
       if (error instanceof Deno.errors.NotFound) {
         return null;
@@ -58,7 +65,19 @@ export class PatManager {
         if (entry.isFile && entry.name.endsWith(".json")) {
           const filePath = join(this.patsDir, entry.name);
           const content = await Deno.readTextFile(filePath);
-          pats.push(JSON.parse(content) as RepositoryPatInfo);
+          try {
+            const result = validateRepositoryPatInfoSafe(JSON.parse(content));
+            if (result.success) {
+              pats.push(result.data);
+            } else {
+              console.error(`Invalid PAT data in ${entry.name}:`, result.error);
+            }
+          } catch (parseError) {
+            console.error(
+              `Failed to parse PAT file ${entry.name}:`,
+              parseError,
+            );
+          }
         }
       }
 

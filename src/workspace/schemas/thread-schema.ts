@@ -5,9 +5,8 @@ export const ThreadStatusSchema = z.enum(["active", "inactive", "archived"]);
 
 // スレッド情報のスキーマ
 export const ThreadInfoSchema = z.object({
-  threadId: z.string().min(1).max(100).regex(/^\d+$/), // Discord thread IDは数字の文字列
-  repositoryFullName: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/)
-    .nullable(), // org/repo形式
+  threadId: z.string().min(1).max(100), // Discord thread ID
+  repositoryFullName: z.string().min(1).max(200).nullable(), // リポジトリフルネーム
   repositoryLocalPath: z.string().nullable(),
   worktreePath: z.string().nullable(),
   createdAt: z.string().datetime(), // ISO 8601形式

@@ -3,7 +3,7 @@ import { QueuedMessageSchema } from "./admin-schema.ts";
 
 // スレッドキューのスキーマ
 export const ThreadQueueSchema = z.object({
-  threadId: z.string().min(1).max(100).regex(/^\d+$/), // Discord thread ID
+  threadId: z.string().min(1).max(100), // Discord thread ID
   messages: z.array(QueuedMessageSchema),
 });
 

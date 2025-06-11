@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // リポジトリPAT情報のスキーマ
 export const RepositoryPatInfoSchema = z.object({
-  repositoryFullName: z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/), // org/repo形式
+  repositoryFullName: z.string().min(1).max(200), // リポジトリフルネーム
   token: z.string().min(1).max(500), // GitHubトークンの長さ制限
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
