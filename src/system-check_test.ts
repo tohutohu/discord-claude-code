@@ -8,32 +8,46 @@ Deno.test("システム要件チェック機能", async (t) => {
   await t.step("必要なコマンドの存在確認", async () => {
     const result = await checkSystemRequirements();
 
-    // 結果の基本構造を確認
-    assertEquals(typeof result.success, "boolean");
-    assertEquals(Array.isArray(result.results), true);
-    assertEquals(Array.isArray(result.missingRequired), true);
+    // Result型であることを確認
+    assertEquals(typeof result.isOk, "function");
+    assertEquals(typeof result.isErr, "function");
 
-    // gitコマンドの結果を確認
-    const gitResult = result.results.find((r) => r.command === "git");
-    assertEquals(gitResult?.command, "git");
-    assertEquals(typeof gitResult?.available, "boolean");
+    if (result.isOk()) {
+      // 成功時の結果の基本構造を確認
+      const value = result.value;
+      assertEquals(typeof value.success, "boolean");
+      assertEquals(Array.isArray(value.results), true);
+      assertEquals(Array.isArray(value.missingRequired), true);
 
-    // claudeコマンドの結果を確認
-    const claudeResult = result.results.find((r) => r.command === "claude");
-    assertEquals(claudeResult?.command, "claude");
-    assertEquals(typeof claudeResult?.available, "boolean");
+      // gitコマンドの結果を確認
+      const gitResult = value.results.find((r) => r.command === "git");
+      assertEquals(gitResult?.command, "git");
+      assertEquals(typeof gitResult?.available, "boolean");
 
-    // ghコマンドの結果を確認（推奨コマンド）
-    const ghResult = result.results.find((r) => r.command === "gh");
-    assertEquals(ghResult?.command, "gh");
-    assertEquals(typeof ghResult?.available, "boolean");
+      // claudeコマンドの結果を確認
+      const claudeResult = value.results.find((r) => r.command === "claude");
+      assertEquals(claudeResult?.command, "claude");
+      assertEquals(typeof claudeResult?.available, "boolean");
 
-    // devcontainerコマンドの結果を確認（推奨コマンド）
-    const devcontainerResult = result.results.find((r) =>
-      r.command === "devcontainer"
-    );
-    assertEquals(devcontainerResult?.command, "devcontainer");
-    assertEquals(typeof devcontainerResult?.available, "boolean");
+      // ghコマンドの結果を確認（推奨コマンド）
+      const ghResult = value.results.find((r) => r.command === "gh");
+      assertEquals(ghResult?.command, "gh");
+      assertEquals(typeof ghResult?.available, "boolean");
+
+      // devcontainerコマンドの結果を確認（推奨コマンド）
+      const devcontainerResult = value.results.find((r) =>
+        r.command === "devcontainer"
+      );
+      assertEquals(devcontainerResult?.command, "devcontainer");
+      assertEquals(typeof devcontainerResult?.available, "boolean");
+    } else {
+      // エラー時の処理
+      const error = result.error;
+      assertEquals(error.type, "REQUIRED_COMMAND_MISSING");
+      if (error.type === "REQUIRED_COMMAND_MISSING") {
+        assertEquals(Array.isArray(error.missingCommands), true);
+      }
+    }
   });
 
   await t.step("結果のフォーマット機能", () => {

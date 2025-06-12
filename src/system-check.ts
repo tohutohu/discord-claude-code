@@ -1,14 +1,39 @@
+import { err, ok, Result } from "npm:neverthrow@8.1.1";
+
+// エラー型の定義
+export type SystemCheckError = {
+  type: "COMMAND_NOT_FOUND";
+  command: string;
+  error: string;
+} | {
+  type: "VERSION_CHECK_FAILED";
+  command: string;
+  error: string;
+} | {
+  type: "REQUIRED_COMMAND_MISSING";
+  missingCommands: string[];
+} | {
+  type: "UNEXPECTED_ERROR";
+  message: string;
+};
+
 export interface SystemRequirement {
   command: string;
   description: string;
   required: boolean;
 }
 
-export interface SystemCheckResult {
+export interface CommandStatus {
   command: string;
   available: boolean;
   version?: string;
   error?: string;
+}
+
+export interface SystemCheckResult {
+  success: boolean;
+  results: CommandStatus[];
+  missingRequired: string[];
 }
 
 const REQUIRED_COMMANDS: SystemRequirement[] = [
@@ -37,38 +62,78 @@ const OPTIONAL_COMMANDS: SystemRequirement[] = [
   },
 ];
 
-export async function checkSystemRequirements(): Promise<{
-  success: boolean;
-  results: SystemCheckResult[];
-  missingRequired: string[];
-}> {
-  const results: SystemCheckResult[] = [];
+export async function checkSystemRequirements(): Promise<
+  Result<SystemCheckResult, SystemCheckError>
+> {
+  const results: CommandStatus[] = [];
   const missingRequired: string[] = [];
 
   // 必須コマンドのチェック
   for (const requirement of REQUIRED_COMMANDS) {
-    const result = await checkCommand(requirement.command);
-    results.push(result);
+    const commandResult = await checkCommand(requirement.command);
 
-    if (!result.available) {
+    if (commandResult.isErr()) {
+      // エラーが発生した場合でも、利用不可として記録する
+      const errorMessage = commandResult.error.type === "COMMAND_NOT_FOUND" ||
+          commandResult.error.type === "VERSION_CHECK_FAILED"
+        ? commandResult.error.error
+        : "Unknown error";
+      const status: CommandStatus = {
+        command: requirement.command,
+        available: false,
+        error: errorMessage,
+      };
+      results.push(status);
       missingRequired.push(requirement.command);
+    } else {
+      const status = commandResult.value;
+      results.push(status);
+
+      if (!status.available) {
+        missingRequired.push(requirement.command);
+      }
     }
   }
 
   // オプションコマンドのチェック
   for (const requirement of OPTIONAL_COMMANDS) {
-    const result = await checkCommand(requirement.command);
-    results.push(result);
+    const commandResult = await checkCommand(requirement.command);
+
+    if (commandResult.isErr()) {
+      // オプションコマンドのエラーは無視し、利用不可として記録
+      const errorMessage = commandResult.error.type === "COMMAND_NOT_FOUND" ||
+          commandResult.error.type === "VERSION_CHECK_FAILED"
+        ? commandResult.error.error
+        : "Unknown error";
+      const status: CommandStatus = {
+        command: requirement.command,
+        available: false,
+        error: errorMessage,
+      };
+      results.push(status);
+    } else {
+      results.push(commandResult.value);
+    }
   }
 
-  return {
-    success: missingRequired.length === 0,
+  // 必須コマンドが不足している場合はエラーを返す
+  if (missingRequired.length > 0) {
+    return err({
+      type: "REQUIRED_COMMAND_MISSING",
+      missingCommands: missingRequired,
+    });
+  }
+
+  return ok({
+    success: true,
     results,
     missingRequired,
-  };
+  });
 }
 
-async function checkCommand(command: string): Promise<SystemCheckResult> {
+async function checkCommand(
+  command: string,
+): Promise<Result<CommandStatus, SystemCheckError>> {
   try {
     const process = new Deno.Command(command, {
       args: ["--version"],
@@ -80,30 +145,45 @@ async function checkCommand(command: string): Promise<SystemCheckResult> {
 
     if (result.success) {
       const version = new TextDecoder().decode(result.stdout).trim();
-      return {
+      return ok({
         command,
         available: true,
         version,
-      };
+      });
     } else {
       const error = new TextDecoder().decode(result.stderr).trim();
-      return {
+      return ok({
         command,
         available: false,
         error,
-      };
+      });
     }
   } catch (error) {
-    return {
+    const errorMessage = (error as Error).message;
+
+    // コマンドが見つからない場合
+    if (
+      errorMessage.includes("No such file or directory") ||
+      errorMessage.includes("not found")
+    ) {
+      return err({
+        type: "COMMAND_NOT_FOUND",
+        command,
+        error: errorMessage,
+      });
+    }
+
+    // その他のエラー
+    return err({
+      type: "VERSION_CHECK_FAILED",
       command,
-      available: false,
-      error: (error as Error).message,
-    };
+      error: errorMessage,
+    });
   }
 }
 
 export function formatSystemCheckResults(
-  results: SystemCheckResult[],
+  results: CommandStatus[],
   missingRequired: string[],
 ): string {
   const lines: string[] = [];

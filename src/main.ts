@@ -21,6 +21,7 @@ import { createDevcontainerProgressHandler } from "./utils/devcontainer-progress
 import { RepositoryPatInfo, WorkspaceManager } from "./workspace.ts";
 import {
   checkSystemRequirements,
+  type CommandStatus,
   formatSystemCheckResults,
 } from "./system-check.ts";
 import { performGitUpdate } from "./git-update.ts";
@@ -28,19 +29,67 @@ import { generateThreadName, summarizeWithGemini } from "./gemini.ts";
 
 // システム要件チェック
 console.log("システム要件をチェックしています...");
-const systemCheck = await checkSystemRequirements();
+const systemCheckResult = await checkSystemRequirements();
+
+if (systemCheckResult.isErr()) {
+  const error = systemCheckResult.error;
+
+  if (error.type === "REQUIRED_COMMAND_MISSING") {
+    // エラーの場合でも、各コマンドの状態を確認するために再度チェック（結果表示用）
+    const allCommands = ["git", "claude", "gh", "devcontainer"];
+    const displayResults: CommandStatus[] = [];
+
+    for (const cmd of allCommands) {
+      try {
+        const process = new Deno.Command(cmd, {
+          args: ["--version"],
+          stdout: "piped",
+          stderr: "piped",
+        });
+        const result = await process.output();
+
+        if (result.success) {
+          const version = new TextDecoder().decode(result.stdout).trim();
+          displayResults.push({ command: cmd, available: true, version });
+        } else {
+          displayResults.push({
+            command: cmd,
+            available: false,
+            error: "Command failed",
+          });
+        }
+      } catch {
+        displayResults.push({
+          command: cmd,
+          available: false,
+          error: "Command not found",
+        });
+      }
+    }
+
+    const checkResults = formatSystemCheckResults(
+      displayResults,
+      error.missingCommands,
+    );
+    console.log(checkResults);
+    console.error(
+      "\n❌ 必須コマンドが不足しているため、アプリケーションを終了します。",
+    );
+  } else {
+    console.error(
+      `\n❌ システムチェック中にエラーが発生しました: ${JSON.stringify(error)}`,
+    );
+  }
+
+  Deno.exit(1);
+}
+
+const systemCheck = systemCheckResult.value;
 const checkResults = formatSystemCheckResults(
   systemCheck.results,
   systemCheck.missingRequired,
 );
 console.log(checkResults);
-
-if (!systemCheck.success) {
-  console.error(
-    "\n❌ 必須コマンドが不足しているため、アプリケーションを終了します。",
-  );
-  Deno.exit(1);
-}
 
 console.log("\n✅ システム要件チェック完了\n");
 
