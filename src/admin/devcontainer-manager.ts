@@ -8,16 +8,57 @@ import type { AuditEntry } from "../workspace.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { DiscordActionRow } from "./types.ts";
 
+/**
+ * コマンド実行の結果を表すインターフェース
+ */
+export interface CommandOutput {
+  code: number;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}
+
+/**
+ * コマンド実行ラッパーインターフェース
+ */
+export interface CommandExecutor {
+  execute(
+    command: string,
+    args: string[],
+    options?: { stderr?: "piped"; stdout?: "piped" },
+  ): Promise<CommandOutput>;
+}
+
+/**
+ * デフォルトのコマンド実行ラッパー実装
+ */
+export class DefaultCommandExecutor implements CommandExecutor {
+  async execute(
+    command: string,
+    args: string[],
+    options?: { stderr?: "piped"; stdout?: "piped" },
+  ): Promise<CommandOutput> {
+    const cmd = new Deno.Command(command, {
+      args,
+      ...options,
+    });
+    const { code, stdout, stderr } = await cmd.output();
+    return { code, stdout, stderr };
+  }
+}
+
 export class DevcontainerManager {
   private workspaceManager: WorkspaceManager;
   private verbose: boolean;
+  private commandExecutor: CommandExecutor;
 
   constructor(
     workspaceManager: WorkspaceManager,
     verbose = false,
+    commandExecutor?: CommandExecutor,
   ) {
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
+    this.commandExecutor = commandExecutor || new DefaultCommandExecutor();
   }
 
   /**
@@ -626,13 +667,11 @@ export class DevcontainerManager {
       });
 
       // docker rm -f -v でコンテナを削除
-      const cmd = new Deno.Command("docker", {
-        args: ["rm", "-f", "-v", config.containerId],
-        stderr: "piped",
-        stdout: "piped",
-      });
-
-      const { code, stderr, stdout } = await cmd.output();
+      const { code, stderr, stdout } = await this.commandExecutor.execute(
+        "docker",
+        ["rm", "-f", "-v", config.containerId],
+        { stderr: "piped", stdout: "piped" },
+      );
 
       if (code !== 0) {
         const errorText = new TextDecoder().decode(stderr);

@@ -1,6 +1,10 @@
 import { assertEquals, assertStringIncludes } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
-import { DevcontainerManager } from "./devcontainer-manager.ts";
+import {
+  CommandExecutor,
+  CommandOutput,
+  DevcontainerManager,
+} from "./devcontainer-manager.ts";
 import { WorkspaceManager } from "../workspace.ts";
 
 Deno.test("DevcontainerManager - devcontainer.jsonが存在しない場合", async () => {
@@ -175,56 +179,38 @@ Deno.test("DevcontainerManager - devcontainer設定の保存と取得", async ()
   }
 });
 
-Deno.test("DevcontainerManager - devcontainer削除処理", async () => {
+Deno.test("DevcontainerManager - devcontainerがない場合でも正常に処理される", async () => {
   const tempDir = await Deno.makeTempDir();
   try {
     const workspaceManager = new WorkspaceManager(tempDir);
     await workspaceManager.initialize();
 
-    const devcontainerManager = new DevcontainerManager(workspaceManager);
-    const threadId = "test-thread-remove";
+    // モックCommandExecutorを作成（呼ばれないことを確認）
+    let executeCalled = false;
+    class MockCommandExecutor implements CommandExecutor {
+      async execute(
+        _command: string,
+        _args: string[],
+        _options?: { stderr?: "piped"; stdout?: "piped" },
+      ): Promise<CommandOutput> {
+        executeCalled = true;
+        return {
+          code: 0,
+          stdout: new Uint8Array(),
+          stderr: new Uint8Array(),
+        };
+      }
+    }
 
-    // Worker状態を作成（コンテナIDあり）
-    await workspaceManager.saveWorkerState({
-      workerName: "test-worker",
-      threadId,
-      devcontainerConfig: {
-        useDevcontainer: true,
-        useFallbackDevcontainer: false,
-        hasDevcontainerFile: true,
-        hasAnthropicsFeature: true,
-        containerId: "non-existent-container",
-        isStarted: true,
-      },
-      status: "active",
-      createdAt: new Date().toISOString(),
-      lastActiveAt: new Date().toISOString(),
-    });
-
-    // devcontainer削除を実行（存在しないコンテナなのでエラーになるが、エラーハンドリングされる）
-    await devcontainerManager.removeDevcontainer(threadId);
-
-    // 設定が更新されていることを確認
-    const loadedConfig = await devcontainerManager.getDevcontainerConfig(
-      threadId,
+    const mockExecutor = new MockCommandExecutor();
+    const devcontainerManager = new DevcontainerManager(
+      workspaceManager,
+      false,
+      mockExecutor,
     );
-    assertEquals(loadedConfig?.containerId, undefined);
-    assertEquals(loadedConfig?.isStarted, false);
-  } finally {
-    await Deno.remove(tempDir, { recursive: true });
-  }
-});
+    const threadId = "test-thread-no-devcontainer";
 
-Deno.test("DevcontainerManager - devcontainer削除処理（コンテナ未起動の場合）", async () => {
-  const tempDir = await Deno.makeTempDir();
-  try {
-    const workspaceManager = new WorkspaceManager(tempDir);
-    await workspaceManager.initialize();
-
-    const devcontainerManager = new DevcontainerManager(workspaceManager);
-    const threadId = "test-thread-no-container";
-
-    // Worker状態を作成（コンテナIDなし）
+    // Worker状態を作成（devcontainerなし）
     await workspaceManager.saveWorkerState({
       workerName: "test-worker",
       threadId,
@@ -243,10 +229,227 @@ Deno.test("DevcontainerManager - devcontainer削除処理（コンテナ未起�
     // devcontainer削除を実行（何も起こらない）
     await devcontainerManager.removeDevcontainer(threadId);
 
+    // dockerコマンドが実行されていないことを確認
+    assertEquals(executeCalled, false);
+
     // 設定が変更されていないことを確認
     const loadedConfig = await devcontainerManager.getDevcontainerConfig(
       threadId,
     );
+    assertEquals(loadedConfig?.isStarted, false);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("DevcontainerManager - 存在しないコンテナIDの場合でも正常に処理される", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    // モックCommandExecutorを作成（存在しないコンテナエラーを返す）
+    let executedCommand = "";
+    let executedArgs: string[] = [];
+
+    class MockCommandExecutor implements CommandExecutor {
+      async execute(
+        command: string,
+        args: string[],
+        _options?: { stderr?: "piped"; stdout?: "piped" },
+      ): Promise<CommandOutput> {
+        executedCommand = command;
+        executedArgs = args;
+
+        // 存在しないコンテナエラーを返す
+        return {
+          code: 1,
+          stdout: new Uint8Array(),
+          stderr: new TextEncoder().encode(
+            "Error: No such container: non-existent-container",
+          ),
+        };
+      }
+    }
+
+    const mockExecutor = new MockCommandExecutor();
+    const devcontainerManager = new DevcontainerManager(
+      workspaceManager,
+      false,
+      mockExecutor,
+    );
+    const threadId = "test-thread-non-existent";
+
+    // Worker状態を作成（存在しないコンテナIDあり）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: true,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: true,
+        hasAnthropicsFeature: true,
+        containerId: "non-existent-container",
+        isStarted: true,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // 削除前の設定を確認（containerIdが存在することを確認）
+    const configBeforeRemove = await devcontainerManager.getDevcontainerConfig(
+      threadId,
+    );
+    assertEquals(configBeforeRemove?.containerId, "non-existent-container");
+
+    // devcontainer削除を実行（エラーになるがハンドリングされる）
+    await devcontainerManager.removeDevcontainer(threadId);
+
+    // モックが正しいコマンドで呼び出されたことを確認
+    assertEquals(executedCommand, "docker");
+    assertEquals(executedArgs, ["rm", "-f", "-v", "non-existent-container"]);
+
+    // 設定が更新されていることを確認
+    const loadedConfig = await devcontainerManager.getDevcontainerConfig(
+      threadId,
+    );
+    // containerIdがundefinedになっていることを明示的に確認
+    assertEquals(loadedConfig?.containerId, undefined);
+    assertEquals(loadedConfig?.isStarted, false);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("DevcontainerManager - モックCommandExecutorを使用したコンテナ削除", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    // モックCommandExecutorを作成
+    let executedCommand = "";
+    let executedArgs: string[] = [];
+
+    class MockCommandExecutor implements CommandExecutor {
+      async execute(
+        command: string,
+        args: string[],
+        _options?: { stderr?: "piped"; stdout?: "piped" },
+      ): Promise<CommandOutput> {
+        executedCommand = command;
+        executedArgs = args;
+
+        // 成功を示すレスポンスを返す
+        return {
+          code: 0,
+          stdout: new TextEncoder().encode("container-id\n"),
+          stderr: new Uint8Array(),
+        };
+      }
+    }
+
+    const mockExecutor = new MockCommandExecutor();
+    const devcontainerManager = new DevcontainerManager(
+      workspaceManager,
+      false,
+      mockExecutor,
+    );
+    const threadId = "test-thread-mock";
+
+    // Worker状態を作成（コンテナIDあり）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: true,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: true,
+        hasAnthropicsFeature: true,
+        containerId: "test-container-123",
+        isStarted: true,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // devcontainer削除を実行
+    await devcontainerManager.removeDevcontainer(threadId);
+
+    // モックが正しいコマンドで呼び出されたことを確認
+    assertEquals(executedCommand, "docker");
+    assertEquals(executedArgs, ["rm", "-f", "-v", "test-container-123"]);
+
+    // 設定が更新されていることを確認
+    const loadedConfig = await devcontainerManager.getDevcontainerConfig(
+      threadId,
+    );
+    assertEquals(loadedConfig?.containerId, undefined);
+    assertEquals(loadedConfig?.isStarted, false);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("DevcontainerManager - モックCommandExecutorでエラーケースのテスト", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    // エラーを返すモックCommandExecutorを作成
+    class ErrorMockCommandExecutor implements CommandExecutor {
+      async execute(
+        _command: string,
+        _args: string[],
+        _options?: { stderr?: "piped"; stdout?: "piped" },
+      ): Promise<CommandOutput> {
+        // エラーを示すレスポンスを返す
+        return {
+          code: 1,
+          stdout: new Uint8Array(),
+          stderr: new TextEncoder().encode(
+            "Error: Cannot connect to Docker daemon",
+          ),
+        };
+      }
+    }
+
+    const mockExecutor = new ErrorMockCommandExecutor();
+    const devcontainerManager = new DevcontainerManager(
+      workspaceManager,
+      false,
+      mockExecutor,
+    );
+    const threadId = "test-thread-error";
+
+    // Worker状態を作成（コンテナIDあり）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: true,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: true,
+        hasAnthropicsFeature: true,
+        containerId: "test-container-456",
+        isStarted: true,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // devcontainer削除を実行（エラーが発生するがハンドリングされる）
+    await devcontainerManager.removeDevcontainer(threadId);
+
+    // エラーが発生しても設定がクリアされることを確認
+    const loadedConfig = await devcontainerManager.getDevcontainerConfig(
+      threadId,
+    );
+    assertEquals(loadedConfig?.containerId, undefined);
     assertEquals(loadedConfig?.isStarted, false);
   } finally {
     await Deno.remove(tempDir, { recursive: true });

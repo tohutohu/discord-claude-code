@@ -107,15 +107,49 @@ Deno.test("Admin - スレッドの終了処理でdevcontainerも削除される"
       isStarted: true,
     });
 
-    // スレッドを終了
-    const terminateResult = await admin.terminateThread(threadId);
-    assert(terminateResult.isOk());
+    // 元のコマンド実行関数を保存
+    const originalCommand = globalThis.Deno.Command;
+    let dockerRmCalled = false;
+    let dockerRmContainerId = "";
 
-    // devcontainer設定が更新されていることを確認
-    const devcontainerConfig = await admin.getDevcontainerConfig(threadId);
-    assertExists(devcontainerConfig);
-    assertEquals(devcontainerConfig.containerId, undefined);
-    assertEquals(devcontainerConfig.isStarted, false);
+    // Deno.Commandをモック
+    globalThis.Deno.Command = class MockCommand {
+      constructor(command: string, options?: { args?: string[] }) {
+        if (command === "docker" && options?.args?.[0] === "rm") {
+          dockerRmCalled = true;
+          dockerRmContainerId = options.args[3]; // rm -f -v {containerId}
+        }
+      }
+
+      output(): Promise<
+        { code: number; stdout: Uint8Array; stderr: Uint8Array }
+      > {
+        return Promise.resolve({
+          code: 0,
+          stdout: new TextEncoder().encode("container-id\n"),
+          stderr: new Uint8Array(),
+        });
+      }
+    } as unknown as typeof Deno.Command;
+
+    try {
+      // スレッドを終了
+      const terminateResult = await admin.terminateThread(threadId);
+      assert(terminateResult.isOk());
+
+      // docker rmが呼ばれたことを確認
+      assertEquals(dockerRmCalled, true);
+      assertEquals(dockerRmContainerId, "test-container-123");
+
+      // devcontainer設定が更新されていることを確認
+      const devcontainerConfig = await admin.getDevcontainerConfig(threadId);
+      assertExists(devcontainerConfig);
+      assertEquals(devcontainerConfig.containerId, undefined);
+      assertEquals(devcontainerConfig.isStarted, false);
+    } finally {
+      // Deno.Commandを復元
+      globalThis.Deno.Command = originalCommand;
+    }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
