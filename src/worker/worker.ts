@@ -793,9 +793,9 @@ export class Worker implements IWorker {
       ghToken,
     );
 
-    if (result.success) {
+    if (result.isOk()) {
       this.state.devcontainerConfig.isStarted = true;
-      this.state.devcontainerConfig.containerId = result.containerId;
+      this.state.devcontainerConfig.containerId = result.value.containerId;
 
       // DevcontainerClaudeExecutorに切り替え
       if (
@@ -823,9 +823,20 @@ export class Worker implements IWorker {
           error: `Worker状態の保存に失敗: ${errorDetail}`,
         };
       }
-    }
 
-    return result;
+      return {
+        success: true,
+        containerId: result.value.containerId,
+      };
+    } else {
+      const errorMessage = result.error.type === "CONTAINER_START_FAILED"
+        ? result.error.error
+        : `Devcontainer error: ${result.error.type}`;
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
   }
 
   /**
