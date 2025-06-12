@@ -1,17 +1,25 @@
 import { GoogleGenAI } from "@google/genai";
+import { err, ok, Result } from "neverthrow";
 import { GEMINI } from "./constants.ts";
 
-export interface SummarizeResult {
-  success: boolean;
-  summary?: string;
-  error?: string;
-}
+// エラー型定義
+export type GeminiError =
+  | { type: "API_KEY_NOT_SET" }
+  | { type: "API_REQUEST_FAILED"; message: string }
+  | { type: "INVALID_RESPONSE"; message: string }
+  | { type: "NETWORK_ERROR"; message: string }
+  | { type: "RATE_LIMIT"; message: string };
 
 export async function summarizeWithGemini(
   apiKey: string,
   text: string,
   maxLength: number = 30,
-): Promise<SummarizeResult> {
+): Promise<Result<string, GeminiError>> {
+  // APIキーチェック
+  if (!apiKey) {
+    return err({ type: "API_KEY_NOT_SET" });
+  }
+
   try {
     const ai = new GoogleGenAI({ apiKey });
 
@@ -43,19 +51,19 @@ ${text}`;
     });
 
     if (!response || !response.text) {
-      return {
-        success: false,
-        error: "No summary generated: API response did not contain text",
-      };
+      return err({
+        type: "INVALID_RESPONSE",
+        message: "No summary generated: API response did not contain text",
+      });
     }
 
     const summary = response.text.trim();
 
     if (!summary) {
-      return {
-        success: false,
-        error: "Generated summary is empty",
-      };
+      return err({
+        type: "INVALID_RESPONSE",
+        message: "Generated summary is empty",
+      });
     }
 
     // 長すぎる場合は切り詰める
@@ -63,26 +71,31 @@ ${text}`;
       ? summary.substring(0, maxLength - 3) + "..."
       : summary;
 
-    return {
-      success: true,
-      summary: finalSummary,
-    };
+    return ok(finalSummary);
   } catch (error) {
     console.error("Gemini summarization error:", error);
-    return {
-      success: false,
-      error: (error as Error).message,
-    };
+    const errorMessage = (error as Error).message;
+
+    // エラータイプの判定
+    if (errorMessage.includes("rate limit") || errorMessage.includes("quota")) {
+      return err({ type: "RATE_LIMIT", message: errorMessage });
+    } else if (
+      errorMessage.includes("network") || errorMessage.includes("fetch")
+    ) {
+      return err({ type: "NETWORK_ERROR", message: errorMessage });
+    } else {
+      return err({ type: "API_REQUEST_FAILED", message: errorMessage });
+    }
   }
 }
 
 export function generateThreadName(
   summary: string,
   repositoryName?: string,
-): string {
+): Result<string, GeminiError> {
   // リポジトリ名が提供されていない場合は要約のみを返す
   if (!repositoryName) {
-    return summary;
+    return ok(summary);
   }
 
   // リポジトリ名から所有者部分を除去（owner/repo -> repo）
@@ -90,5 +103,5 @@ export function generateThreadName(
     ? repositoryName.split("/")[1]
     : repositoryName;
 
-  return `${summary}(${repoShortName})`;
+  return ok(`${summary}(${repoShortName})`);
 }

@@ -786,27 +786,36 @@ client.on(Events.MessageCreate, async (message) => {
           30, // 最大30文字
         );
 
-        if (!summarizeResult.success) {
+        if (summarizeResult.isErr()) {
           console.log(
-            `[ThreadRename] Gemini API失敗: ${JSON.stringify(summarizeResult)}`,
+            `[ThreadRename] Gemini API失敗: ${
+              JSON.stringify(summarizeResult.error)
+            }`,
           );
           return;
         }
 
-        if (!summarizeResult.summary) {
-          console.log(`[ThreadRename] 要約が空です`);
-          return;
-        }
-
+        const summary = summarizeResult.value;
         console.log(
-          `[ThreadRename] 要約生成成功: "${summarizeResult.summary}"`,
+          `[ThreadRename] 要約生成成功: "${summary}"`,
         );
 
         // スレッド名を生成
-        const newThreadName = generateThreadName(
-          summarizeResult.summary,
+        const threadNameResult = generateThreadName(
+          summary,
           threadInfo?.repositoryFullName ?? undefined,
         );
+
+        if (threadNameResult.isErr()) {
+          console.log(
+            `[ThreadRename] スレッド名生成失敗: ${
+              JSON.stringify(threadNameResult.error)
+            }`,
+          );
+          return;
+        }
+
+        const newThreadName = threadNameResult.value;
 
         console.log(`[ThreadRename] 新しいスレッド名: "${newThreadName}"`);
 
