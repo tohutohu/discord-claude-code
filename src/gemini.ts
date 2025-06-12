@@ -68,7 +68,7 @@ ${text}`;
 
     // 長すぎる場合は切り詰める
     const finalSummary = summary.length > maxLength
-      ? summary.substring(0, maxLength - 3) + "..."
+      ? `${summary.substring(0, maxLength - 3)}...`
       : summary;
 
     return ok(finalSummary);

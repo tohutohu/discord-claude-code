@@ -312,7 +312,7 @@ async function copyRepository(
   }
 
   const copyProcess = new Deno.Command("rsync", {
-    args: ["-a", repositoryPath + "/", worktreePath + "/"],
+    args: ["-a", `${repositoryPath}/`, `${worktreePath}/`],
     stdout: "piped",
     stderr: "piped",
   });
