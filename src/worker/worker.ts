@@ -148,7 +148,15 @@ export class Worker implements IWorker {
       }
 
       this.logVerbose("Claude実行開始");
-      const result = await this.executeClaude(translatedMessage, onProgress);
+      const claudeResult = await this.executeClaude(
+        translatedMessage,
+        onProgress,
+      );
+      if (claudeResult.isErr()) {
+        return claudeResult;
+      }
+
+      const result = claudeResult.value;
       this.logVerbose("Claude実行完了", { resultLength: result.length });
 
       const formattedResponse = this.formatter.formatResponse(result);
@@ -184,7 +192,7 @@ export class Worker implements IWorker {
   private async executeClaude(
     prompt: string,
     onProgress: (content: string) => Promise<void>,
-  ): Promise<string> {
+  ): Promise<Result<string, WorkerError>> {
     const args = this.configuration.buildClaudeArgs(
       prompt,
       this.state.sessionId,
@@ -203,7 +211,7 @@ export class Worker implements IWorker {
   private async executeClaudeStreaming(
     args: string[],
     onProgress: (content: string) => Promise<void>,
-  ): Promise<string> {
+  ): Promise<Result<string, WorkerError>> {
     this.logVerbose("ストリーミング実行詳細開始");
     const decoder = new TextDecoder();
     let buffer = "";
@@ -244,16 +252,29 @@ export class Worker implements IWorker {
     };
 
     if (!this.state.worktreePath) {
-      throw new Error(
-        "worktreePathが設定されていません。リポジトリ設定を確認してください。",
-      );
+      return err({
+        type: "REPOSITORY_NOT_SET",
+      });
     }
 
-    const { code, stderr } = await this.claudeExecutor.executeStreaming(
+    const executionResult = await this.claudeExecutor.executeStreaming(
       args,
       this.state.worktreePath,
       onData,
     );
+
+    if (executionResult.isErr()) {
+      const errorMessage =
+        executionResult.error.type === "COMMAND_EXECUTION_FAILED"
+          ? `コマンド実行失敗 (コード: ${executionResult.error.code}): ${executionResult.error.stderr}`
+          : executionResult.error.error;
+      return err({
+        type: "CLAUDE_EXECUTION_FAILED",
+        error: errorMessage,
+      });
+    }
+
+    const { code, stderr } = executionResult.value;
 
     this.logVerbose("ストリーミング実行完了", {
       exitCode: code,
@@ -270,7 +291,7 @@ export class Worker implements IWorker {
     }
 
     if (code !== 0) {
-      this.handleErrorMessage(code, stderr);
+      return this.handleErrorMessage(code, stderr);
     }
 
     // VERBOSEモードで成功時のstderrも出力（警告等の情報がある場合）
@@ -290,11 +311,12 @@ export class Worker implements IWorker {
       }
     }
 
-    return await this.finalizeStreamProcessing(
+    const finalResult = await this.finalizeStreamProcessing(
       result,
       newSessionId,
       allOutput,
     );
+    return finalResult;
   }
 
   private processStreamLine(
@@ -424,7 +446,10 @@ export class Worker implements IWorker {
     }
   }
 
-  private handleErrorMessage(code: number, stderr: Uint8Array): void {
+  private handleErrorMessage(
+    code: number,
+    stderr: Uint8Array,
+  ): Result<never, WorkerError> {
     const errorMessage = new TextDecoder().decode(stderr);
 
     // VERBOSEモードでstderrを詳細ログ出力
@@ -447,7 +472,10 @@ export class Worker implements IWorker {
       exitCode: code,
       errorMessage,
     });
-    throw new Error(`Claude実行失敗 (終了コード: ${code}): ${errorMessage}`);
+    return err({
+      type: "CLAUDE_EXECUTION_FAILED",
+      error: `Claude実行失敗 (終了コード: ${code}): ${errorMessage}`,
+    });
   }
 
   private async saveSessionData(
@@ -469,11 +497,16 @@ export class Worker implements IWorker {
     // 生のjsonlを保存
     if (this.state.repository?.fullName && allOutput.trim()) {
       this.logVerbose("生JSONLを保存", { outputLength: allOutput.length });
-      await this.sessionLogger.saveRawJsonlOutput(
+      const saveResult = await this.sessionLogger.saveRawJsonlOutput(
         this.state.repository.fullName,
         this.state.sessionId || undefined,
         allOutput,
       );
+      if (saveResult.isErr()) {
+        this.logVerbose("SessionLogger保存エラー", {
+          error: saveResult.error,
+        });
+      }
     }
   }
 
@@ -515,7 +548,7 @@ export class Worker implements IWorker {
     result: string,
     newSessionId: string | null,
     allOutput: string,
-  ): Promise<string> {
+  ): Promise<Result<string, WorkerError>> {
     await this.saveSessionData(newSessionId, allOutput);
 
     const finalResult = result.trim() ||
@@ -523,7 +556,7 @@ export class Worker implements IWorker {
     this.logVerbose("ストリーミング処理完了", {
       finalResultLength: finalResult.length,
     });
-    return finalResult;
+    return ok(finalResult);
   }
 
   getName(): string {
