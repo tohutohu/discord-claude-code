@@ -607,19 +607,19 @@ export class DevcontainerManager {
   async removeDevcontainer(threadId: string): Promise<void> {
     this.logVerbose("devcontainer削除処理開始", { threadId });
 
-    try {
-      // devcontainer設定を取得
-      const config = await this.getDevcontainerConfig(threadId);
-      if (!config || !config.containerId || !config.isStarted) {
-        this.logVerbose("削除対象のdevcontainerなし", {
-          threadId,
-          hasConfig: !!config,
-          containerId: config?.containerId,
-          isStarted: config?.isStarted,
-        });
-        return;
-      }
+    // devcontainer設定を取得
+    const config = await this.getDevcontainerConfig(threadId);
+    if (!config || !config.containerId || !config.isStarted) {
+      this.logVerbose("削除対象のdevcontainerなし", {
+        threadId,
+        hasConfig: !!config,
+        containerId: config?.containerId,
+        isStarted: config?.isStarted,
+      });
+      return;
+    }
 
+    try {
       this.logVerbose("devcontainerコンテナを削除", {
         threadId,
         containerId: config.containerId,
@@ -666,6 +666,26 @@ export class DevcontainerManager {
           containerId: config.containerId,
         });
       }
+    } catch (error) {
+      this.logVerbose("devcontainer削除処理でエラー", {
+        threadId,
+        error: (error as Error).message,
+      });
+      console.error("devcontainer削除処理でエラーが発生しました:", error);
+
+      // ENOENTエラー（Docker未インストール）の場合も含めてログに記録
+      if (
+        error instanceof Error && "code" in error &&
+        (error as Error & { code: string }).code === "ENOENT"
+      ) {
+        console.error("Dockerがインストールされていません。");
+      }
+    } finally {
+      // エラーが発生した場合でも必ず設定をクリアする
+      this.logVerbose("devcontainer設定をクリア", {
+        threadId,
+        containerId: config.containerId,
+      });
 
       // devcontainer設定をクリア
       const updatedConfig = {
@@ -674,12 +694,6 @@ export class DevcontainerManager {
         isStarted: false,
       };
       await this.saveDevcontainerConfig(threadId, updatedConfig);
-    } catch (error) {
-      this.logVerbose("devcontainer削除処理でエラー", {
-        threadId,
-        error: (error as Error).message,
-      });
-      console.error("devcontainer削除処理でエラーが発生しました:", error);
     }
   }
 
