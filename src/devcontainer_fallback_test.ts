@@ -11,8 +11,7 @@ Deno.test("fallback devcontainer機能", async (t) => {
       const result = await prepareFallbackDevcontainer(tempDir);
 
       // 成功を確認
-      assertEquals(result.success, true);
-      assertEquals(result.error, undefined);
+      assertEquals(result.isOk(), true);
 
       // .devcontainerディレクトリが作成されたことを確認
       const devcontainerPath = join(tempDir, ".devcontainer");
@@ -56,8 +55,16 @@ Deno.test("fallback devcontainer機能", async (t) => {
         const result = await prepareFallbackDevcontainer(tempDir);
 
         // エラーを確認
-        assertEquals(result.success, false);
-        assertEquals(result.error, ".devcontainerディレクトリが既に存在します");
+        assertEquals(result.isErr(), true);
+        if (result.isErr()) {
+          assertEquals(result.error.type, "FILE_READ_ERROR");
+          if (result.error.type === "FILE_READ_ERROR") {
+            assertEquals(
+              result.error.error,
+              ".devcontainerディレクトリが既に存在します",
+            );
+          }
+        }
       } finally {
         // クリーンアップ
         await Deno.remove(tempDir, { recursive: true });

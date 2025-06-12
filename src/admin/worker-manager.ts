@@ -279,11 +279,13 @@ export class WorkerManager {
       ) {
         try {
           // リポジトリ情報を再構築
-          const repository = parseRepository(threadInfo.repositoryFullName);
+          const repositoryResult = parseRepository(
+            threadInfo.repositoryFullName,
+          );
 
-          if (repository) {
+          if (repositoryResult.isOk()) {
             const setRepoResult = await worker.setRepository(
-              repository,
+              repositoryResult.value,
               threadInfo.repositoryLocalPath,
             );
             if (setRepoResult.isErr()) {
@@ -304,6 +306,16 @@ export class WorkerManager {
                 worktreePath: threadInfo.worktreePath,
               });
             }
+          } else {
+            this.logVerbose("リポジトリ名のパース失敗", {
+              threadId,
+              repositoryFullName: threadInfo.repositoryFullName,
+              error: repositoryResult.error.type,
+            });
+            console.warn(
+              `スレッド ${threadId} のリポジトリ名のパースに失敗しました:`,
+              repositoryResult.error,
+            );
           }
         } catch (error) {
           this.logVerbose("リポジトリ情報復旧失敗", {

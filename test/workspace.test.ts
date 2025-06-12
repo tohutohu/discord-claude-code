@@ -113,6 +113,7 @@ Deno.test("WorkspaceManager - 無効なリポジトリパスでworktree作成時
     await assertRejects(
       () => workspace.ensureWorktree(threadId, invalidRepoPath),
       Error,
+      "worktreeの作成に失敗しました",
     );
   } finally {
     await cleanup();

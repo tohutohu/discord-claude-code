@@ -21,25 +21,74 @@ import { createDevcontainerProgressHandler } from "./utils/devcontainer-progress
 import { RepositoryPatInfo, WorkspaceManager } from "./workspace.ts";
 import {
   checkSystemRequirements,
+  type CommandStatus,
   formatSystemCheckResults,
 } from "./system-check.ts";
 import { generateThreadName, summarizeWithGemini } from "./gemini.ts";
 
 // システム要件チェック
 console.log("システム要件をチェックしています...");
-const systemCheck = await checkSystemRequirements();
+const systemCheckResult = await checkSystemRequirements();
+
+if (systemCheckResult.isErr()) {
+  const error = systemCheckResult.error;
+
+  if (error.type === "REQUIRED_COMMAND_MISSING") {
+    // エラーの場合でも、各コマンドの状態を確認するために再度チェック（結果表示用）
+    const allCommands = ["git", "claude", "gh", "devcontainer"];
+    const displayResults: CommandStatus[] = [];
+
+    for (const cmd of allCommands) {
+      try {
+        const process = new Deno.Command(cmd, {
+          args: ["--version"],
+          stdout: "piped",
+          stderr: "piped",
+        });
+        const result = await process.output();
+
+        if (result.success) {
+          const version = new TextDecoder().decode(result.stdout).trim();
+          displayResults.push({ command: cmd, available: true, version });
+        } else {
+          displayResults.push({
+            command: cmd,
+            available: false,
+            error: "Command failed",
+          });
+        }
+      } catch {
+        displayResults.push({
+          command: cmd,
+          available: false,
+          error: "Command not found",
+        });
+      }
+    }
+
+    const checkResults = formatSystemCheckResults(
+      displayResults,
+      error.missingCommands,
+    );
+    console.log(checkResults);
+    console.error(
+      "\n❌ 必須コマンドが不足しているため、アプリケーションを終了します。",
+    );
+  } else {
+    console.error(
+      `\n❌ システムチェック中にエラーが発生しました: ${JSON.stringify(error)}`,
+    );
+  }
+
+  Deno.exit(1);
+}
+
+const systemCheck = systemCheckResult.value;
 const checkResults = formatSystemCheckResults(
   systemCheck.results,
   systemCheck.missingRequired,
 );
 console.log(checkResults);
-
-if (!systemCheck.success) {
-  console.error(
-    "\n❌ 必須コマンドが不足しているため、アプリケーションを終了します。",
-  );
-  Deno.exit(1);
-}
 
 console.log("\n✅ システム要件チェック完了\n");
 
@@ -480,13 +529,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       const description = interaction.options.getString("description");
 
       // リポジトリ名をパース
-      let repository;
-      try {
-        repository = parseRepository(repositorySpec);
-      } catch (error) {
-        await interaction.editReply(`エラー: ${(error as Error).message}`);
+      const repositoryResult = parseRepository(repositorySpec);
+      if (repositoryResult.isErr()) {
+        const errorMessage =
+          repositoryResult.error.type === "INVALID_REPOSITORY_NAME"
+            ? repositoryResult.error.message
+            : "リポジトリ名の解析に失敗しました";
+        await interaction.editReply(`エラー: ${errorMessage}`);
         return;
       }
+      const repository = repositoryResult.value;
 
       // PAT情報を保存
       const patInfo: RepositoryPatInfo = {
@@ -544,13 +596,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       const repositorySpec = interaction.options.getString("repository", true);
 
       // リポジトリ名をパース
-      let repository;
-      try {
-        repository = parseRepository(repositorySpec);
-      } catch (error) {
-        await interaction.editReply(`エラー: ${(error as Error).message}`);
+      const repositoryResult = parseRepository(repositorySpec);
+      if (repositoryResult.isErr()) {
+        const errorMessage =
+          repositoryResult.error.type === "INVALID_REPOSITORY_NAME"
+            ? repositoryResult.error.message
+            : "リポジトリ名の解析に失敗しました";
+        await interaction.editReply(`エラー: ${errorMessage}`);
         return;
       }
+      const repository = repositoryResult.value;
 
       await workspaceManager.deleteRepositoryPat(repository.fullName);
 
@@ -572,25 +627,30 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       const repositorySpec = interaction.options.getString("repository", true);
 
       // リポジトリ名をパース
-      let repository;
-      try {
-        repository = parseRepository(repositorySpec);
-      } catch (error) {
-        await interaction.reply(`エラー: ${(error as Error).message}`);
+      const repositoryParseResult = parseRepository(repositorySpec);
+      if (repositoryParseResult.isErr()) {
+        const errorMessage =
+          repositoryParseResult.error.type === "INVALID_REPOSITORY_NAME"
+            ? repositoryParseResult.error.message
+            : "リポジトリ名の解析に失敗しました";
+        await interaction.reply(`エラー: ${errorMessage}`);
         return;
       }
+      const repository = repositoryParseResult.value;
 
       // インタラクションを遅延レスポンスで処理（clone処理が時間がかかる可能性があるため）
       await interaction.deferReply();
 
       // リポジトリをclone/更新
-      let repositoryResult;
-      try {
-        repositoryResult = await ensureRepository(repository, workspaceManager);
-      } catch (error) {
-        await interaction.editReply(
-          `リポジトリの取得に失敗しました: ${(error as Error).message}`,
-        );
+      const repositoryResult = await ensureRepository(
+        repository,
+        workspaceManager,
+      );
+      if (repositoryResult.isErr()) {
+        const errorMessage = repositoryResult.error.type === "GH_CLI_ERROR"
+          ? repositoryResult.error.error
+          : `リポジトリの取得に失敗しました: ${repositoryResult.error.type}`;
+        await interaction.editReply(errorMessage);
         return;
       }
 
@@ -613,16 +673,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
         return;
       }
       const worker = workerResult.value;
-      await worker.setRepository(repository, repositoryResult.path);
+      await worker.setRepository(repository, repositoryResult.value.path);
 
       // 更新状況に応じたメッセージを作成
-      let statusMessage = repositoryResult.wasUpdated
+      let statusMessage = repositoryResult.value.wasUpdated
         ? `${repository.fullName}の既存リポジトリをデフォルトブランチの最新に更新しました。`
         : `${repository.fullName}を新規取得しました。`;
 
       // メタデータがある場合は追加情報を表示
-      if (repositoryResult.metadata) {
-        const metadata = repositoryResult.metadata;
+      if (repositoryResult.value.metadata) {
+        const metadata = repositoryResult.value.metadata;
         const repoInfo = [
           metadata.description ? `説明: ${metadata.description}` : "",
           metadata.language ? `言語: ${metadata.language}` : "",
@@ -642,7 +702,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       // devcontainer.jsonの存在確認と設定
       const devcontainerInfo = await admin.checkAndSetupDevcontainer(
         thread.id,
-        repositoryResult.path,
+        repositoryResult.value.path,
       );
 
       // 初期メッセージを終了ボタン付きで送信
@@ -750,27 +810,36 @@ client.on(Events.MessageCreate, async (message) => {
           30, // 最大30文字
         );
 
-        if (!summarizeResult.success) {
+        if (summarizeResult.isErr()) {
           console.log(
-            `[ThreadRename] Gemini API失敗: ${JSON.stringify(summarizeResult)}`,
+            `[ThreadRename] Gemini API失敗: ${
+              JSON.stringify(summarizeResult.error)
+            }`,
           );
           return;
         }
 
-        if (!summarizeResult.summary) {
-          console.log(`[ThreadRename] 要約が空です`);
-          return;
-        }
-
+        const summary = summarizeResult.value;
         console.log(
-          `[ThreadRename] 要約生成成功: "${summarizeResult.summary}"`,
+          `[ThreadRename] 要約生成成功: "${summary}"`,
         );
 
         // スレッド名を生成
-        const newThreadName = generateThreadName(
-          summarizeResult.summary,
+        const threadNameResult = generateThreadName(
+          summary,
           threadInfo?.repositoryFullName ?? undefined,
         );
+
+        if (threadNameResult.isErr()) {
+          console.log(
+            `[ThreadRename] スレッド名生成失敗: ${
+              JSON.stringify(threadNameResult.error)
+            }`,
+          );
+          return;
+        }
+
+        const newThreadName = threadNameResult.value;
 
         console.log(`[ThreadRename] 新しいスレッド名: "${newThreadName}"`);
 

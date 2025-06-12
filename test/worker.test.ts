@@ -235,7 +235,11 @@ Deno.test("Worker - verboseモード無効時はログが出力されない", as
 
 Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const repository = parseRepository("test/repo");
+  const repositoryResult = parseRepository("test/repo");
+  if (repositoryResult.isErr()) {
+    throw new Error("Failed to parse repository");
+  }
+  const repository = repositoryResult.value;
   const repoPath = "/test/repo";
 
   const mockExecutor = createMockStreamingClaudeCommandExecutor();
@@ -275,7 +279,11 @@ Deno.test("Worker - Claude Codeの実際の出力が行ごとに送信される"
 
 Deno.test("Worker - エラーメッセージも正しく出力される", async () => {
   const workspace = await createTestWorkspaceManager();
-  const repository = parseRepository("test/repo");
+  const repositoryResult = parseRepository("test/repo");
+  if (repositoryResult.isErr()) {
+    throw new Error("Failed to parse repository");
+  }
+  const repository = repositoryResult.value;
   const repoPath = "/test/repo";
   const errorExecutor = createErrorMockClaudeCommandExecutor("モックエラー", 1);
 

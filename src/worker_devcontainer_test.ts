@@ -52,7 +52,11 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
     });
 
     await t.step("リポジトリ設定後のdevcontainer設定", async () => {
-      const repository = parseRepository("test-org/test-repo");
+      const repositoryResult = parseRepository("test-org/test-repo");
+      if (repositoryResult.isErr()) {
+        throw new Error("Failed to parse repository");
+      }
+      const repository = repositoryResult.value;
       const mockLocalPath = tempDir; // テスト用にtempDirを使用
 
       await worker.setRepository(repository, mockLocalPath);
@@ -70,7 +74,11 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
       // devcontainerを有効にしてworktreePathを設定
       worker.setUseDevcontainer(true);
       // worktreePathを設定するために、setRepositoryを使う
-      const repository = parseRepository("test-org/test-repo");
+      const repositoryResult = parseRepository("test-org/test-repo");
+      if (repositoryResult.isErr()) {
+        throw new Error("Failed to parse repository");
+      }
+      const repository = repositoryResult.value;
       const worktreePath = await Deno.makeTempDir();
       try {
         await worker.setRepository(repository, worktreePath);

@@ -10,10 +10,13 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
     const tempDir = await Deno.makeTempDir();
     try {
       const result = await checkDevcontainerConfig(tempDir);
-      assertEquals(result.configExists, false);
-      assertEquals(result.configPath, undefined);
-      assertEquals(result.config, undefined);
-      assertEquals(result.hasAnthropicsFeature, undefined);
+      assertEquals(result.isOk(), true);
+      if (result.isOk()) {
+        assertEquals(result.value.configExists, false);
+        assertEquals(result.value.configPath, undefined);
+        assertEquals(result.value.config, undefined);
+        assertEquals(result.value.hasAnthropicsFeature, undefined);
+      }
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }
@@ -39,13 +42,16 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       );
 
       const result = await checkDevcontainerConfig(tempDir);
-      assertEquals(result.configExists, true);
-      assertEquals(
-        result.configPath,
-        join(devcontainerDir, "devcontainer.json"),
-      );
-      assertEquals(result.config?.name, "test");
-      assertEquals(result.hasAnthropicsFeature, true);
+      assertEquals(result.isOk(), true);
+      if (result.isOk()) {
+        assertEquals(result.value.configExists, true);
+        assertEquals(
+          result.value.configPath,
+          join(devcontainerDir, "devcontainer.json"),
+        );
+        assertEquals(result.value.config?.name, "test");
+        assertEquals(result.value.hasAnthropicsFeature, true);
+      }
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }
@@ -68,10 +74,16 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       );
 
       const result = await checkDevcontainerConfig(tempDir);
-      assertEquals(result.configExists, true);
-      assertEquals(result.configPath, join(tempDir, ".devcontainer.json"));
-      assertEquals(result.config?.name, "test-root");
-      assertEquals(result.hasAnthropicsFeature, true);
+      assertEquals(result.isOk(), true);
+      if (result.isOk()) {
+        assertEquals(result.value.configExists, true);
+        assertEquals(
+          result.value.configPath,
+          join(tempDir, ".devcontainer.json"),
+        );
+        assertEquals(result.value.config?.name, "test-root");
+        assertEquals(result.value.hasAnthropicsFeature, true);
+      }
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }
@@ -94,8 +106,11 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       );
 
       const result = await checkDevcontainerConfig(tempDir);
-      assertEquals(result.configExists, true);
-      assertEquals(result.hasAnthropicsFeature, false);
+      assertEquals(result.isOk(), true);
+      if (result.isOk()) {
+        assertEquals(result.value.configExists, true);
+        assertEquals(result.value.hasAnthropicsFeature, false);
+      }
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }
@@ -115,8 +130,11 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       );
 
       const result = await checkDevcontainerConfig(tempDir);
-      assertEquals(result.configExists, true);
-      assertEquals(result.hasAnthropicsFeature, false);
+      assertEquals(result.isOk(), true);
+      if (result.isOk()) {
+        assertEquals(result.value.configExists, true);
+        assertEquals(result.value.hasAnthropicsFeature, false);
+      }
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }
@@ -132,7 +150,10 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
       );
 
       const result = await checkDevcontainerConfig(tempDir);
-      assertEquals(result.configExists, false);
+      assertEquals(result.isErr(), true);
+      if (result.isErr()) {
+        assertEquals(result.error.type, "JSON_PARSE_ERROR");
+      }
     } finally {
       await Deno.remove(tempDir, { recursive: true });
     }
@@ -141,6 +162,9 @@ Deno.test("devcontainer設定のチェック機能", async (t) => {
 
 Deno.test("devcontainer CLIのチェック機能", async () => {
   const result = await checkDevcontainerCli();
-  // CLIがインストールされているかどうかは環境に依存するため、booleanが返されることのみテスト
-  assertEquals(typeof result, "boolean");
+  // Result型が返されることを確認
+  assertEquals(result.isOk() || result.isErr(), true);
+  if (result.isOk()) {
+    assertEquals(typeof result.value, "boolean");
+  }
 });

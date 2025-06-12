@@ -144,22 +144,29 @@ export class ThreadManager {
     threadId: string,
     repositoryPath: string,
   ): Promise<Result<string, WorkspaceError>> {
-    try {
-      const worktreePath = this.getWorktreePath(threadId);
-      const exists = await isWorktreeCopyExists(worktreePath);
-      if (exists) {
-        return ok(worktreePath);
-      }
-
-      await createWorktreeCopy(repositoryPath, threadId, worktreePath);
+    const worktreePath = this.getWorktreePath(threadId);
+    const exists = await isWorktreeCopyExists(worktreePath);
+    if (exists) {
       return ok(worktreePath);
-    } catch (error) {
+    }
+
+    const createResult = await createWorktreeCopy(
+      repositoryPath,
+      threadId,
+      worktreePath,
+    );
+    if (createResult.isErr()) {
       return err({
         type: "WORKTREE_CREATE_FAILED",
         threadId,
-        error: `worktreeの作成に失敗しました: ${error}`,
+        error: `worktreeの作成に失敗しました: ${
+          createResult.error.type === "WORKTREE_CREATE_FAILED"
+            ? createResult.error.error
+            : "Unknown error"
+        }`,
       });
     }
+    return ok(worktreePath);
   }
 
   async removeWorktree(

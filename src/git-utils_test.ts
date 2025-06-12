@@ -1,17 +1,17 @@
-import {
-  assertEquals,
-  assertRejects,
-} from "https://deno.land/std@0.208.0/testing/asserts.ts";
+import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import { WorkspaceManager } from "./workspace.ts";
 import { join } from "std/path/mod.ts";
 
 Deno.test("parseRepository - 正しい形式のリポジトリ名をパースできる", () => {
   const result = parseRepository("owner/repo");
-  assertEquals(result.org, "owner");
-  assertEquals(result.repo, "repo");
-  assertEquals(result.fullName, "owner/repo");
-  assertEquals(result.localPath, join("owner", "repo"));
+  assertEquals(result.isOk(), true);
+  if (result.isOk()) {
+    assertEquals(result.value.org, "owner");
+    assertEquals(result.value.repo, "repo");
+    assertEquals(result.value.fullName, "owner/repo");
+    assertEquals(result.value.localPath, join("owner", "repo"));
+  }
 });
 
 Deno.test("parseRepository - 不正な形式でエラーになる", () => {
@@ -25,14 +25,16 @@ Deno.test("parseRepository - 不正な形式でエラーになる", () => {
   ];
 
   for (const format of invalidFormats) {
-    try {
-      parseRepository(format);
-      throw new Error(`${format} should have thrown an error`);
-    } catch (error) {
-      assertEquals(
-        (error as Error).message,
-        "リポジトリ名は <org>/<repo> 形式で指定してください",
-      );
+    const result = parseRepository(format);
+    assertEquals(result.isErr(), true);
+    if (result.isErr()) {
+      assertEquals(result.error.type, "INVALID_REPOSITORY_NAME");
+      if (result.error.type === "INVALID_REPOSITORY_NAME") {
+        assertEquals(
+          result.error.message,
+          "リポジトリ名は <org>/<repo> 形式で指定してください",
+        );
+      }
     }
   }
 });
@@ -101,15 +103,15 @@ Deno.test("ensureRepository - 新規リポジトリのクローンをスキッ�
   await workspaceManager.initialize();
 
   try {
-    const repository = parseRepository("test-org/test-repo");
+    const repositoryResult = parseRepository("test-org/test-repo");
+    assertEquals(repositoryResult.isOk(), true);
 
-    // ghコマンドがない環境ではエラーになることを確認
-    await assertRejects(
-      async () => {
-        await ensureRepository(repository, workspaceManager);
-      },
-      Error,
-    );
+    if (repositoryResult.isOk()) {
+      const repository = repositoryResult.value;
+      // ghコマンドがない環境ではエラーになることを確認
+      const result = await ensureRepository(repository, workspaceManager);
+      assertEquals(result.isErr(), true);
+    }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }

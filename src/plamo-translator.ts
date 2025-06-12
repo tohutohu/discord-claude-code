@@ -3,7 +3,19 @@
  * mlx_lm.serverで立てたPLaMo-2-translateと通信して日本語から英語への翻訳を行う
  */
 
+import { err, ok, Result } from "neverthrow";
 import { PLAMO_TRANSLATOR } from "./constants.ts";
+
+/**
+ * PLaMoTranslatorエラーの型定義
+ */
+export type PLaMoTranslatorError =
+  | { type: "URL_NOT_SET" }
+  | { type: "API_REQUEST_FAILED"; status: number; statusText: string }
+  | { type: "INVALID_RESPONSE"; details: string }
+  | { type: "NETWORK_ERROR"; message: string }
+  | { type: "SERVER_UNAVAILABLE" }
+  | { type: "TRANSLATION_FAILED"; message: string };
 
 export interface TranslationRequest {
   messages: Array<{
@@ -88,25 +100,25 @@ Translate only the user's message. Do not add explanations or additional context
   /**
    * 日本語テキストを英語に翻訳
    * @param text 翻訳対象の日本語テキスト
-   * @returns 翻訳された英語テキスト
+   * @returns 翻訳された英語テキスト（エラー時は元のテキスト）
    */
-  async translate(text: string): Promise<string> {
-    try {
-      const request: TranslationRequest = {
-        messages: [
-          {
-            role: "system",
-            content: this.systemPrompt,
-          },
-          {
-            role: "user",
-            content: text,
-          },
-        ],
-        temperature: PLAMO_TRANSLATOR.TEMPERATURE, // より決定的な翻訳のため低めに設定
-        max_tokens: PLAMO_TRANSLATOR.MAX_TOKENS,
-      };
+  async translate(text: string): Promise<Result<string, PLaMoTranslatorError>> {
+    const request: TranslationRequest = {
+      messages: [
+        {
+          role: "system",
+          content: this.systemPrompt,
+        },
+        {
+          role: "user",
+          content: text,
+        },
+      ],
+      temperature: PLAMO_TRANSLATOR.TEMPERATURE,
+      max_tokens: PLAMO_TRANSLATOR.MAX_TOKENS,
+    };
 
+    try {
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: {
@@ -116,9 +128,11 @@ Translate only the user's message. Do not add explanations or additional context
       });
 
       if (!response.ok) {
-        throw new Error(
-          `Translation API error: ${response.status} ${response.statusText}`,
-        );
+        return err({
+          type: "API_REQUEST_FAILED",
+          status: response.status,
+          statusText: response.statusText,
+        });
       }
 
       const responseText = await response.text();
@@ -127,44 +141,73 @@ Translate only the user's message. Do not add explanations or additional context
       try {
         data = JSON.parse(responseText);
       } catch (error) {
-        throw new Error(
-          `Invalid JSON response: ${
+        return err({
+          type: "INVALID_RESPONSE",
+          details: `Invalid JSON: ${
             error instanceof Error ? error.message : "Unknown error"
           }`,
-        );
+        });
       }
 
       if (!isTranslationResponse(data)) {
-        throw new Error("Invalid translation response format");
+        return err({
+          type: "INVALID_RESPONSE",
+          details: "Response does not match expected format",
+        });
       }
 
       if (data.choices.length === 0) {
-        throw new Error("No translation result received");
+        return err({
+          type: "TRANSLATION_FAILED",
+          message: "No translation result received",
+        });
       }
 
-      return data.choices[0].message.content.trim();
+      return ok(data.choices[0].message.content.trim());
     } catch (error) {
-      console.error("Translation failed:", error);
-      // エラーが発生した場合は元のテキストを返す
-      return text;
+      // ネットワークエラーなど
+      return err({
+        type: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 
   /**
    * APIサーバーへの接続を確認
-   * @returns 接続可能な場合true
+   * @returns 接続可能な場合true、エラーの場合はエラー情報
    */
-  async isAvailable(): Promise<boolean> {
+  async isAvailable(): Promise<Result<boolean, PLaMoTranslatorError>> {
     try {
       const response = await fetch(`${this.baseUrl}/health`, {
         method: "GET",
-        signal: AbortSignal.timeout(PLAMO_TRANSLATOR.TIMEOUT_MS), // 5秒でタイムアウト
+        signal: AbortSignal.timeout(PLAMO_TRANSLATOR.TIMEOUT_MS),
       });
       // レスポンスボディを消費してリークを防ぐ
       await response.text();
-      return response.ok;
-    } catch {
-      return false;
+
+      if (response.ok) {
+        return ok(true);
+      } else {
+        return err({ type: "SERVER_UNAVAILABLE" });
+      }
+    } catch (error) {
+      return err({
+        type: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
+  }
+
+  /**
+   * 環境変数からPLaMoTranslatorインスタンスを作成
+   * @param envUrl 環境変数のURL（例: env.PLAMO_TRANSLATOR_URL）
+   * @returns PLaMoTranslatorインスタンス、またはURLが設定されていない場合はnull
+   */
+  static fromEnv(envUrl: string | undefined): PLaMoTranslator | null {
+    if (!envUrl) {
+      return null;
+    }
+    return new PLaMoTranslator(envUrl);
   }
 }

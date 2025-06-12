@@ -89,10 +89,12 @@ export class DevcontainerManager {
     }
 
     // devcontainer CLIの確認
-    const hasDevcontainerCli = await checkDevcontainerCli();
+    const cliResult = await checkDevcontainerCli();
+    const hasDevcontainerCli = cliResult.isOk() ? cliResult.value : false;
     this.logVerbose("devcontainer CLI確認完了", {
       threadId,
       hasDevcontainerCli,
+      cliCheckError: cliResult.isErr() ? cliResult.error : undefined,
     });
 
     if (!hasDevcontainerCli) {
@@ -118,7 +120,18 @@ export class DevcontainerManager {
     configExists: boolean;
     hasAnthropicsFeature?: boolean;
   }> {
-    const devcontainerInfo = await checkDevcontainerConfig(repositoryPath);
+    const result = await checkDevcontainerConfig(repositoryPath);
+    if (result.isErr()) {
+      this.logVerbose("devcontainer.json読み込みエラー", {
+        threadId,
+        error: result.error,
+      });
+      return {
+        configExists: false,
+      };
+    }
+
+    const devcontainerInfo = result.value;
     this.logVerbose("devcontainer.json存在確認完了", {
       threadId,
       configExists: devcontainerInfo.configExists,
@@ -142,7 +155,8 @@ export class DevcontainerManager {
     });
 
     // devcontainer CLIの確認
-    const hasDevcontainerCli = await checkDevcontainerCli();
+    const cliResult = await checkDevcontainerCli();
+    const hasDevcontainerCli = cliResult.isOk() ? cliResult.value : false;
 
     if (!hasDevcontainerCli) {
       // devcontainer CLI未インストールの場合
@@ -446,32 +460,40 @@ export class DevcontainerManager {
       onProgress,
     );
 
+    const success = result.isOk();
+    const containerId = result.isOk() ? result.value.containerId : undefined;
+    const error = result.isErr()
+      ? (result.error.type === "CONTAINER_START_FAILED"
+        ? result.error.error
+        : result.error.type)
+      : undefined;
+
     this.logVerbose("fallback devcontainer起動結果", {
       threadId,
-      success: result.success,
-      hasContainerId: !!result.containerId,
-      hasError: !!result.error,
+      success,
+      hasContainerId: !!containerId,
+      hasError: !!error,
     });
 
-    if (result.success) {
+    if (success) {
       // devcontainer設定情報を更新（起動状態とcontainerId）
       const existingConfig = await this.getDevcontainerConfig(threadId);
       if (existingConfig) {
         const updatedConfig = {
           ...existingConfig,
-          containerId: result.containerId || "unknown",
+          containerId: containerId || "unknown",
           isStarted: true,
         };
         await this.saveDevcontainerConfig(threadId, updatedConfig);
       }
 
       await this.logAuditEntry(threadId, "fallback_devcontainer_started", {
-        containerId: result.containerId || "unknown",
+        containerId: containerId || "unknown",
       });
 
       this.logVerbose("fallback devcontainer起動成功、監査ログ記録完了", {
         threadId,
-        containerId: result.containerId,
+        containerId,
       });
 
       // WorkerにDevcontainerClaudeExecutorへの切り替えを通知
@@ -486,17 +508,17 @@ export class DevcontainerManager {
       };
     }
     await this.logAuditEntry(threadId, "fallback_devcontainer_start_failed", {
-      error: result.error,
+      error,
     });
 
     this.logVerbose("fallback devcontainer起動失敗、監査ログ記録完了", {
       threadId,
-      error: result.error,
+      error,
     });
 
     return {
       success: false,
-      message: `fallback devcontainerの起動に失敗しました: ${result.error}`,
+      message: `fallback devcontainerの起動に失敗しました: ${error}`,
     };
   }
 
