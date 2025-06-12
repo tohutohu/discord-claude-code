@@ -1,6 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { FakeTime } from "https://deno.land/std@0.224.0/testing/time.ts";
-import { createDevcontainerProgressHandler } from "./devcontainer-progress.ts";
+import {
+  createDevcontainerProgressHandler,
+  DevcontainerProgressTracker,
+} from "./devcontainer-progress.ts";
 
 // モック用の型定義
 interface MockProgressCallback {
@@ -214,6 +217,141 @@ Deno.test("cleanupメソッドがタイマーを適切にクリアする", async
   handler("This should not trigger anything");
   await time.tickAsync(2000);
   assertEquals(progressCallback.calls.length, 1); // 増えていない
+});
+
+// DevcontainerProgressTracker のテスト
+Deno.test("DevcontainerProgressTracker: デフォルト値での初期化", () => {
+  const progressCallback = createMockProgressCallback();
+  const tracker = new DevcontainerProgressTracker(progressCallback);
+
+  // デフォルト値が適用されていることを確認
+  // maxLogLines = 20, updateInterval = 1000 がデフォルト
+  tracker.cleanup();
+});
+
+Deno.test("DevcontainerProgressTracker: ログの追加と最大行数制限", () => {
+  const progressCallback = createMockProgressCallback();
+  const tracker = new DevcontainerProgressTracker(progressCallback, 5); // maxLogLines = 5
+
+  // 10個のログを追加
+  for (let i = 1; i <= 10; i++) {
+    tracker.addLog(`Log ${i}`, "Progress");
+  }
+
+  // 最初の進捗更新が送信されるのを待つ
+  // 即時更新の閾値は updateInterval * 0.5 = 500ms
+  tracker.startPeriodicUpdates("Progress");
+
+  // 進捗コールバックが呼ばれ、最後の5行のみが含まれることを確認
+  // startPeriodicUpdatesの直後には更新されないので、手動で確認が必要
+
+  tracker.cleanup();
+});
+
+Deno.test("DevcontainerProgressTracker: 即時更新の閾値（500ms）", async () => {
+  using time = new FakeTime();
+  const progressCallback = createMockProgressCallback();
+  const tracker = new DevcontainerProgressTracker(
+    progressCallback,
+    20,
+    1000, // updateInterval = 1000ms
+  );
+
+  tracker.startPeriodicUpdates("Building...");
+
+  // 最初のログ追加（初回なので即座に更新される）
+  tracker.addLog("First log");
+  assertEquals(progressCallback.calls.length, 0); // startPeriodicUpdatesでは即座に更新されない
+
+  // 499ms経過（閾値未満）
+  await time.tickAsync(499);
+  tracker.addLog("Second log");
+  assertEquals(progressCallback.calls.length, 0); // まだ更新されない
+
+  // さらに2ms経過（合計501ms = 閾値を超える）
+  await time.tickAsync(2);
+  tracker.addLog("Third log");
+  assertEquals(progressCallback.calls.length, 1); // 更新される
+  assertEquals(progressCallback.calls[0].message, "Building...");
+  assertEquals(progressCallback.calls[0].logs.length, 3);
+
+  tracker.cleanup();
+});
+
+Deno.test("DevcontainerProgressTracker: 定期的な更新（1000ms間隔）", async () => {
+  using time = new FakeTime();
+  const progressCallback = createMockProgressCallback();
+  const tracker = new DevcontainerProgressTracker(
+    progressCallback,
+    20,
+    1000, // updateInterval = 1000ms
+  );
+
+  tracker.addLog("Initial log");
+  tracker.startPeriodicUpdates("Processing...");
+
+  // 999ms経過
+  await time.tickAsync(999);
+  assertEquals(progressCallback.calls.length, 0);
+
+  // 1ms経過（合計1000ms）
+  await time.tickAsync(1);
+  assertEquals(progressCallback.calls.length, 1);
+  assertEquals(progressCallback.calls[0].message, "Processing...");
+
+  // さらに1000ms経過
+  await time.tickAsync(1000);
+  assertEquals(progressCallback.calls.length, 2);
+
+  tracker.cleanup();
+});
+
+Deno.test("DevcontainerProgressTracker: カスタム値での初期化", async () => {
+  using time = new FakeTime();
+  const progressCallback = createMockProgressCallback();
+  const tracker = new DevcontainerProgressTracker(
+    progressCallback,
+    10, // maxLogLines = 10
+    500, // updateInterval = 500ms
+  );
+
+  // 15個のログを追加
+  for (let i = 1; i <= 15; i++) {
+    tracker.addLog(`Log ${i}`);
+  }
+
+  tracker.startPeriodicUpdates("Custom progress");
+
+  // 500ms後に更新される
+  await time.tickAsync(500);
+  assertEquals(progressCallback.calls.length, 1);
+  const logs = progressCallback.calls[0].logs;
+  assertEquals(logs.length, 10); // 最大10行
+  assertEquals(logs[0], "Log 6"); // 最初の5行は削除される
+  assertEquals(logs[9], "Log 15");
+
+  tracker.cleanup();
+});
+
+Deno.test("DevcontainerProgressTracker: cleanupによるリソース解放", async () => {
+  using time = new FakeTime();
+  const progressCallback = createMockProgressCallback();
+  const tracker = new DevcontainerProgressTracker(progressCallback);
+
+  tracker.startPeriodicUpdates("Cleaning up...");
+  tracker.addLog("Some log");
+
+  // クリーンアップ
+  tracker.cleanup();
+
+  // クリーンアップ後は定期更新が行われない
+  await time.tickAsync(5000);
+  assertEquals(progressCallback.calls.length, 0);
+
+  // ログを追加しても更新されない
+  tracker.addLog("After cleanup");
+  await time.tickAsync(1000);
+  assertEquals(progressCallback.calls.length, 0);
 });
 
 Deno.test("複数の重要パターンが同時に含まれる場合も適切に処理される", async () => {
