@@ -12,13 +12,19 @@ Deno.test("WorkerManager - Workerの作成と取得", async () => {
     const threadId = "test-thread-1";
 
     // Workerを作成
-    const worker = await workerManager.createWorker(threadId);
+    const workerResult = await workerManager.createWorker(threadId);
+    assertEquals(workerResult.isOk(), true);
+    assertExists(workerResult.isOk() && workerResult.value);
+    const worker = workerResult.isOk() ? workerResult.value : null;
     assertExists(worker);
     assertEquals(typeof worker.getName(), "string");
 
     // 同じthreadIdで再度作成すると同じWorkerが返される
-    const sameWorker = await workerManager.createWorker(threadId);
-    assertEquals(worker.getName(), sameWorker.getName());
+    const sameWorkerResult = await workerManager.createWorker(threadId);
+    assertEquals(sameWorkerResult.isOk(), true);
+    if (sameWorkerResult.isOk()) {
+      assertEquals(worker.getName(), sameWorkerResult.value.getName());
+    }
 
     // Workerを取得
     const retrievedWorker = workerManager.getWorker(threadId);

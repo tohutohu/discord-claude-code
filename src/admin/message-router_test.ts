@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "std/assert/mod.ts";
+import { assertEquals } from "std/assert/mod.ts";
 import { MessageRouter } from "./message-router.ts";
 import { WorkerManager } from "./worker-manager.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
@@ -30,9 +30,12 @@ Deno.test("MessageRouter - 正常なメッセージルーティング", async ()
     );
 
     // 実際のWorkerはリポジトリが設定されていない場合、特定のメッセージを返す
-    assertEquals(typeof result, "string");
-    if (typeof result === "string") {
-      assertEquals(result.includes("/start"), true);
+    assertEquals(result.isOk(), true);
+    if (result.isOk()) {
+      assertEquals(typeof result.value, "string");
+      if (typeof result.value === "string") {
+        assertEquals(result.value.includes("/start"), true);
+      }
     }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
@@ -54,16 +57,16 @@ Deno.test("MessageRouter - 存在しないWorkerへのルーティング", async
     );
 
     // 存在しないスレッドIDでメッセージをルーティング
-    await assertRejects(
-      async () => {
-        await messageRouter.routeMessage(
-          "non-existent-thread",
-          "テストメッセージ",
-        );
-      },
-      Error,
-      "Worker not found for thread: non-existent-thread",
+    const result = await messageRouter.routeMessage(
+      "non-existent-thread",
+      "テストメッセージ",
     );
+
+    assertEquals(result.isErr(), true);
+    if (result.isErr()) {
+      assertEquals(result.error.type, "WORKER_NOT_FOUND");
+      assertEquals(result.error.threadId, "non-existent-thread");
+    }
   } finally {
     await Deno.remove(tempDir, { recursive: true });
   }
@@ -112,10 +115,13 @@ Deno.test("MessageRouter - レートリミット中のメッセージキュー�
       "user-123",
     );
 
-    assertEquals(
-      result,
-      "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。",
-    );
+    assertEquals(result.isOk(), true);
+    if (result.isOk()) {
+      assertEquals(
+        result.value,
+        "レートリミット中です。このメッセージは制限解除後に自動的に処理されます。",
+      );
+    }
 
     // キューに追加されていることを確認
     const workerState = await workspaceManager.loadWorkerState(threadId);
