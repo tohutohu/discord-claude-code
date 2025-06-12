@@ -49,8 +49,8 @@ export class Worker implements IWorker {
       new DefaultClaudeCommandExecutor(this.configuration.isVerbose());
 
     // 翻訳URLが設定されている場合は翻訳機能を初期化
-    if (translatorUrl) {
-      this.translator = new PLaMoTranslator(translatorUrl);
+    this.translator = PLaMoTranslator.fromEnv(translatorUrl);
+    if (this.translator) {
       this.logVerbose("翻訳機能を初期化", { translatorUrl });
     }
   }
@@ -101,9 +101,11 @@ export class Worker implements IWorker {
       // 翻訳処理（設定されている場合のみ）
       let translatedMessage = message;
       if (this.translator) {
-        try {
-          this.logVerbose("メッセージの翻訳を開始");
-          translatedMessage = await this.translator.translate(message);
+        this.logVerbose("メッセージの翻訳を開始");
+        const translateResult = await this.translator.translate(message);
+
+        if (translateResult.isOk()) {
+          translatedMessage = translateResult.value;
           this.logVerbose("メッセージの翻訳完了", {
             originalLength: message.length,
             translatedLength: translatedMessage.length,
@@ -119,9 +121,10 @@ export class Worker implements IWorker {
             console.log(`  元のメッセージ: "${message}"`);
             console.log(`  翻訳後: "${translatedMessage}"`);
           }
-        } catch (error) {
+        } else {
           this.logVerbose("翻訳エラー（元のメッセージを使用）", {
-            error: (error as Error).message,
+            errorType: translateResult.error.type,
+            error: translateResult.error,
           });
           // 翻訳に失敗した場合は元のメッセージを使用
           translatedMessage = message;
