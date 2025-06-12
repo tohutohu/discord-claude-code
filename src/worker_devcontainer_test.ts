@@ -15,7 +15,7 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
 
     const state: WorkerState = {
       workerName: "test-worker",
-      threadId: "test-thread-123",
+      threadId: "1234567890123456789", // Discord形式のスレッドID
       devcontainerConfig: {
         useDevcontainer: false,
         useFallbackDevcontainer: false,
@@ -59,6 +59,36 @@ Deno.test("Worker devcontainer機能のテスト", async (t) => {
 
       // リポジトリが設定されたことを確認
       assertEquals(worker.getRepository()?.fullName, "test-org/test-repo");
+    });
+
+    await t.step("updateClaudeExecutorForDevcontainerのテスト", async () => {
+      // devcontainerが無効な場合は何もしない
+      worker.setUseDevcontainer(false);
+      await worker.updateClaudeExecutorForDevcontainer();
+      assertEquals(worker.isDevcontainerStarted(), false);
+
+      // devcontainerを有効にしてworktreePathを設定
+      worker.setUseDevcontainer(true);
+      // worktreePathを設定するために、setRepositoryを使う
+      const repository = parseRepository("test-org/test-repo");
+      const worktreePath = await Deno.makeTempDir();
+      try {
+        await worker.setRepository(repository, worktreePath);
+
+        // updateClaudeExecutorForDevcontainerを呼び出す
+        await worker.updateClaudeExecutorForDevcontainer();
+
+        // devcontainerが起動済みとしてマークされていることを確認
+        assertEquals(worker.isDevcontainerStarted(), true);
+
+        // Worker状態が保存されていることを確認
+        const savedState = await workspaceManager.loadWorkerState(
+          "1234567890123456789",
+        );
+        assertEquals(savedState?.devcontainerConfig.isStarted, true);
+      } finally {
+        await Deno.remove(worktreePath, { recursive: true });
+      }
     });
   } finally {
     await Deno.remove(tempDir, { recursive: true });
