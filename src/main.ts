@@ -18,6 +18,7 @@ import { Admin } from "./admin.ts";
 import { Worker } from "./worker.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
+import { createDevcontainerProgressHandler } from "./utils/devcontainer-progress.ts";
 import { RepositoryPatInfo, WorkspaceManager } from "./workspace.ts";
 import {
   checkSystemRequirements,
@@ -290,108 +291,74 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         "devcontainerの起動を開始しました。進捗は下のメッセージで確認できます。",
       );
 
-      let lastUpdateTime = Date.now();
-      const UPDATE_INTERVAL = 1000; // 1秒ごとに更新可能
-      let accumulatedLogs: string[] = [];
-      const MAX_LOG_LINES = 20; // 表示する最大ログ行数
-
-      // 進捗更新用のコールバック（既存メッセージを編集）
-      const onProgress = async (content: string) => {
-        const now = Date.now();
-
-        // ログを蓄積
-        if (content.includes("```")) {
-          // コードブロック内のログを抽出
-          const match = content.match(/```\n([\s\S]*?)\n```/);
-          if (match) {
-            const logLines = match[1].split("\n").filter((line) => line.trim());
-            accumulatedLogs.push(...logLines);
-            // 最新のログのみ保持
-            if (accumulatedLogs.length > MAX_LOG_LINES) {
-              accumulatedLogs = accumulatedLogs.slice(-MAX_LOG_LINES);
-            }
-          }
-        } else {
-          // 通常のメッセージはそのまま追加
-          accumulatedLogs.push(content);
-          if (accumulatedLogs.length > MAX_LOG_LINES) {
-            accumulatedLogs = accumulatedLogs.slice(-MAX_LOG_LINES);
-          }
-        }
-
-        // 更新間隔をチェック
-        if (now - lastUpdateTime >= UPDATE_INTERVAL && progressMessage) {
-          try {
-            // メッセージを更新
-            const logContent = accumulatedLogs.length > 0
-              ? `\n\`\`\`\n${accumulatedLogs.join("\n")}\n\`\`\``
-              : "";
-            await progressMessage.edit({
-              content: `🐳 **devcontainer起動中...**${logContent}`,
-            });
-            lastUpdateTime = now;
-          } catch (editError) {
-            console.error("メッセージ編集エラー:", editError);
-          }
-        }
-      };
-
-      // devcontainerを起動
-      const startResult = await admin.startDevcontainerForWorker(
-        threadId,
-        onProgress,
+      // 共通の進捗ハンドラーを作成
+      const progressHandler = createDevcontainerProgressHandler(
+        interaction,
+        progressMessage,
+        {
+          initialMessage: "🐳 devcontainerを起動しています...",
+          progressPrefix: "🐳 **devcontainer起動中...**",
+          successMessage:
+            "✅ **devcontainer起動完了！**\n\n準備完了です！何かご質問をどうぞ。",
+          failurePrefix: "❌ **devcontainer起動失敗**\n\n",
+        },
       );
 
-      const worker = admin.getWorker(threadId);
+      try {
+        // devcontainerを起動
+        const startResult = await admin.startDevcontainerForWorker(
+          threadId,
+          progressHandler.onProgress,
+        );
 
-      if (startResult.success) {
-        // 最終的な成功メッセージでプログレスメッセージを更新
-        if (progressMessage) {
-          try {
-            await progressMessage.edit({
-              content:
-                `✅ **devcontainer起動完了！**\n\n${startResult.message}\n\n準備完了です！何かご質問をどうぞ。`,
-            });
-          } catch (editError) {
-            console.error("最終メッセージ編集エラー:", editError);
-            // 編集に失敗した場合は新規メッセージを送信
-            if (interaction.channel && "send" in interaction.channel) {
-              await interaction.channel.send(
-                `<@${interaction.user.id}> ${startResult.message}\n\n準備完了です！何かご質問をどうぞ。`,
-              );
+        const workerResult = admin.getWorker(threadId);
+
+        if (startResult.success) {
+          // 成功時の処理
+          await progressHandler.onSuccess([]);
+
+          // 成功メッセージに追加情報を付与
+          if (progressMessage && startResult.message) {
+            try {
+              const currentContent = progressMessage.content;
+              await progressMessage.edit({
+                content: currentContent.replace(
+                  "準備完了です！何かご質問をどうぞ。",
+                  `${startResult.message}\n\n準備完了です！何かご質問をどうぞ。`,
+                ),
+              });
+            } catch (editError) {
+              console.error("追加情報編集エラー:", editError);
             }
           }
-        }
 
-        // ユーザーにメンション付きで通知
-        if (interaction.channel && "send" in interaction.channel) {
-          await interaction.channel.send(
-            `<@${interaction.user.id}> devcontainerの準備が完了しました！`,
+          // ユーザーにメンション付きで通知
+          if (interaction.channel && "send" in interaction.channel) {
+            await interaction.channel.send(
+              `<@${interaction.user.id}> devcontainerの準備が完了しました！`,
+            );
+          }
+        } else {
+          if (workerResult.isOk()) {
+            workerResult.value.setUseDevcontainer(false);
+          }
+
+          // 失敗時の処理
+          await progressHandler.onFailure(
+            `${startResult.message}\n\n通常環境でClaude実行を継続します。`,
+            [],
           );
-        }
-      } else {
-        if (worker) {
-          (worker as unknown as Worker).setUseDevcontainer(false);
-        }
 
-        // エラーメッセージでプログレスメッセージを更新
-        if (progressMessage) {
-          try {
-            await progressMessage.edit({
-              content:
-                `❌ **devcontainer起動失敗**\n\n${startResult.message}\n\n通常環境でClaude実行を継続します。`,
-            });
-          } catch (editError) {
-            console.error("エラーメッセージ編集エラー:", editError);
+          // ユーザーにメンション付きで通知
+          if (interaction.channel && "send" in interaction.channel) {
+            await interaction.channel.send(
+              `<@${interaction.user.id}> devcontainerの起動に失敗しました。通常環境でClaude実行を継続します。`,
+            );
           }
         }
-
-        // ユーザーにメンション付きで通知
-        if (interaction.channel && "send" in interaction.channel) {
-          await interaction.channel.send(
-            `<@${interaction.user.id}> devcontainerの起動に失敗しました。通常環境でClaude実行を継続します。`,
-          );
-        }
+      } catch (error) {
+        progressHandler.cleanup();
+        throw error;
       }
     } else if (result === "fallback_devcontainer_start_with_progress") {
       // fallback devcontainerの起動処理
@@ -399,71 +366,28 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         "📦 fallback devcontainerを起動しています...",
       );
 
-      const logs: string[] = [];
-      let lastUpdateTime = Date.now();
-      const updateInterval = 1000; // 1秒
-      const maxLogLines = 20;
-
-      // タイマーIDを保存
-      // deno-lint-ignore prefer-const
-      let timerId: number | undefined;
-
-      // 定期的な更新処理
-      const updateProgress = async () => {
-        try {
-          if (logs.length > 0) {
-            const logSection = logs.slice(-maxLogLines).join("\n");
-            await interaction.editReply({
-              content:
-                `📦 fallback devcontainerを起動しています...\n\n**ログ:**\n\`\`\`\n${logSection}\n\`\`\`\n\n⏳ 初回起動は数分かかる場合があります。`,
-            });
-          }
-        } catch (error) {
-          console.error("進捗更新エラー:", error);
-        }
-      };
-
-      // 定期的な更新タイマーを開始
-      timerId = setInterval(updateProgress, updateInterval);
+      // 共通の進捗ハンドラーを作成
+      const progressHandler = createDevcontainerProgressHandler(
+        interaction,
+        undefined, // fallbackはeditReplyを使用するのでprogressMessageは不要
+        {
+          initialMessage: "📦 fallback devcontainerを起動しています...",
+          progressPrefix: "📦 fallback devcontainerを起動しています...",
+          successMessage:
+            "✅ fallback devcontainerが正常に起動しました！\n\n準備完了です！何かご質問をどうぞ。",
+          failurePrefix:
+            "❌ fallback devcontainerの起動に失敗しました。\n\nエラー: ",
+          showFirstTimeWarning: true,
+        },
+      );
 
       try {
         // fallback devcontainerを起動
         const startResult = await admin.startFallbackDevcontainerForWorker(
           threadId,
-          async (message) => {
-            // 進捗メッセージをログに追加
-            logs.push(message);
-
-            // 即座の更新が必要なメッセージパターン
-            const importantPatterns = [
-              "pulling",
-              "downloading",
-              "extracting",
-              "building",
-              "creating",
-              "starting",
-              "waiting",
-              "complete",
-              "success",
-              "error",
-              "failed",
-            ];
-
-            const isImportant = importantPatterns.some((pattern) =>
-              message.toLowerCase().includes(pattern)
-            );
-
-            if (isImportant && Date.now() - lastUpdateTime > 500) {
-              lastUpdateTime = Date.now();
-              await updateProgress();
-            }
-          },
+          progressHandler.onProgress,
         );
 
-        // タイマーをクリア
-        clearInterval(timerId);
-
-        // 最終結果を更新
         if (startResult.success) {
           // fallback devcontainer起動成功後、WorkerにDevcontainerClaudeExecutorへの切り替えを指示
           const worker = admin.getWorker(threadId);
@@ -486,10 +410,11 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
             );
           }
         } else {
-          await interaction.editReply({
-            content:
-              `❌ fallback devcontainerの起動に失敗しました。\n\nエラー: ${startResult.message}`,
-          });
+          // 失敗時の処理
+          await progressHandler.onFailure(
+            startResult.message || "不明なエラー",
+            [],
+          );
 
           // ユーザーにメンション付きで通知
           if (interaction.channel && "send" in interaction.channel) {
@@ -499,11 +424,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
           }
         }
       } catch (error) {
-        // エラーが発生した場合もタイマーをクリア
-        if (timerId) {
-          clearInterval(timerId);
-        }
-
+        progressHandler.cleanup();
         console.error("fallback devcontainer起動エラー:", error);
         await interaction.editReply({
           content: `❌ fallback devcontainerの起動中にエラーが発生しました: ${
