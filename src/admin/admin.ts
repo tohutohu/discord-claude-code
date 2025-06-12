@@ -1,5 +1,4 @@
 import type { IWorker } from "../worker.ts";
-import { Worker } from "../worker.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { AdminState, AuditEntry, ThreadInfo } from "../workspace.ts";
 import type { AdminError, DiscordMessage, IAdmin } from "./types.ts";
@@ -283,7 +282,7 @@ export class Admin implements IAdmin {
         const result = await this.devcontainerManager
           .handleDevcontainerYesButton(
             threadId,
-            workerResult.value as Worker,
+            workerResult.value,
           );
         return ok(result);
       }
@@ -296,7 +295,7 @@ export class Admin implements IAdmin {
         const result = await this.devcontainerManager
           .handleDevcontainerNoButton(
             threadId,
-            workerResult.value as Worker,
+            workerResult.value,
           );
         return ok(result);
       }
@@ -326,7 +325,7 @@ export class Admin implements IAdmin {
         }
         const result = await this.devcontainerManager.handleLocalEnvButton(
           threadId,
-          workerResult.value as Worker,
+          workerResult.value,
         );
         return ok(result);
       }
@@ -340,7 +339,7 @@ export class Admin implements IAdmin {
         const result = await this.devcontainerManager
           .handleFallbackDevcontainerButton(
             threadId,
-            workerResult.value as Worker,
+            workerResult.value,
           );
         return ok(result);
       }
@@ -374,7 +373,7 @@ export class Admin implements IAdmin {
 
     return this.devcontainerManager.startDevcontainerForWorker(
       threadId,
-      worker as Worker,
+      worker,
       onProgress,
     );
   }

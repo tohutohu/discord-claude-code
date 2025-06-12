@@ -3,7 +3,7 @@ import {
   checkDevcontainerConfig,
   startFallbackDevcontainer,
 } from "../devcontainer.ts";
-import type { Worker } from "../worker.ts";
+import type { IWorker } from "../worker.ts";
 import type { AuditEntry } from "../workspace.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { DiscordActionRow } from "./types.ts";
@@ -305,7 +305,7 @@ export class DevcontainerManager {
    */
   async startDevcontainerForWorker(
     threadId: string,
-    worker: Worker,
+    worker: IWorker,
     onProgress?: (message: string) => Promise<void>,
   ): Promise<{
     success: boolean;
@@ -448,7 +448,7 @@ export class DevcontainerManager {
    */
   async handleDevcontainerYesButton(
     threadId: string,
-    worker: Worker,
+    worker: IWorker,
   ): Promise<string> {
     worker.setUseDevcontainer(true);
 
@@ -472,7 +472,7 @@ export class DevcontainerManager {
    */
   async handleDevcontainerNoButton(
     threadId: string,
-    worker: Worker,
+    worker: IWorker,
   ): Promise<string> {
     worker.setUseDevcontainer(false);
 
@@ -495,7 +495,7 @@ export class DevcontainerManager {
    */
   async handleLocalEnvButton(
     threadId: string,
-    worker: Worker,
+    worker: IWorker,
   ): Promise<string> {
     worker.setUseDevcontainer(false);
 
@@ -516,7 +516,7 @@ export class DevcontainerManager {
    */
   async handleFallbackDevcontainerButton(
     threadId: string,
-    worker: Worker,
+    worker: IWorker,
   ): Promise<string> {
     worker.setUseDevcontainer(true);
     worker.setUseFallbackDevcontainer(true);

@@ -1,5 +1,8 @@
-import { ChatInputCommandInteraction, Message } from "discord.js";
-import { ButtonInteraction } from "discord.js";
+import {
+  ButtonInteraction,
+  ChatInputCommandInteraction,
+  Message,
+} from "discord.js";
 
 export interface DevcontainerProgressOptions {
   /** 初期メッセージ */
@@ -49,7 +52,7 @@ export function createDevcontainerProgressHandler(
 
   const logs: string[] = [];
   let lastUpdateTime = Date.now();
-  let timerId: number | undefined;
+  let timerId: ReturnType<typeof setInterval> | undefined;
 
   // 重要なイベントパターン
   const importantPatterns = [

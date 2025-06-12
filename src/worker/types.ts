@@ -33,5 +33,10 @@ export interface IWorker {
   ): Promise<import("neverthrow").Result<void, WorkerError>>;
   setThreadId(threadId: string): void;
   isUsingDevcontainer(): boolean;
+  setUseDevcontainer(useDevcontainer: boolean): void;
+  setUseFallbackDevcontainer(useFallback: boolean): void;
+  startDevcontainer(
+    onProgress?: (message: string) => Promise<void>,
+  ): Promise<{ success: boolean; containerId?: string; error?: string }>;
   save(): Promise<import("neverthrow").Result<void, WorkerError>>;
 }

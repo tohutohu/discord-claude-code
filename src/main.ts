@@ -311,7 +311,7 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
           progressHandler.onProgress,
         );
 
-        const worker = admin.getWorker(threadId);
+        const workerResult = admin.getWorker(threadId);
 
         if (startResult.success) {
           // 成功時の処理
@@ -339,8 +339,8 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
             );
           }
         } else {
-          if (worker) {
-            (worker as unknown as Worker).setUseDevcontainer(false);
+          if (workerResult.isOk()) {
+            workerResult.value.setUseDevcontainer(false);
           }
 
           // 失敗時の処理
