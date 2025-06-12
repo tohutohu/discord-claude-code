@@ -58,9 +58,25 @@ export class ThreadManager {
     try {
       const filePath = this.getThreadFilePath(threadId);
       const content = await Deno.readTextFile(filePath);
-      const result = validateThreadInfoSafe(JSON.parse(content));
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (parseError) {
+        return err({
+          type: "THREAD_LOAD_FAILED",
+          threadId,
+          error: `スレッド情報のJSONパースに失敗しました: ${parseError}`,
+        });
+      }
+
+      const result = validateThreadInfoSafe(parsed);
       if (!result.success) {
-        throw new Error(`Invalid thread info for ${threadId}: ${result.error}`);
+        return err({
+          type: "THREAD_LOAD_FAILED",
+          threadId,
+          error: `無効なスレッド情報データ: ${result.error}`,
+        });
       }
       return ok(result.data);
     } catch (error) {

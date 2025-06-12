@@ -425,18 +425,34 @@ export class WorkspaceManager {
   // Queue file path method removed - now handled by QueueManager
 
   async saveMessageQueue(threadQueue: ThreadQueue): Promise<void> {
-    await this.queueManager.saveMessageQueue(threadQueue);
+    const result = await this.queueManager.saveMessageQueue(threadQueue);
+    if (result.isErr()) {
+      throw new Error(
+        `Failed to save message queue: ${JSON.stringify(result.error)}`,
+      );
+    }
   }
 
   async loadMessageQueue(threadId: string): Promise<ThreadQueue | null> {
-    return await this.queueManager.loadMessageQueue(threadId);
+    const result = await this.queueManager.loadMessageQueue(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `Failed to load message queue: ${JSON.stringify(result.error)}`,
+      );
+    }
+    return result.value;
   }
 
   async addMessageToQueue(
     threadId: string,
     message: QueuedMessage,
   ): Promise<void> {
-    await this.queueManager.addMessageToQueue(threadId, message);
+    const result = await this.queueManager.addMessageToQueue(threadId, message);
+    if (result.isErr()) {
+      throw new Error(
+        `Failed to add message to queue: ${JSON.stringify(result.error)}`,
+      );
+    }
 
     // 監査ログに記録
     try {
@@ -456,7 +472,16 @@ export class WorkspaceManager {
   }
 
   async getAndClearMessageQueue(threadId: string): Promise<QueuedMessage[]> {
-    const messages = await this.queueManager.getAndClearMessageQueue(threadId);
+    const result = await this.queueManager.getAndClearMessageQueue(threadId);
+    if (result.isErr()) {
+      throw new Error(
+        `Failed to get and clear message queue: ${
+          JSON.stringify(result.error)
+        }`,
+      );
+    }
+
+    const messages = result.value;
 
     // 監査ログに記録
     if (messages.length > 0) {
