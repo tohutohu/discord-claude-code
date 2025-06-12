@@ -477,15 +477,15 @@ export class Admin implements IAdmin {
           repositoryFullName: worker.getRepository()?.fullName,
         });
 
+        // devcontainerの削除を先に実行
+        this.logVerbose("devcontainer削除", { threadId });
+        await this.devcontainerManager.removeDevcontainer(threadId);
+
         this.logVerbose("worktree削除開始", { threadId });
         await this.workspaceManager.removeWorktree(threadId);
 
         this.logVerbose("自動再開タイマークリア", { threadId });
         this.rateLimitManager.clearAutoResumeTimer(threadId);
-
-        // devcontainerの削除
-        this.logVerbose("devcontainer削除", { threadId });
-        await this.devcontainerManager.removeDevcontainer(threadId);
 
         // WorkerStateをアーカイブ状態に更新
         const workerState = await this.workspaceManager.loadWorkerState(
