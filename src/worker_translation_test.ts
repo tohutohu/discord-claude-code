@@ -178,9 +178,9 @@ Deno.test("Worker - 翻訳機能が有効な場合、メッセージが翻訳さ
     worker.setUseDevcontainer(false);
 
     // リポジトリを設定
-    const repository = parseRepository("test/repo");
-    if (repository) {
-      await worker.setRepository(repository, tempDir);
+    const repositoryResult = parseRepository("test/repo");
+    if (repositoryResult.isOk()) {
+      await worker.setRepository(repositoryResult.value, tempDir);
     }
 
     const result = await worker.processMessage("認証機能を実装してください");
@@ -266,9 +266,9 @@ Deno.test("Worker - 翻訳機能が無効な場合、元のメッセージがそ
     worker.setUseDevcontainer(false);
 
     // リポジトリを設定
-    const repository = parseRepository("test/repo");
-    if (repository) {
-      await worker.setRepository(repository, tempDir);
+    const repositoryResult = parseRepository("test/repo");
+    if (repositoryResult.isOk()) {
+      await worker.setRepository(repositoryResult.value, tempDir);
     }
 
     const result = await worker.processMessage("認証機能を実装してください");
@@ -350,9 +350,9 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
     worker.setUseDevcontainer(false);
 
     // リポジトリを設定
-    const repository = parseRepository("test/repo");
-    if (repository) {
-      await worker.setRepository(repository, tempDir);
+    const repositoryResult = parseRepository("test/repo");
+    if (repositoryResult.isOk()) {
+      await worker.setRepository(repositoryResult.value, tempDir);
     }
 
     const result = await worker.processMessage(
@@ -438,9 +438,9 @@ Deno.test(
         worker.setUseDevcontainer(false);
 
         // リポジトリを設定
-        const repository = parseRepository("test/repo");
-        if (repository) {
-          await worker.setRepository(repository, tempDir);
+        const repositoryResult = parseRepository("test/repo");
+        if (repositoryResult.isOk()) {
+          await worker.setRepository(repositoryResult.value, tempDir);
         }
 
         const result = await worker.processMessage(

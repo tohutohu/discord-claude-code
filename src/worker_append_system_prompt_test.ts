@@ -90,9 +90,9 @@ describe("Worker --append-system-prompt オプション", () => {
           appendPrompt,
         );
 
-        const repository = parseRepository("test/repo");
-        if (repository) {
-          await worker.setRepository(repository, repoPath);
+        const repositoryResult = parseRepository("test/repo");
+        if (repositoryResult.isOk()) {
+          await worker.setRepository(repositoryResult.value, repoPath);
         }
 
         // devcontainer設定を完了させる（executorを保持したまま）
@@ -167,9 +167,9 @@ describe("Worker --append-system-prompt オプション", () => {
           undefined, // appendSystemPrompt未設定
         );
 
-        const repository = parseRepository("test/repo");
-        if (repository) {
-          await worker.setRepository(repository, repoPath);
+        const repositoryResult = parseRepository("test/repo");
+        if (repositoryResult.isOk()) {
+          await worker.setRepository(repositoryResult.value, repoPath);
         }
 
         // devcontainer設定を完了させる（executorを保持したまま）

@@ -485,13 +485,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       const description = interaction.options.getString("description");
 
       // リポジトリ名をパース
-      let repository;
-      try {
-        repository = parseRepository(repositorySpec);
-      } catch (error) {
-        await interaction.editReply(`エラー: ${(error as Error).message}`);
+      const repositoryResult = parseRepository(repositorySpec);
+      if (repositoryResult.isErr()) {
+        const errorMessage =
+          repositoryResult.error.type === "INVALID_REPOSITORY_NAME"
+            ? repositoryResult.error.message
+            : "リポジトリ名の解析に失敗しました";
+        await interaction.editReply(`エラー: ${errorMessage}`);
         return;
       }
+      const repository = repositoryResult.value;
 
       // PAT情報を保存
       const patInfo: RepositoryPatInfo = {
@@ -549,13 +552,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       const repositorySpec = interaction.options.getString("repository", true);
 
       // リポジトリ名をパース
-      let repository;
-      try {
-        repository = parseRepository(repositorySpec);
-      } catch (error) {
-        await interaction.editReply(`エラー: ${(error as Error).message}`);
+      const repositoryResult = parseRepository(repositorySpec);
+      if (repositoryResult.isErr()) {
+        const errorMessage =
+          repositoryResult.error.type === "INVALID_REPOSITORY_NAME"
+            ? repositoryResult.error.message
+            : "リポジトリ名の解析に失敗しました";
+        await interaction.editReply(`エラー: ${errorMessage}`);
         return;
       }
+      const repository = repositoryResult.value;
 
       await workspaceManager.deleteRepositoryPat(repository.fullName);
 
@@ -597,25 +603,30 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       const repositorySpec = interaction.options.getString("repository", true);
 
       // リポジトリ名をパース
-      let repository;
-      try {
-        repository = parseRepository(repositorySpec);
-      } catch (error) {
-        await interaction.reply(`エラー: ${(error as Error).message}`);
+      const repositoryParseResult = parseRepository(repositorySpec);
+      if (repositoryParseResult.isErr()) {
+        const errorMessage =
+          repositoryParseResult.error.type === "INVALID_REPOSITORY_NAME"
+            ? repositoryParseResult.error.message
+            : "リポジトリ名の解析に失敗しました";
+        await interaction.reply(`エラー: ${errorMessage}`);
         return;
       }
+      const repository = repositoryParseResult.value;
 
       // インタラクションを遅延レスポンスで処理（clone処理が時間がかかる可能性があるため）
       await interaction.deferReply();
 
       // リポジトリをclone/更新
-      let repositoryResult;
-      try {
-        repositoryResult = await ensureRepository(repository, workspaceManager);
-      } catch (error) {
-        await interaction.editReply(
-          `リポジトリの取得に失敗しました: ${(error as Error).message}`,
-        );
+      const repositoryResult = await ensureRepository(
+        repository,
+        workspaceManager,
+      );
+      if (repositoryResult.isErr()) {
+        const errorMessage = repositoryResult.error.type === "GH_CLI_ERROR"
+          ? repositoryResult.error.error
+          : `リポジトリの取得に失敗しました: ${repositoryResult.error.type}`;
+        await interaction.editReply(errorMessage);
         return;
       }
 
@@ -638,16 +649,16 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
         return;
       }
       const worker = workerResult.value;
-      await worker.setRepository(repository, repositoryResult.path);
+      await worker.setRepository(repository, repositoryResult.value.path);
 
       // 更新状況に応じたメッセージを作成
-      let statusMessage = repositoryResult.wasUpdated
+      let statusMessage = repositoryResult.value.wasUpdated
         ? `${repository.fullName}の既存リポジトリをデフォルトブランチの最新に更新しました。`
         : `${repository.fullName}を新規取得しました。`;
 
       // メタデータがある場合は追加情報を表示
-      if (repositoryResult.metadata) {
-        const metadata = repositoryResult.metadata;
+      if (repositoryResult.value.metadata) {
+        const metadata = repositoryResult.value.metadata;
         const repoInfo = [
           metadata.description ? `説明: ${metadata.description}` : "",
           metadata.language ? `言語: ${metadata.language}` : "",
@@ -667,7 +678,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       // devcontainer.jsonの存在確認と設定
       const devcontainerInfo = await admin.checkAndSetupDevcontainer(
         thread.id,
-        repositoryResult.path,
+        repositoryResult.value.path,
       );
 
       // 初期メッセージを終了ボタン付きで送信
