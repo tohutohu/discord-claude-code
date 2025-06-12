@@ -7,6 +7,7 @@ import {
   validateDevcontainerLog,
 } from "./schemas/external-api-schema.ts";
 import { err, ok, Result } from "neverthrow";
+import { exec } from "./utils/exec.ts";
 
 // エラー型定義
 export type DevcontainerError =
@@ -111,25 +112,16 @@ function checkAnthropicsFeature(config: DevcontainerConfig): boolean {
 export async function checkDevcontainerCli(): Promise<
   Result<boolean, DevcontainerError>
 > {
-  try {
-    const command = new Deno.Command("devcontainer", {
-      args: ["--version"],
-      stdout: "piped",
-      stderr: "piped",
-      env: {
-        ...Deno.env.toObject(),
-        DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-      },
-    });
-
-    const result = await command.output();
-    return ok(result.success);
-  } catch (error) {
+  const result = await exec(
+    "DOCKER_DEFAULT_PLATFORM=linux/amd64 devcontainer --version",
+  );
+  if (result.isErr()) {
     return err({
       type: "CLI_NOT_AVAILABLE",
-      message: `devcontainer CLIが利用できません: ${(error as Error).message}`,
+      message: `devcontainer CLIが利用できません: ${result.error.message}`,
     });
   }
+  return ok(true);
 }
 
 /**
@@ -499,48 +491,38 @@ export async function execInDevcontainer(
   command: string[],
   ghToken?: string,
 ): Promise<Result<{ stdout: string; stderr: string }, DevcontainerError>> {
-  try {
-    const env: Record<string, string> = {
-      ...Deno.env.toObject(),
-      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-    };
+  // 環境変数を準備
+  const envVars = ["DOCKER_DEFAULT_PLATFORM=linux/amd64"];
+  if (ghToken) {
+    envVars.push(`GH_TOKEN=${ghToken}`);
+    envVars.push(`GITHUB_TOKEN=${ghToken}`);
+  }
 
-    // GitHub PATが提供されている場合は環境変数に設定
-    if (ghToken) {
-      env.GH_TOKEN = ghToken;
-      env.GITHUB_TOKEN = ghToken; // 互換性のため両方設定
-    }
+  // devcontainer execコマンドを構築
+  const devcontainerArgs = [
+    "exec",
+    "--workspace-folder",
+    repositoryPath,
+    ...command,
+  ];
+  const fullCommand = `cd "${repositoryPath}" && ${
+    envVars.join(" ")
+  } devcontainer ${devcontainerArgs.map((arg) => `"${arg}"`).join(" ")}`;
 
-    const devcontainerCommand = new Deno.Command("devcontainer", {
-      args: ["exec", "--workspace-folder", repositoryPath, ...command],
-      stdout: "piped",
-      stderr: "piped",
-      cwd: repositoryPath,
-      env,
-    });
-
-    const { code, stdout, stderr } = await devcontainerCommand.output();
-    const decoder = new TextDecoder();
-
-    if (code !== 0) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: command.join(" "),
-        error: decoder.decode(stderr),
-      });
-    }
-
-    return ok({
-      stdout: decoder.decode(stdout),
-      stderr: decoder.decode(stderr),
-    });
-  } catch (error) {
+  const result = await exec(fullCommand);
+  if (result.isErr()) {
+    const error = result.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: command.join(" "),
-      error: (error as Error).message,
+      error: error.error || error.message,
     });
   }
+
+  return ok({
+    stdout: result.value.output,
+    stderr: result.value.error,
+  });
 }
 
 /**
@@ -576,20 +558,17 @@ export async function prepareFallbackDevcontainer(
     }
 
     // fallback devcontainerをコピー
-    const command = new Deno.Command("cp", {
-      args: ["-r", join(fallbackDir, ".devcontainer"), repositoryPath],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stderr } = await command.output();
-
-    if (code !== 0) {
-      const errorMsg = new TextDecoder().decode(stderr);
+    const copyResult = await exec(
+      `cp -r "${join(fallbackDir, ".devcontainer")}" "${repositoryPath}"`,
+    );
+    if (copyResult.isErr()) {
+      const error = copyResult.error;
       return err({
         type: "COMMAND_EXECUTION_FAILED",
         command: "cp",
-        error: `fallback devcontainerのコピーに失敗しました: ${errorMsg}`,
+        error: `fallback devcontainerのコピーに失敗しました: ${
+          error.error || error.message
+        }`,
       });
     }
 
