@@ -15,7 +15,6 @@ import {
   ThreadChannel,
 } from "discord.js";
 import { Admin } from "./admin.ts";
-import { Worker } from "./worker.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import { createDevcontainerProgressHandler } from "./utils/devcontainer-progress.ts";
@@ -389,7 +388,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
         );
 
         if (startResult.success) {
-          // 成功時の処理
+          // fallback devcontainer起動成功後、WorkerにDevcontainerClaudeExecutorへの切り替えを指示
+          const workerResult = admin.getWorker(threadId);
+          if (workerResult.isOk()) {
+            // WorkerのdevcontainerConfigを更新してDevcontainerClaudeExecutorに切り替える
+            await workerResult.value.updateClaudeExecutorForDevcontainer();
+          }
+
+          // 成功メッセージとログの表示
           await progressHandler.onSuccess([]);
 
           // ユーザーにメンション付きで通知
@@ -825,12 +831,12 @@ client.on(Events.MessageCreate, async (message) => {
       const worker = workerResult.value;
 
       if (setting === "on") {
-        (worker as unknown as Worker).setUseDevcontainer(true);
+        worker.setUseDevcontainer(true);
         await message.channel.send(
           `<@${message.author.id}> devcontainer環境での実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`,
         );
       } else if (setting === "off") {
-        (worker as unknown as Worker).setUseDevcontainer(false);
+        worker.setUseDevcontainer(false);
         await message.channel.send(
           `<@${message.author.id}> ホスト環境での実行を設定しました。\n\n準備完了です！何かご質問をどうぞ。`,
         );

@@ -429,9 +429,20 @@ export class DevcontainerManager {
       hasOnProgress: !!onProgress,
     });
 
-    // fallback devcontainerを起動
-    const result = await startFallbackDevcontainer(
+    // Workerのworktreeパスを取得
+    const workerState = await this.workspaceManager.loadWorkerState(threadId);
+    const worktreePath = workerState?.worktreePath || repositoryPath;
+
+    this.logVerbose("fallback devcontainer起動パス決定", {
+      threadId,
       repositoryPath,
+      worktreePath,
+      isWorktreePath: worktreePath !== repositoryPath,
+    });
+
+    // fallback devcontainerを起動（worktreePathを使用）
+    const result = await startFallbackDevcontainer(
+      worktreePath,
       onProgress,
     );
 
@@ -462,6 +473,11 @@ export class DevcontainerManager {
         threadId,
         containerId: result.containerId,
       });
+
+      // WorkerにDevcontainerClaudeExecutorへの切り替えを通知
+      // この時点でWorkerは既にuseDevcontainer=trueになっているが、
+      // DevcontainerClaudeExecutorへの切り替えはWorker側で行う必要がある
+      // WorkerのstartDevcontainerメソッドを呼び出すか、別の方法で通知する必要がある
 
       return {
         success: true,

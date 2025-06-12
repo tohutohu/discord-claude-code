@@ -38,5 +38,6 @@ export interface IWorker {
   startDevcontainer(
     onProgress?: (message: string) => Promise<void>,
   ): Promise<{ success: boolean; containerId?: string; error?: string }>;
+  updateClaudeExecutorForDevcontainer(): Promise<void>;
   save(): Promise<import("neverthrow").Result<void, WorkerError>>;
 }
