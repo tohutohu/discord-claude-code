@@ -374,7 +374,7 @@ Deno.test("Worker - 翻訳APIがエラーの場合、元のメッセージが使
   }
 });
 
-Deno.test.ignore(
+Deno.test(
   "Worker - VERBOSEモードで翻訳結果がログに出力される",
   async () => {
     const tempDir = await Deno.makeTempDir();
@@ -386,8 +386,18 @@ Deno.test.ignore(
       await workspaceManager.initialize();
 
       const mockExecutor = new MockClaudeCommandExecutor([
-        JSON.stringify({ type: "session", session_id: "test-session" }),
-        JSON.stringify({ type: "result", result: "Done!" }),
+        JSON.stringify({
+          type: "system",
+          subtype: "init",
+          session_id: "test-session",
+        }),
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          session_id: "test-session",
+          result: "Done!",
+        }),
       ]);
 
       // consoleログをキャプチャ
