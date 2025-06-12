@@ -80,6 +80,81 @@ Deno.test("Admin - スレッドの終了処理", async () => {
   }
 });
 
+Deno.test("Admin - スレッドの終了処理でdevcontainerも削除される", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    const admin = new Admin(adminState, workspaceManager);
+    const threadId = "test-thread-devcontainer";
+
+    // Workerを作成
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+
+    // devcontainer設定を保存（コンテナが起動している状態を模擬）
+    await admin.saveDevcontainerConfig(threadId, {
+      useDevcontainer: true,
+      hasDevcontainerFile: true,
+      hasAnthropicsFeature: true,
+      containerId: "test-container-123",
+      isStarted: true,
+    });
+
+    // 元のコマンド実行関数を保存
+    const originalCommand = globalThis.Deno.Command;
+    let dockerRmCalled = false;
+    let dockerRmContainerId = "";
+
+    // Deno.Commandをモック
+    globalThis.Deno.Command = class MockCommand {
+      constructor(command: string, options?: { args?: string[] }) {
+        if (command === "docker" && options?.args?.[0] === "rm") {
+          dockerRmCalled = true;
+          dockerRmContainerId = options.args[3]; // rm -f -v {containerId}
+        }
+      }
+
+      output(): Promise<
+        { code: number; stdout: Uint8Array; stderr: Uint8Array }
+      > {
+        return Promise.resolve({
+          code: 0,
+          stdout: new TextEncoder().encode("container-id\n"),
+          stderr: new Uint8Array(),
+        });
+      }
+    } as unknown as typeof Deno.Command;
+
+    try {
+      // スレッドを終了
+      const terminateResult = await admin.terminateThread(threadId);
+      assert(terminateResult.isOk());
+
+      // docker rmが呼ばれたことを確認
+      assertEquals(dockerRmCalled, true);
+      assertEquals(dockerRmContainerId, "test-container-123");
+
+      // devcontainer設定が更新されていることを確認
+      const devcontainerConfig = await admin.getDevcontainerConfig(threadId);
+      assertExists(devcontainerConfig);
+      assertEquals(devcontainerConfig.containerId, undefined);
+      assertEquals(devcontainerConfig.isStarted, false);
+    } finally {
+      // Deno.Commandを復元
+      globalThis.Deno.Command = originalCommand;
+    }
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
 Deno.test("Admin - 初期メッセージの作成", () => {
   const tempDir = "dummy"; // このテストではファイルシステムを使用しない
   const workspaceManager = new WorkspaceManager(tempDir);

@@ -477,6 +477,10 @@ export class Admin implements IAdmin {
           repositoryFullName: worker.getRepository()?.fullName,
         });
 
+        // devcontainerの削除を先に実行
+        this.logVerbose("devcontainer削除", { threadId });
+        await this.devcontainerManager.removeDevcontainer(threadId);
+
         this.logVerbose("worktree削除開始", { threadId });
         await this.workspaceManager.removeWorktree(threadId);
 

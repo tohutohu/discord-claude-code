@@ -8,16 +8,57 @@ import type { AuditEntry } from "../workspace.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { DiscordActionRow } from "./types.ts";
 
+/**
+ * コマンド実行の結果を表すインターフェース
+ */
+export interface CommandOutput {
+  code: number;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}
+
+/**
+ * コマンド実行ラッパーインターフェース
+ */
+export interface CommandExecutor {
+  execute(
+    command: string,
+    args: string[],
+    options?: { stderr?: "piped"; stdout?: "piped" },
+  ): Promise<CommandOutput>;
+}
+
+/**
+ * デフォルトのコマンド実行ラッパー実装
+ */
+export class DefaultCommandExecutor implements CommandExecutor {
+  async execute(
+    command: string,
+    args: string[],
+    options?: { stderr?: "piped"; stdout?: "piped" },
+  ): Promise<CommandOutput> {
+    const cmd = new Deno.Command(command, {
+      args,
+      ...options,
+    });
+    const { code, stdout, stderr } = await cmd.output();
+    return { code, stdout, stderr };
+  }
+}
+
 export class DevcontainerManager {
   private workspaceManager: WorkspaceManager;
   private verbose: boolean;
+  private commandExecutor: CommandExecutor;
 
   constructor(
     workspaceManager: WorkspaceManager,
     verbose = false,
+    commandExecutor?: CommandExecutor,
   ) {
     this.workspaceManager = workspaceManager;
     this.verbose = verbose;
+    this.commandExecutor = commandExecutor || new DefaultCommandExecutor();
   }
 
   /**
@@ -598,6 +639,100 @@ export class DevcontainerManager {
       await this.workspaceManager.appendAuditLog(auditEntry);
     } catch (error) {
       console.error("監査ログの記録に失敗しました:", error);
+    }
+  }
+
+  /**
+   * devcontainerを削除する
+   */
+  async removeDevcontainer(threadId: string): Promise<void> {
+    this.logVerbose("devcontainer削除処理開始", { threadId });
+
+    // devcontainer設定を取得
+    const config = await this.getDevcontainerConfig(threadId);
+    if (!config || !config.containerId || !config.isStarted) {
+      this.logVerbose("削除対象のdevcontainerなし", {
+        threadId,
+        hasConfig: !!config,
+        containerId: config?.containerId,
+        isStarted: config?.isStarted,
+      });
+      return;
+    }
+
+    try {
+      this.logVerbose("devcontainerコンテナを削除", {
+        threadId,
+        containerId: config.containerId,
+      });
+
+      // docker rm -f -v でコンテナを削除
+      const { code, stderr, stdout } = await this.commandExecutor.execute(
+        "docker",
+        ["rm", "-f", "-v", config.containerId],
+        { stderr: "piped", stdout: "piped" },
+      );
+
+      if (code !== 0) {
+        const errorText = new TextDecoder().decode(stderr);
+        // コンテナが既に存在しない場合はエラーとしない
+        if (!errorText.includes("No such container")) {
+          this.logVerbose("devcontainerコンテナ削除エラー", {
+            threadId,
+            containerId: config.containerId,
+            error: errorText,
+          });
+          console.error(
+            `devcontainerコンテナの削除に失敗しました (${config.containerId}):`,
+            errorText,
+          );
+        } else {
+          this.logVerbose("devcontainerコンテナは既に削除済み", {
+            threadId,
+            containerId: config.containerId,
+          });
+        }
+      } else {
+        const outputText = new TextDecoder().decode(stdout);
+        this.logVerbose("devcontainerコンテナ削除成功", {
+          threadId,
+          containerId: config.containerId,
+          output: outputText.trim(),
+        });
+
+        // 監査ログに記録
+        await this.logAuditEntry(threadId, "devcontainer_removed", {
+          containerId: config.containerId,
+        });
+      }
+    } catch (error) {
+      this.logVerbose("devcontainer削除処理でエラー", {
+        threadId,
+        error: (error as Error).message,
+      });
+      console.error("devcontainer削除処理でエラーが発生しました:", error);
+
+      // ENOENTエラー（Docker未インストール）の場合も含めてログに記録
+      if (
+        error instanceof Error && "code" in error &&
+        (error as Error & { code: string }).code === "ENOENT"
+      ) {
+        console.error("Dockerがインストールされていません。");
+      }
+    } finally {
+      // エラーが発生した場合でも必ず設定をクリアする
+      this.logVerbose("devcontainer設定をクリア", {
+        threadId,
+        containerId: config.containerId,
+      });
+
+      // devcontainer設定をクリア
+      const updatedConfig = {
+        ...config,
+        containerId: undefined,
+        isStarted: false,
+      };
+      await this.saveDevcontainerConfig(threadId, updatedConfig);
     }
   }
 
