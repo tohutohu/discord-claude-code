@@ -174,3 +174,81 @@ Deno.test("DevcontainerManager - devcontainer設定の保存と取得", async ()
     await Deno.remove(tempDir, { recursive: true });
   }
 });
+
+Deno.test("DevcontainerManager - devcontainer削除処理", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const devcontainerManager = new DevcontainerManager(workspaceManager);
+    const threadId = "test-thread-remove";
+
+    // Worker状態を作成（コンテナIDあり）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: true,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: true,
+        hasAnthropicsFeature: true,
+        containerId: "non-existent-container",
+        isStarted: true,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // devcontainer削除を実行（存在しないコンテナなのでエラーになるが、エラーハンドリングされる）
+    await devcontainerManager.removeDevcontainer(threadId);
+
+    // 設定が更新されていることを確認
+    const loadedConfig = await devcontainerManager.getDevcontainerConfig(
+      threadId,
+    );
+    assertEquals(loadedConfig?.containerId, undefined);
+    assertEquals(loadedConfig?.isStarted, false);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("DevcontainerManager - devcontainer削除処理（コンテナ未起動の場合）", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const devcontainerManager = new DevcontainerManager(workspaceManager);
+    const threadId = "test-thread-no-container";
+
+    // Worker状態を作成（コンテナIDなし）
+    await workspaceManager.saveWorkerState({
+      workerName: "test-worker",
+      threadId,
+      devcontainerConfig: {
+        useDevcontainer: false,
+        useFallbackDevcontainer: false,
+        hasDevcontainerFile: false,
+        hasAnthropicsFeature: false,
+        isStarted: false,
+      },
+      status: "active",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString(),
+    });
+
+    // devcontainer削除を実行（何も起こらない）
+    await devcontainerManager.removeDevcontainer(threadId);
+
+    // 設定が変更されていないことを確認
+    const loadedConfig = await devcontainerManager.getDevcontainerConfig(
+      threadId,
+    );
+    assertEquals(loadedConfig?.isStarted, false);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});

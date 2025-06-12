@@ -602,6 +602,88 @@ export class DevcontainerManager {
   }
 
   /**
+   * devcontainerを削除する
+   */
+  async removeDevcontainer(threadId: string): Promise<void> {
+    this.logVerbose("devcontainer削除処理開始", { threadId });
+
+    try {
+      // devcontainer設定を取得
+      const config = await this.getDevcontainerConfig(threadId);
+      if (!config || !config.containerId || !config.isStarted) {
+        this.logVerbose("削除対象のdevcontainerなし", {
+          threadId,
+          hasConfig: !!config,
+          containerId: config?.containerId,
+          isStarted: config?.isStarted,
+        });
+        return;
+      }
+
+      this.logVerbose("devcontainerコンテナを削除", {
+        threadId,
+        containerId: config.containerId,
+      });
+
+      // docker rm -f -v でコンテナを削除
+      const cmd = new Deno.Command("docker", {
+        args: ["rm", "-f", "-v", config.containerId],
+        stderr: "piped",
+        stdout: "piped",
+      });
+
+      const { code, stderr, stdout } = await cmd.output();
+
+      if (code !== 0) {
+        const errorText = new TextDecoder().decode(stderr);
+        // コンテナが既に存在しない場合はエラーとしない
+        if (!errorText.includes("No such container")) {
+          this.logVerbose("devcontainerコンテナ削除エラー", {
+            threadId,
+            containerId: config.containerId,
+            error: errorText,
+          });
+          console.error(
+            `devcontainerコンテナの削除に失敗しました (${config.containerId}):`,
+            errorText,
+          );
+        } else {
+          this.logVerbose("devcontainerコンテナは既に削除済み", {
+            threadId,
+            containerId: config.containerId,
+          });
+        }
+      } else {
+        const outputText = new TextDecoder().decode(stdout);
+        this.logVerbose("devcontainerコンテナ削除成功", {
+          threadId,
+          containerId: config.containerId,
+          output: outputText.trim(),
+        });
+
+        // 監査ログに記録
+        await this.logAuditEntry(threadId, "devcontainer_removed", {
+          containerId: config.containerId,
+        });
+      }
+
+      // devcontainer設定をクリア
+      const updatedConfig = {
+        ...config,
+        containerId: undefined,
+        isStarted: false,
+      };
+      await this.saveDevcontainerConfig(threadId, updatedConfig);
+    } catch (error) {
+      this.logVerbose("devcontainer削除処理でエラー", {
+        threadId,
+        error: (error as Error).message,
+      });
+      console.error("devcontainer削除処理でエラーが発生しました:", error);
+    }
+  }
+
+  /**
    * verboseログを出力する
    */
   private logVerbose(

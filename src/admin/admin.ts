@@ -483,6 +483,10 @@ export class Admin implements IAdmin {
         this.logVerbose("自動再開タイマークリア", { threadId });
         this.rateLimitManager.clearAutoResumeTimer(threadId);
 
+        // devcontainerの削除
+        this.logVerbose("devcontainer削除", { threadId });
+        await this.devcontainerManager.removeDevcontainer(threadId);
+
         // WorkerStateをアーカイブ状態に更新
         const workerState = await this.workspaceManager.loadWorkerState(
           threadId,

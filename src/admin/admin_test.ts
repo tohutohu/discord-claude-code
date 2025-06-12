@@ -80,6 +80,47 @@ Deno.test("Admin - スレッドの終了処理", async () => {
   }
 });
 
+Deno.test("Admin - スレッドの終了処理でdevcontainerも削除される", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    const admin = new Admin(adminState, workspaceManager);
+    const threadId = "test-thread-devcontainer";
+
+    // Workerを作成
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+
+    // devcontainer設定を保存（コンテナが起動している状態を模擬）
+    await admin.saveDevcontainerConfig(threadId, {
+      useDevcontainer: true,
+      hasDevcontainerFile: true,
+      hasAnthropicsFeature: true,
+      containerId: "test-container-123",
+      isStarted: true,
+    });
+
+    // スレッドを終了
+    const terminateResult = await admin.terminateThread(threadId);
+    assert(terminateResult.isOk());
+
+    // devcontainer設定が更新されていることを確認
+    const devcontainerConfig = await admin.getDevcontainerConfig(threadId);
+    assertExists(devcontainerConfig);
+    assertEquals(devcontainerConfig.containerId, undefined);
+    assertEquals(devcontainerConfig.isStarted, false);
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
 Deno.test("Admin - 初期メッセージの作成", () => {
   const tempDir = "dummy"; // このテストではファイルシステムを使用しない
   const workspaceManager = new WorkspaceManager(tempDir);
