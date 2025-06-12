@@ -829,6 +829,55 @@ export class Worker implements IWorker {
   }
 
   /**
+   * fallback devcontainer起動後にClaudeExecutorを更新する
+   */
+  async updateClaudeExecutorForDevcontainer(): Promise<void> {
+    if (
+      !this.state.devcontainerConfig.useDevcontainer || !this.state.worktreePath
+    ) {
+      this.logVerbose("DevcontainerClaudeExecutor切り替えスキップ", {
+        useDevcontainer: this.state.devcontainerConfig.useDevcontainer,
+        hasWorktreePath: !!this.state.worktreePath,
+      });
+      return;
+    }
+
+    // リポジトリのPATを取得
+    let ghToken: string | undefined;
+    if (this.state.repository?.fullName) {
+      const patInfo = await this.workspaceManager.loadRepositoryPat(
+        this.state.repository.fullName,
+      );
+      if (patInfo) {
+        ghToken = patInfo.token;
+        this.logVerbose(
+          "GitHub PAT取得（updateClaudeExecutorForDevcontainer）",
+          {
+            repository: this.state.repository.fullName,
+            hasToken: true,
+          },
+        );
+      }
+    }
+
+    this.logVerbose(
+      "DevcontainerClaudeExecutorに切り替え（fallback devcontainer起動後）",
+    );
+    const { DevcontainerClaudeExecutor } = await import("./claude-executor.ts");
+    this.claudeExecutor = new DevcontainerClaudeExecutor(
+      this.state.worktreePath,
+      this.configuration.isVerbose(),
+      ghToken,
+    );
+
+    // devcontainerが起動済みとしてマーク
+    this.state.devcontainerConfig.isStarted = true;
+
+    // Worker状態を保存
+    await this.save();
+  }
+
+  /**
    * Worker状態を永続化する
    */
   async save(): Promise<Result<void, WorkerError>> {

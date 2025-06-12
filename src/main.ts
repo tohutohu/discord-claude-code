@@ -465,6 +465,14 @@ async function handleButtonInteraction(interaction: ButtonInteraction) {
 
         // 最終結果を更新
         if (startResult.success) {
+          // fallback devcontainer起動成功後、WorkerにDevcontainerClaudeExecutorへの切り替えを指示
+          const worker = admin.getWorker(threadId);
+          if (worker) {
+            // WorkerのdevcontainerConfigを更新してDevcontainerClaudeExecutorに切り替える
+            await (worker as unknown as Worker)
+              .updateClaudeExecutorForDevcontainer();
+          }
+
           const finalLogs = logs.slice(-10).join("\n");
           await interaction.editReply({
             content:
