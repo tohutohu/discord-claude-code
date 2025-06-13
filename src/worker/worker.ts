@@ -1044,10 +1044,18 @@ export class Worker implements IWorker {
   async stopExecution(
     onProgress?: (content: string) => Promise<void>,
   ): Promise<boolean> {
-    if (!this.isExecuting || !this.claudeProcess) {
-      this.logVerbose("実行中のプロセスがないため中断スキップ", {
+    // 実行中でない場合は早期リターン
+    if (!this.isExecuting) {
+      this.logVerbose("実行中ではないため中断スキップ", {
         isExecuting: this.isExecuting,
-        hasClaudeProcess: !!this.claudeProcess,
+      });
+      return false;
+    }
+
+    // プロセスハンドルがない場合も早期リターン
+    if (!this.claudeProcess) {
+      this.logVerbose("プロセスハンドルがないため中断スキップ", {
+        hasClaudeProcess: false,
       });
       return false;
     }
@@ -1085,8 +1093,12 @@ export class Worker implements IWorker {
       }
 
       // プロセスにSIGTERMを送信
+      const processToKill = this.claudeProcess; // プロセス参照を保持
+      let sigTermSent = false;
+
       try {
-        this.claudeProcess.kill("SIGTERM");
+        processToKill.kill("SIGTERM");
+        sigTermSent = true;
         this.logVerbose("SIGTERMシグナル送信");
       } catch (error) {
         this.logVerbose(
@@ -1099,29 +1111,39 @@ export class Worker implements IWorker {
 
       // 5秒待機してプロセスが終了するか確認
       let forcefullyKilled = false;
-      const timeout = setTimeout(() => {
-        if (this.claudeProcess) {
-          try {
-            this.claudeProcess.kill("SIGKILL");
-            this.logVerbose("SIGKILLシグナル送信（強制終了）");
-            forcefullyKilled = true;
-          } catch (error) {
-            this.logVerbose("SIGKILL送信エラー", {
-              error: (error as Error).message,
-            });
-          }
-        }
-      }, 5000);
+      let timeoutId: number | undefined;
 
-      try {
-        await this.claudeProcess.status;
-        clearTimeout(timeout);
-        this.logVerbose("プロセス終了確認");
-      } catch (error) {
-        clearTimeout(timeout);
-        this.logVerbose("プロセス終了待機エラー", {
-          error: (error as Error).message,
-        });
+      if (sigTermSent) {
+        timeoutId = setTimeout(() => {
+          // プロセスがまだ存在する場合のみSIGKILLを送信
+          if (this.claudeProcess === processToKill) {
+            try {
+              processToKill.kill("SIGKILL");
+              forcefullyKilled = true;
+              this.logVerbose("SIGKILLシグナル送信（強制終了）");
+            } catch (error) {
+              this.logVerbose("SIGKILL送信エラー", {
+                error: (error as Error).message,
+              });
+            }
+          }
+        }, 5000);
+
+        // プロセスの終了を待機
+        try {
+          await processToKill.status;
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+          this.logVerbose("プロセス終了確認");
+        } catch (error) {
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+          this.logVerbose("プロセス終了待機エラー", {
+            error: (error as Error).message,
+          });
+        }
       }
 
       // 中断メッセージを送信
