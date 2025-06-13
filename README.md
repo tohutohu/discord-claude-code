@@ -117,13 +117,14 @@ deno task start
 
 ### 環境変数
 
-| 変数名                        | 説明                                      | 必須 |
-| ----------------------------- | ----------------------------------------- | ---- |
-| `DISCORD_TOKEN`               | Discord Botのトークン                     | ✅   |
-| `WORK_BASE_DIR`               | 作業ディレクトリのベースパス              | ✅   |
-| `CLAUDE_APPEND_SYSTEM_PROMPT` | Claude実行時に追加するシステムプロンプト  | ❌   |
-| `GEMINI_API_KEY`              | Google Gemini APIキー（スレッド名生成用） | ❌   |
-| `PLAMO_TRANSLATOR_URL`        | PLaMo-2-translate APIのURL                | ❌   |
+| 変数名                        | 説明                                                   | 必須 | デフォルト |
+| ----------------------------- | ------------------------------------------------------ | ---- | ---------- |
+| `DISCORD_TOKEN`               | Discord Botのトークン                                  | ✅   | -          |
+| `WORK_BASE_DIR`               | 作業ディレクトリのベースパス                           | ✅   | -          |
+| `CLAUDE_APPEND_SYSTEM_PROMPT` | Claude実行時に追加するシステムプロンプト               | ❌   | -          |
+| `GEMINI_API_KEY`              | Google Gemini APIキー（スレッド名生成用）              | ❌   | -          |
+| `PLAMO_TRANSLATOR_URL`        | PLaMo-2-translate APIのURL                             | ❌   | -          |
+| `VERBOSE`                     | 詳細なデバッグログを出力（Claude実行時のコマンドなど） | ❌   | `false`    |
 
 ### 作業ディレクトリ構造
 

@@ -4,6 +4,15 @@ import { err, ok, Result } from "neverthrow";
 import type { ClaudeExecutorError } from "./types.ts";
 
 export interface ClaudeCommandExecutor {
+  /**
+   * Claude CLIをストリーミングモードで実行する
+   * @param args Claude CLIに渡すコマンドライン引数
+   * @param cwd 作業ディレクトリ
+   * @param onData 標準出力データを受信したときのコールバック
+   * @param abortSignal プロセスを中断するためのシグナル
+   * @param onProcessStart プロセスが正常に生成された場合のみ呼ばれるコールバック。プロセス生成に失敗した場合は呼ばれない
+   * @returns 実行結果（終了コードと標準エラー出力）またはエラー
+   */
   executeStreaming(
     args: string[],
     cwd: string,
