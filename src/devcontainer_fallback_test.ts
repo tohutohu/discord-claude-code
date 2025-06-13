@@ -1,5 +1,5 @@
 import { assertEquals } from "std/assert/mod.ts";
-import { join } from "std/path/mod.ts";
+import { basename, dirname, fromFileUrl, join } from "std/path/mod.ts";
 import { getDevcontainerConfigPath } from "./devcontainer.ts";
 
 Deno.test("devcontainer設定パス決定機能", async (t) => {
@@ -16,8 +16,13 @@ Deno.test("devcontainer設定パス決定機能", async (t) => {
         assertEquals(result.isOk(), true);
         if (result.isOk()) {
           // fallback devcontainer.jsonのパスが返されることを確認
-          assertEquals(result.value.includes("fallback_devcontainer"), true);
-          assertEquals(result.value.endsWith("devcontainer.json"), true);
+          const filename = basename(result.value);
+          const parentDir = basename(dirname(result.value));
+          const grandParentDir = basename(dirname(dirname(result.value)));
+
+          assertEquals(filename, "devcontainer.json");
+          assertEquals(parentDir, ".devcontainer");
+          assertEquals(grandParentDir, "fallback_devcontainer");
         }
       } finally {
         // クリーンアップ
@@ -65,7 +70,7 @@ Deno.test("devcontainer設定パス決定機能", async (t) => {
 
   await t.step("fallback_devcontainerディレクトリの存在を確認", async () => {
     // fallback_devcontainerディレクトリが存在することを確認
-    const currentDir = new URL(".", import.meta.url).pathname;
+    const currentDir = fromFileUrl(new URL(".", import.meta.url));
     const fallbackDir = join(currentDir, "..", "fallback_devcontainer");
     const fallbackDevcontainerDir = join(fallbackDir, ".devcontainer");
 

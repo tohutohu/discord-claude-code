@@ -1,4 +1,4 @@
-import { join } from "std/path/mod.ts";
+import { fromFileUrl, join } from "std/path/mod.ts";
 import { DEVCONTAINER } from "./constants.ts";
 import {
   DevcontainerConfig,
@@ -151,7 +151,7 @@ export async function getDevcontainerConfigPath(
   }
 
   // fallback devcontainer.jsonのパスを返す
-  const currentDir = new URL(".", import.meta.url).pathname;
+  const currentDir = fromFileUrl(new URL(".", import.meta.url));
   const fallbackConfigPath = join(
     currentDir,
     "..",
@@ -160,13 +160,29 @@ export async function getDevcontainerConfigPath(
     "devcontainer.json",
   );
 
-  // fallback devcontainer.jsonの存在確認
-  const existsResult = await checkFileExists(fallbackConfigPath);
-  if (existsResult.isErr()) {
-    return err(existsResult.error);
+  // fallback devcontainer.jsonの存在確認とバリデーション
+  const readResult = await readTextFileSafe(fallbackConfigPath);
+  if (readResult.isErr()) {
+    if (readResult.error.type === "NOT_FOUND") {
+      return err({
+        type: "CONFIG_NOT_FOUND",
+        path: fallbackConfigPath,
+      });
+    }
+    return err(readResult.error);
   }
 
-  if (!existsResult.value) {
+  // JSONのパースとバリデーション
+  const parseResult = parseJsonSafe(readResult.value, fallbackConfigPath);
+  if (parseResult.isErr()) {
+    return err(parseResult.error);
+  }
+
+  const config = validateDevcontainerConfig(parseResult.value);
+  if (!config) {
+    console.warn(
+      `fallback devcontainer.json形式が無効です (${fallbackConfigPath})`,
+    );
     return err({
       type: "CONFIG_NOT_FOUND",
       path: fallbackConfigPath,
@@ -713,25 +729,4 @@ export async function execInDevcontainer(
     stdout: result.value.output,
     stderr: result.value.error,
   });
-}
-
-/**
- * ファイルの存在を確認する
- */
-async function checkFileExists(
-  path: string,
-): Promise<Result<boolean, DevcontainerError>> {
-  try {
-    await Deno.stat(path);
-    return ok(true);
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      return ok(false);
-    }
-    return err({
-      type: "FILE_READ_ERROR",
-      path,
-      error: (error as Error).message,
-    });
-  }
 }

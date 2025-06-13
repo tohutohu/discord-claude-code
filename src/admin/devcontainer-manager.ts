@@ -356,9 +356,9 @@ export class DevcontainerManager {
   }
 
   /**
-   * devcontainerの起動を処理する
+   * devcontainerの起動を処理する（Worker経由）
    */
-  async startDevcontainerForWorker(
+  async startDevcontainerWithWorker(
     threadId: string,
     worker: IWorker,
     onProgress?: (message: string) => Promise<void>,
@@ -429,7 +429,7 @@ export class DevcontainerManager {
   /**
    * fallback devcontainerを起動する
    */
-  async startFallbackDevcontainerForWorker(
+  async startDevcontainerForWorker(
     threadId: string,
     repositoryPath: string,
     onProgress?: (message: string) => Promise<void>,

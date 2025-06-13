@@ -399,7 +399,7 @@ export class Admin implements IAdmin {
       };
     }
 
-    return this.devcontainerManager.startDevcontainerForWorker(
+    return this.devcontainerManager.startDevcontainerWithWorker(
       threadId,
       worker,
       onProgress,
@@ -437,7 +437,7 @@ export class Admin implements IAdmin {
       repository.repo,
     );
 
-    return this.devcontainerManager.startFallbackDevcontainerForWorker(
+    return this.devcontainerManager.startDevcontainerForWorker(
       threadId,
       repositoryPath,
       onProgress,

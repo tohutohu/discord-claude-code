@@ -95,7 +95,7 @@ devcontainer up --workspace-folder /path/to/project
 
 現在のコードでは`--workspace-folder`オプションのみを使用していますが、より柔軟な設定ファイルの指定を可能にするために以下の改善を推奨します：
 
-### 現在の実装（src/devcontainer.ts）
+### 現在の実装
 
 ```typescript
 function createDevcontainerCommand(
