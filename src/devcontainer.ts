@@ -134,10 +134,54 @@ function prepareEnvironment(ghToken?: string): Record<string, string> {
 }
 
 /**
+ * devcontainer.jsonのパスを決定する
+ */
+export async function getDevcontainerConfigPath(
+  repositoryPath: string,
+): Promise<Result<string, DevcontainerError>> {
+  // リポジトリ内のdevcontainer.jsonを確認
+  const checkResult = await checkDevcontainerConfig(repositoryPath);
+  if (checkResult.isErr()) {
+    return err(checkResult.error);
+  }
+
+  if (checkResult.value.configExists && checkResult.value.configPath) {
+    // リポジトリ内のdevcontainer.jsonを使用
+    return ok(checkResult.value.configPath);
+  }
+
+  // fallback devcontainer.jsonのパスを返す
+  const currentDir = new URL(".", import.meta.url).pathname;
+  const fallbackConfigPath = join(
+    currentDir,
+    "..",
+    "fallback_devcontainer",
+    ".devcontainer",
+    "devcontainer.json",
+  );
+
+  // fallback devcontainer.jsonの存在確認
+  const existsResult = await checkFileExists(fallbackConfigPath);
+  if (existsResult.isErr()) {
+    return err(existsResult.error);
+  }
+
+  if (!existsResult.value) {
+    return err({
+      type: "CONFIG_NOT_FOUND",
+      path: fallbackConfigPath,
+    });
+  }
+
+  return ok(fallbackConfigPath);
+}
+
+/**
  * devcontainerコマンドを作成する
  */
 function createDevcontainerCommand(
   repositoryPath: string,
+  configPath: string,
   env: Record<string, string>,
 ): Deno.Command {
   return new Deno.Command("devcontainer", {
@@ -145,6 +189,8 @@ function createDevcontainerCommand(
       "up",
       "--workspace-folder",
       repositoryPath,
+      "--config",
+      configPath,
       "--log-level",
       "debug",
       "--log-format",
@@ -500,11 +546,19 @@ export async function startDevcontainer(
   onProgress?: (message: string) => Promise<void>,
   ghToken?: string,
 ): Promise<Result<{ containerId?: string }, DevcontainerError>> {
+  // devcontainer.jsonのパスを決定
+  const configPathResult = await getDevcontainerConfigPath(repositoryPath);
+  if (configPathResult.isErr()) {
+    return err(configPathResult.error);
+  }
+  const configPath = configPathResult.value;
+
   // 進捗メッセージを送信
   if (onProgress) {
     const progressResults = await Promise.all([
       sendProgressSafe(onProgress, "🐳 Dockerコンテナを準備しています..."),
       sendProgressSafe(onProgress, `📁 作業ディレクトリ: ${repositoryPath}`),
+      sendProgressSafe(onProgress, `📄 設定ファイル: ${configPath}`),
     ]);
     for (const result of progressResults) {
       if (result.isErr()) {
@@ -525,7 +579,7 @@ export async function startDevcontainer(
   }
 
   const env = prepareEnvironment(ghToken);
-  const command = createDevcontainerCommand(repositoryPath, env);
+  const command = createDevcontainerCommand(repositoryPath, configPath, env);
   const process = command.spawn();
 
   const decoder = new TextDecoder();
@@ -618,6 +672,13 @@ export async function execInDevcontainer(
   command: string[],
   ghToken?: string,
 ): Promise<Result<{ stdout: string; stderr: string }, DevcontainerError>> {
+  // devcontainer.jsonのパスを決定
+  const configPathResult = await getDevcontainerConfigPath(repositoryPath);
+  if (configPathResult.isErr()) {
+    return err(configPathResult.error);
+  }
+  const configPath = configPathResult.value;
+
   // 環境変数を準備
   const envVars = ["DOCKER_DEFAULT_PLATFORM=linux/amd64"];
   if (ghToken) {
@@ -630,6 +691,8 @@ export async function execInDevcontainer(
     "exec",
     "--workspace-folder",
     repositoryPath,
+    "--config",
+    configPath,
     ...command,
   ];
   const fullCommand = `cd "${repositoryPath}" && ${
@@ -671,92 +734,4 @@ async function checkFileExists(
       error: (error as Error).message,
     });
   }
-}
-
-/**
- * fallback devcontainerをコピーして準備する
- */
-export async function prepareFallbackDevcontainer(
-  repositoryPath: string,
-): Promise<Result<void, DevcontainerError>> {
-  // fallback_devcontainerディレクトリのパスを取得
-  const currentDir = new URL(".", import.meta.url).pathname;
-  const fallbackDir = join(currentDir, "..", "fallback_devcontainer");
-
-  // .devcontainerディレクトリをリポジトリにコピー
-  const targetDevcontainerDir = join(repositoryPath, ".devcontainer");
-
-  // ターゲットディレクトリが既に存在する場合はエラー
-  const existsResult = await checkFileExists(targetDevcontainerDir);
-  if (existsResult.isErr()) {
-    return err(existsResult.error);
-  }
-
-  if (existsResult.value) {
-    return err({
-      type: "FILE_READ_ERROR",
-      path: targetDevcontainerDir,
-      error: ".devcontainerディレクトリが既に存在します",
-    });
-  }
-
-  // fallback devcontainerをコピー
-  const copyResult = await exec(
-    `cp -r "${join(fallbackDir, ".devcontainer")}" "${repositoryPath}"`,
-  );
-  if (copyResult.isErr()) {
-    const error = copyResult.error;
-    return err({
-      type: "COMMAND_EXECUTION_FAILED",
-      command: "cp",
-      error: `fallback devcontainerのコピーに失敗しました: ${
-        error.error || error.message
-      }`,
-    });
-  }
-
-  return ok(undefined);
-}
-
-/**
- * fallback devcontainerを起動する
- */
-export async function startFallbackDevcontainer(
-  repositoryPath: string,
-  onProgress?: (message: string) => Promise<void>,
-  ghToken?: string,
-): Promise<Result<{ containerId?: string }, DevcontainerError>> {
-  if (onProgress) {
-    const result = await sendProgressSafe(
-      onProgress,
-      "📦 fallback devcontainerを準備しています...",
-    );
-    if (result.isErr()) {
-      console.error(result.error);
-    }
-  }
-
-  // fallback devcontainerをコピー
-  const prepareResult = await prepareFallbackDevcontainer(repositoryPath);
-  if (prepareResult.isErr()) {
-    return err(prepareResult.error);
-  }
-
-  if (onProgress) {
-    const results = await Promise.all([
-      sendProgressSafe(
-        onProgress,
-        "✅ fallback devcontainerの準備が完了しました",
-      ),
-      sendProgressSafe(onProgress, "🐳 devcontainerを起動しています..."),
-    ]);
-    for (const result of results) {
-      if (result.isErr()) {
-        console.error(result.error);
-      }
-    }
-  }
-
-  // 通常のdevcontainer起動処理を実行
-  return await startDevcontainer(repositoryPath, onProgress, ghToken);
 }

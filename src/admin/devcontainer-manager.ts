@@ -1,7 +1,7 @@
 import {
   checkDevcontainerCli,
   checkDevcontainerConfig,
-  startFallbackDevcontainer,
+  startDevcontainer,
 } from "../devcontainer.ts";
 import type { IWorker } from "../worker.ts";
 import type { AuditEntry } from "../workspace.ts";
@@ -454,8 +454,9 @@ export class DevcontainerManager {
       isWorktreePath: worktreePath !== repositoryPath,
     });
 
-    // fallback devcontainerを起動（worktreePathを使用）
-    const result = await startFallbackDevcontainer(
+    // devcontainerを起動（worktreePathを使用）
+    // fallback devcontainer.jsonはgetDevcontainerConfigPathで自動的に選択される
+    const result = await startDevcontainer(
       worktreePath,
       onProgress,
     );
