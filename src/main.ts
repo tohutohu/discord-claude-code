@@ -8,6 +8,7 @@ import {
   GatewayIntentBits,
   Message,
   Partials,
+  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -189,6 +190,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("stop")
     .setDescription("実行中のClaude Codeを中断します")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
     .toJSON(),
 ];
 
