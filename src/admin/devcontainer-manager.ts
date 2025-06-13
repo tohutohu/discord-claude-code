@@ -1,7 +1,7 @@
 import {
   checkDevcontainerCli,
   checkDevcontainerConfig,
-  startFallbackDevcontainer,
+  startDevcontainer,
 } from "../devcontainer.ts";
 import type { IWorker } from "../worker.ts";
 import type { AuditEntry } from "../workspace.ts";
@@ -356,9 +356,9 @@ export class DevcontainerManager {
   }
 
   /**
-   * devcontainerの起動を処理する
+   * devcontainerの起動を処理する（Worker経由）
    */
-  async startDevcontainerForWorker(
+  async startDevcontainerWithWorker(
     threadId: string,
     worker: IWorker,
     onProgress?: (message: string) => Promise<void>,
@@ -429,7 +429,7 @@ export class DevcontainerManager {
   /**
    * fallback devcontainerを起動する
    */
-  async startFallbackDevcontainerForWorker(
+  async startDevcontainerForWorker(
     threadId: string,
     repositoryPath: string,
     onProgress?: (message: string) => Promise<void>,
@@ -454,8 +454,9 @@ export class DevcontainerManager {
       isWorktreePath: worktreePath !== repositoryPath,
     });
 
-    // fallback devcontainerを起動（worktreePathを使用）
-    const result = await startFallbackDevcontainer(
+    // devcontainerを起動（worktreePathを使用）
+    // fallback devcontainer.jsonはgetDevcontainerConfigPathで自動的に選択される
+    const result = await startDevcontainer(
       worktreePath,
       onProgress,
     );
