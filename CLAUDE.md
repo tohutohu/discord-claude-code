@@ -437,3 +437,10 @@ Discord User → main.ts (MessageCreate) → admin.routeMessage() → worker.pro
 - **型安全性の向上**: スキーマ検証の追加（Zodなど）
 - **テスタビリティ向上**: 依存性注入の活用
 - **ログ管理**: 専用Loggerクラスの導入
+
+## スラッシュコマンド
+
+### /stop
+
+Claude
+Code実行の中断機能を提供するスラッシュコマンド。詳細は[README.md#実行の中断](README.md#実行の中断)を参照。

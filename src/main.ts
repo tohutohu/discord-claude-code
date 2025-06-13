@@ -8,6 +8,7 @@ import {
   GatewayIntentBits,
   Message,
   Partials,
+  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -185,6 +186,11 @@ const commands = [
         .setRequired(true)
         .setAutocomplete(true)
     )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("stop")
+    .setDescription("実行中のClaude Codeを中断します")
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageThreads)
     .toJSON(),
 ];
 
@@ -734,6 +740,44 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       });
     } catch (error) {
       console.error("スレッド作成エラー:", error);
+      try {
+        await interaction.editReply("エラーが発生しました。");
+      } catch {
+        await interaction.reply("エラーが発生しました。");
+      }
+    }
+  } else if (commandName === "stop") {
+    try {
+      // スレッド内でのみ使用可能
+      if (!interaction.channel || !interaction.channel.isThread()) {
+        await interaction.reply("このコマンドはスレッド内でのみ使用できます。");
+        return;
+      }
+
+      await interaction.deferReply();
+
+      const threadId = interaction.channel.id;
+      const stopResult = await admin.stopExecution(threadId);
+
+      if (stopResult.isErr()) {
+        const error = stopResult.error;
+        if (error.type === "WORKER_NOT_FOUND") {
+          await interaction.editReply(
+            "❌ 中断に失敗しました。既に実行が完了している可能性があります。",
+          );
+        } else {
+          await interaction.editReply(
+            `❌ 中断処理中にエラーが発生しました: ${error.type}\n\n🔄 もう一度お試しください。`,
+          );
+        }
+        return;
+      }
+
+      await interaction.editReply(
+        "✅ Claude Codeの実行を中断しました。\n\n💡 新しい指示を送信して作業を続けることができます。",
+      );
+    } catch (error) {
+      console.error("/stopコマンドエラー:", error);
       try {
         await interaction.editReply("エラーが発生しました。");
       } catch {

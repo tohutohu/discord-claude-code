@@ -4,10 +4,21 @@ import { err, ok, Result } from "neverthrow";
 import type { ClaudeExecutorError } from "./types.ts";
 
 export interface ClaudeCommandExecutor {
+  /**
+   * Claude CLIをストリーミングモードで実行する
+   * @param args Claude CLIに渡すコマンドライン引数
+   * @param cwd 作業ディレクトリ
+   * @param onData 標準出力データを受信したときのコールバック
+   * @param abortSignal プロセスを中断するためのシグナル
+   * @param onProcessStart プロセスが正常に生成された場合のみ呼ばれるコールバック。プロセス生成に失敗した場合は呼ばれない
+   * @returns 実行結果（終了コードと標準エラー出力）またはエラー
+   */
   executeStreaming(
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
+    abortSignal?: AbortSignal,
+    onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>>;
 }
 
@@ -22,6 +33,8 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
+    abortSignal?: AbortSignal,
+    onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
   > {
@@ -42,9 +55,15 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
         cwd,
         stdout: "piped",
         stderr: "piped",
+        signal: abortSignal,
       });
 
       const process = command.spawn();
+
+      // プロセス開始コールバック
+      if (onProcessStart) {
+        onProcessStart(process);
+      }
 
       // ClaudeStreamProcessorのprocessStreamsメソッドを使用
       const processor = new ClaudeStreamProcessor(
@@ -70,6 +89,13 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
 
       return ok({ code, stderr: stderrOutput });
     } catch (error) {
+      // AbortErrorの場合は特別な処理
+      if (error instanceof Error && error.name === "AbortError") {
+        return err({
+          type: "STREAM_PROCESSING_ERROR",
+          error: "実行が中断されました",
+        });
+      }
       return err({
         type: "STREAM_PROCESSING_ERROR",
         error: (error as Error).message,
@@ -97,6 +123,8 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    abortSignal?: AbortSignal,
+    onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
   > {
@@ -138,9 +166,15 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
         stderr: "piped",
         cwd: this.repositoryPath,
         env,
+        signal: abortSignal,
       });
 
       const process = devcontainerCommand.spawn();
+
+      // プロセス開始コールバック
+      if (onProcessStart) {
+        onProcessStart(process);
+      }
 
       // ClaudeStreamProcessorのprocessStreamsメソッドを使用
       const processor = new ClaudeStreamProcessor(
@@ -166,6 +200,13 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 
       return ok({ code, stderr: stderrOutput });
     } catch (error) {
+      // AbortErrorの場合は特別な処理
+      if (error instanceof Error && error.name === "AbortError") {
+        return err({
+          type: "STREAM_PROCESSING_ERROR",
+          error: "実行が中断されました",
+        });
+      }
       return err({
         type: "STREAM_PROCESSING_ERROR",
         error: (error as Error).message,

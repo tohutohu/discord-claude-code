@@ -570,6 +570,54 @@ export class Admin implements IAdmin {
   }
 
   /**
+   * 実行中のClaude Codeを中断する
+   */
+  async stopExecution(threadId: string): Promise<Result<void, AdminError>> {
+    this.logVerbose("Claude Code実行中断処理開始", { threadId });
+
+    const worker = this.workerManager.getWorker(threadId);
+    if (!worker) {
+      this.logVerbose("Worker見つからず", { threadId });
+      return err({
+        type: "WORKER_NOT_FOUND",
+        threadId,
+      });
+    }
+
+    try {
+      // Workerの中断処理を呼び出す
+      const success = await worker.stopExecution();
+
+      if (success) {
+        this.logVerbose("Claude Code実行中断成功", { threadId });
+
+        // 監査ログに中断イベントを記録
+        await this.logAuditEntry(threadId, "worker_stopped", {
+          workerName: worker.getName(),
+          timestamp: new Date().toISOString(),
+        });
+
+        return ok(undefined);
+      } else {
+        this.logVerbose("Claude Code実行中断失敗 - 実行中のプロセスなし", {
+          threadId,
+        });
+        // プロセスが実行中でない場合も成功として扱う
+        return ok(undefined);
+      }
+    } catch (error) {
+      this.logVerbose("Claude Code実行中断中にエラー発生", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      // エラーが発生しても、中断操作自体は成功として扱う
+      // （既に停止している可能性があるため）
+      return ok(undefined);
+    }
+  }
+
+  /**
    * アクティブスレッドリストに追加
    */
   private async addActiveThread(threadId: string): Promise<void> {

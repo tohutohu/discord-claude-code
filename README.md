@@ -20,6 +20,7 @@ Bot。GitHubリポジトリをクローンして、Claudeがコードを読み�
 - **日本語→英語翻訳機能**:
   PLaMo-2-translateを使用して日本語の指示を英語に翻訳してからClaude
   Codeに渡す（オプション）
+- **実行中断機能**: `/stop`コマンドで実行中のClaude Codeを安全に中断
 
 ## セットアップ
 
@@ -102,17 +103,28 @@ deno task start
 - 「テストを追加して」
 - 「バグを修正して」
 
+### 実行の中断
+
+実行中のClaude Codeを中断したい場合は、スレッド内で以下のコマンドを送信:
+
+```text
+/stop
+```
+
+中断後も新しい指示を送信することで作業を継続できます。
+
 ## 設定項目
 
 ### 環境変数
 
-| 変数名                        | 説明                                      | 必須 |
-| ----------------------------- | ----------------------------------------- | ---- |
-| `DISCORD_TOKEN`               | Discord Botのトークン                     | ✅   |
-| `WORK_BASE_DIR`               | 作業ディレクトリのベースパス              | ✅   |
-| `CLAUDE_APPEND_SYSTEM_PROMPT` | Claude実行時に追加するシステムプロンプト  | ❌   |
-| `GEMINI_API_KEY`              | Google Gemini APIキー（スレッド名生成用） | ❌   |
-| `PLAMO_TRANSLATOR_URL`        | PLaMo-2-translate APIのURL                | ❌   |
+| 変数名                        | 説明                                                   | 必須 | デフォルト |
+| ----------------------------- | ------------------------------------------------------ | ---- | ---------- |
+| `DISCORD_TOKEN`               | Discord Botのトークン                                  | ✅   | -          |
+| `WORK_BASE_DIR`               | 作業ディレクトリのベースパス                           | ✅   | -          |
+| `CLAUDE_APPEND_SYSTEM_PROMPT` | Claude実行時に追加するシステムプロンプト               | ❌   | -          |
+| `GEMINI_API_KEY`              | Google Gemini APIキー（スレッド名生成用）              | ❌   | -          |
+| `PLAMO_TRANSLATOR_URL`        | PLaMo-2-translate APIのURL                             | ❌   | -          |
+| `VERBOSE`                     | 詳細なデバッグログを出力（Claude実行時のコマンドなど） | ❌   | `false`    |
 
 ### 作業ディレクトリ構造
 

@@ -46,3 +46,8 @@ export const PLAMO_TRANSLATOR = {
   MAX_TOKENS: 2048,
   TIMEOUT_MS: 5000,
 } as const;
+
+// プロセス管理関連の定数
+export const PROCESS = {
+  TERMINATION_TIMEOUT_MS: 5000, // プロセス終了を待つタイムアウト時間（5秒）
+} as const;

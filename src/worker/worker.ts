@@ -18,6 +18,7 @@ import {
 } from "./claude-executor.ts";
 import type { IWorker, WorkerError } from "./types.ts";
 import { err, ok, Result } from "neverthrow";
+import { PROCESS } from "../constants.ts";
 
 export class Worker implements IWorker {
   private state: WorkerState;
@@ -27,6 +28,11 @@ export class Worker implements IWorker {
   private readonly sessionLogger: SessionLogger;
   private formatter: MessageFormatter;
   private translator: PLaMoTranslator | null = null;
+  private claudeProcess: Deno.ChildProcess | null = null;
+  private abortController: AbortController | null = null;
+  private isExecuting = false;
+  private executionStartTime: number | null = null;
+  private lastActivityDescription: string | null = null;
 
   constructor(
     state: WorkerState,
@@ -97,6 +103,12 @@ export class Worker implements IWorker {
       return err({ type: "CONFIGURATION_INCOMPLETE" });
     }
 
+    // 実行状態を設定
+    this.isExecuting = true;
+    this.abortController = new AbortController();
+    this.executionStartTime = Date.now();
+    this.lastActivityDescription = null;
+
     try {
       // 翻訳処理（設定されている場合のみ）
       let translatedMessage = message;
@@ -153,6 +165,16 @@ export class Worker implements IWorker {
         onProgress,
       );
       if (claudeResult.isErr()) {
+        // 中断エラーの場合は特別なメッセージを返す
+        if (
+          claudeResult.error.type === "CLAUDE_EXECUTION_FAILED" &&
+          claudeResult.error.error === "中断されました"
+        ) {
+          // 中断が正常に完了した場合はエラーではなく正常終了として扱う
+          return ok(
+            "⛔ Claude Codeの実行を中断しました\n\n💡 新しい指示を送信して作業を続けることができます",
+          );
+        }
         return claudeResult;
       }
 
@@ -186,6 +208,13 @@ export class Worker implements IWorker {
         type: "CLAUDE_EXECUTION_FAILED",
         error: (error as Error).message,
       });
+    } finally {
+      // 実行状態をリセット
+      this.isExecuting = false;
+      this.claudeProcess = null;
+      this.abortController = null;
+      this.executionStartTime = null;
+      this.lastActivityDescription = null;
     }
   }
 
@@ -261,9 +290,29 @@ export class Worker implements IWorker {
       args,
       this.state.worktreePath,
       onData,
+      this.abortController?.signal,
+      (childProcess) => {
+        this.claudeProcess = childProcess;
+        this.logVerbose("Claudeプロセス開始", {
+          processId: childProcess.pid,
+        });
+      },
     );
 
     if (executionResult.isErr()) {
+      // 中断による終了の場合
+      if (
+        executionResult.error.type === "STREAM_PROCESSING_ERROR" &&
+        executionResult.error.error === "実行が中断されました"
+      ) {
+        // セッションデータを保存してから中断メッセージを返す
+        await this.saveSessionData(newSessionId, allOutput);
+        return err({
+          type: "CLAUDE_EXECUTION_FAILED",
+          error: "中断されました",
+        });
+      }
+
       const errorMessage =
         executionResult.error.type === "COMMAND_EXECUTION_FAILED"
           ? `コマンド実行失敗 (コード: ${executionResult.error.code}): ${executionResult.error.stderr}`
@@ -356,6 +405,11 @@ export class Worker implements IWorker {
       if (onProgress) {
         const outputMessage = streamProcessor.extractOutputMessage(parsed);
         if (outputMessage) {
+          // 最後のアクティビティを記録
+          this.lastActivityDescription = this.extractActivityDescription(
+            parsed,
+            outputMessage,
+          );
           onProgress(this.formatter.formatResponse(outputMessage)).catch(
             console.error,
           );
@@ -793,6 +847,40 @@ export class Worker implements IWorker {
   }
 
   /**
+   * ストリームメッセージから最後のアクティビティの説明を抽出
+   */
+  private extractActivityDescription(
+    parsed: ClaudeStreamMessage,
+    outputMessage: string,
+  ): string {
+    // ツール使用の場合
+    if (parsed.type === "assistant" && parsed.message?.content) {
+      for (const item of parsed.message.content) {
+        if (item.type === "tool_use" && item.name) {
+          return `ツール使用: ${item.name}`;
+        }
+      }
+    }
+
+    // ツール結果の場合
+    if (parsed.type === "user" && parsed.message?.content) {
+      for (const item of parsed.message.content) {
+        if (item.type === "tool_result") {
+          return "ツール実行結果を処理";
+        }
+      }
+    }
+
+    // その他のメッセージの場合、最初の50文字を使用
+    if (outputMessage) {
+      const preview = outputMessage.substring(0, 50);
+      return preview.length < outputMessage.length ? `${preview}...` : preview;
+    }
+
+    return "アクティビティ実行中";
+  }
+
+  /**
    * devcontainerを起動する
    */
   async startDevcontainer(
@@ -948,6 +1036,151 @@ export class Worker implements IWorker {
         operation: "saveWorkerState",
         error: (error as Error).message,
       });
+    }
+  }
+
+  /**
+   * Claude Code実行を中断する
+   */
+  async stopExecution(
+    onProgress?: (content: string) => Promise<void>,
+  ): Promise<boolean> {
+    // 実行中でない場合は早期リターン
+    if (!this.isExecuting) {
+      this.logVerbose("実行中ではないため中断スキップ", {
+        isExecuting: this.isExecuting,
+      });
+      return false;
+    }
+
+    // プロセスハンドルがない場合も早期リターン
+    if (!this.claudeProcess) {
+      this.logVerbose("プロセスハンドルがないため中断スキップ", {
+        hasClaudeProcess: false,
+      });
+      return false;
+    }
+
+    this.logVerbose("Claude Code実行の中断開始", {
+      workerName: this.state.workerName,
+      sessionId: this.state.sessionId,
+    });
+
+    // 中断イベントをセッションログに記録
+    const executionTime = this.executionStartTime
+      ? Date.now() - this.executionStartTime
+      : undefined;
+
+    if (
+      this.state.repository?.fullName &&
+      this.state.sessionId
+    ) {
+      await this.sessionLogger.saveInterruptionEvent(
+        this.state.repository.fullName,
+        this.state.sessionId,
+        {
+          reason: "user_requested",
+          executionTime,
+          lastActivity: this.lastActivityDescription || undefined,
+        },
+      );
+    }
+
+    try {
+      // まずAbortControllerで中断シグナルを送信
+      if (this.abortController) {
+        this.abortController.abort();
+        this.logVerbose("AbortController.abort()実行");
+      }
+
+      // プロセスにSIGTERMを送信
+      const processToKill = this.claudeProcess; // プロセス参照を保持
+      let sigTermSent = false;
+
+      try {
+        processToKill.kill("SIGTERM");
+        sigTermSent = true;
+        this.logVerbose("SIGTERMシグナル送信");
+      } catch (error) {
+        this.logVerbose(
+          "SIGTERM送信エラー（プロセスが既に終了している可能性）",
+          {
+            error: (error as Error).message,
+          },
+        );
+      }
+
+      // 5秒待機してプロセスが終了するか確認
+      let forcefullyKilled = false;
+      let timeoutId: number | undefined;
+
+      if (sigTermSent) {
+        timeoutId = setTimeout(() => {
+          // プロセスがまだ存在する場合のみSIGKILLを送信
+          if (this.claudeProcess === processToKill) {
+            try {
+              processToKill.kill("SIGKILL");
+              forcefullyKilled = true;
+              this.logVerbose("SIGKILLシグナル送信（強制終了）");
+            } catch (error) {
+              this.logVerbose("SIGKILL送信エラー", {
+                error: (error as Error).message,
+              });
+            }
+          }
+        }, PROCESS.TERMINATION_TIMEOUT_MS);
+
+        // プロセスの終了を待機
+        try {
+          await processToKill.status;
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+          this.logVerbose("プロセス終了確認");
+        } catch (error) {
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+          this.logVerbose("プロセス終了待機エラー", {
+            error: (error as Error).message,
+          });
+        }
+      }
+
+      // 中断メッセージを送信
+      if (onProgress) {
+        if (forcefullyKilled) {
+          await onProgress("⚠️ Claude Codeの実行を強制終了しました");
+        } else {
+          await onProgress("⛔ Claude Codeの実行を中断しました");
+        }
+        await onProgress("💡 新しい指示を送信して作業を続けることができます");
+      }
+
+      return true;
+    } catch (error) {
+      this.logVerbose("中断処理エラー", {
+        error: (error as Error).message,
+      });
+
+      // エラーメッセージを送信
+      if (onProgress) {
+        const errorMessage = error instanceof Error
+          ? error.message
+          : "不明なエラー";
+        await onProgress(
+          `❌ 中断処理中にエラーが発生しました: ${errorMessage}`,
+        );
+        await onProgress("💡 新しい指示を送信して作業を続けることができます");
+      }
+
+      return false;
+    } finally {
+      // クリーンアップ
+      this.claudeProcess = null;
+      this.abortController = null;
+      this.isExecuting = false;
+      this.logVerbose("プロセス参照クリーンアップ完了");
     }
   }
 

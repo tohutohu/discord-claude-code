@@ -311,6 +311,10 @@ export class WorkspaceManager {
     }
   }
 
+  getSessionManager(): SessionManager {
+    return this.sessionManager;
+  }
+
   async getLocalRepositories(): Promise<string[]> {
     try {
       const repositories: string[] = [];

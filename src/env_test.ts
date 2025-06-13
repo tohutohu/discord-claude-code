@@ -5,6 +5,8 @@ Deno.test("getEnv - 必要な環境変数が設定されている場合は成功
   // 環境変数を設定
   Deno.env.set("DISCORD_TOKEN", "test-token");
   Deno.env.set("WORK_BASE_DIR", "/test/work");
+  // VERBOSEを明示的に削除して未設定状態にする
+  Deno.env.delete("VERBOSE");
 
   const result = getEnv();
 
