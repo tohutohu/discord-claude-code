@@ -4,6 +4,7 @@ import type { ThreadInfo, WorkerState } from "../workspace.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import { parseRepository } from "../git-utils.ts";
 import { err, ok, Result } from "neverthrow";
+import { exec } from "../utils/exec.ts";
 
 // エラー型定義
 export type WorkerManagerError =
@@ -196,34 +197,28 @@ export class WorkerManager {
 
       // git worktreeの有効性を確認
       if (threadInfo.repositoryLocalPath) {
-        try {
-          const command = new Deno.Command("git", {
-            args: ["worktree", "list", "--porcelain"],
-            cwd: threadInfo.repositoryLocalPath,
-            stdout: "piped",
-            stderr: "piped",
-          });
+        const worktreeListResult = await exec(
+          `cd "${threadInfo.repositoryLocalPath}" && git worktree list --porcelain`,
+        );
 
-          const { success, stdout } = await command.output();
-          if (success) {
-            const output = new TextDecoder().decode(stdout);
-            const worktreeExists = output.includes(threadInfo.worktreePath);
-            if (!worktreeExists) {
-              this.logVerbose(
-                "worktreeがgitに登録されていない、スレッド終了として処理",
-                {
-                  threadId,
-                  worktreePath: threadInfo.worktreePath,
-                },
-              );
-              await this.archiveThread(threadId);
-              return ok(undefined);
-            }
+        if (worktreeListResult.isOk()) {
+          const output = worktreeListResult.value.output;
+          const worktreeExists = output.includes(threadInfo.worktreePath);
+          if (!worktreeExists) {
+            this.logVerbose(
+              "worktreeがgitに登録されていない、スレッド終了として処理",
+              {
+                threadId,
+                worktreePath: threadInfo.worktreePath,
+              },
+            );
+            await this.archiveThread(threadId);
+            return ok(undefined);
           }
-        } catch (error) {
+        } else {
           this.logVerbose("git worktree list失敗、復旧を継続", {
             threadId,
-            error: (error as Error).message,
+            error: worktreeListResult.error.message,
           });
         }
       }
