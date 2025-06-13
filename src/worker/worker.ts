@@ -18,6 +18,7 @@ import {
 } from "./claude-executor.ts";
 import type { IWorker, WorkerError } from "./types.ts";
 import { err, ok, Result } from "neverthrow";
+import { PROCESS } from "../constants.ts";
 
 export class Worker implements IWorker {
   private state: WorkerState;
@@ -1127,7 +1128,7 @@ export class Worker implements IWorker {
               });
             }
           }
-        }, 5000);
+        }, PROCESS.TERMINATION_TIMEOUT_MS);
 
         // プロセスの終了を待機
         try {
