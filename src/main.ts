@@ -13,6 +13,7 @@ import {
   Routes,
   SlashCommandBuilder,
   TextChannel,
+  ThreadAutoArchiveDuration,
   ThreadChannel,
 } from "discord.js";
 import { Admin } from "./admin.ts";
@@ -670,7 +671,7 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       // スレッドを作成
       const thread = await interaction.channel.threads.create({
         name: `${repository.fullName}-${Date.now()}`,
-        autoArchiveDuration: 60,
+        autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
         reason: `${repository.fullName}のチャットセッション`,
       });
 
