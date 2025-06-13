@@ -3,7 +3,7 @@ import { err, ok, Result } from "neverthrow";
 export interface Env {
   DISCORD_TOKEN: string;
   WORK_BASE_DIR: string;
-  VERBOSE?: boolean;
+  VERBOSE: boolean;
   CLAUDE_APPEND_SYSTEM_PROMPT?: string;
   GEMINI_API_KEY?: string;
   /**
