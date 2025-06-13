@@ -64,4 +64,7 @@ export interface IAdmin {
     callback: (threadId: string) => Promise<void>,
   ): void;
   save(): Promise<void>;
+  stopExecution(
+    threadId: string,
+  ): Promise<import("neverthrow").Result<void, AdminError>>;
 }

@@ -570,6 +570,27 @@ export class Admin implements IAdmin {
   }
 
   /**
+   * 実行中のClaude Codeを中断する
+   */
+  async stopExecution(threadId: string): Promise<Result<void, AdminError>> {
+    this.logVerbose("Claude Code実行中断処理開始", { threadId });
+
+    const worker = this.workerManager.getWorker(threadId);
+    if (!worker) {
+      this.logVerbose("Worker見つからず", { threadId });
+      return err({
+        type: "WORKER_NOT_FOUND",
+        threadId,
+      });
+    }
+
+    // TODO: 実際の中断処理はWorker側で実装予定
+    // 現在は空実装
+    this.logVerbose("Claude Code実行中断処理完了", { threadId });
+    return ok(undefined);
+  }
+
+  /**
    * アクティブスレッドリストに追加
    */
   private async addActiveThread(threadId: string): Promise<void> {

@@ -186,6 +186,10 @@ const commands = [
         .setAutocomplete(true)
     )
     .toJSON(),
+  new SlashCommandBuilder()
+    .setName("stop")
+    .setDescription("実行中のClaude Codeを中断します")
+    .toJSON(),
 ];
 
 // Bot起動時の処理
@@ -734,6 +738,40 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
       });
     } catch (error) {
       console.error("スレッド作成エラー:", error);
+      try {
+        await interaction.editReply("エラーが発生しました。");
+      } catch {
+        await interaction.reply("エラーが発生しました。");
+      }
+    }
+  } else if (commandName === "stop") {
+    try {
+      // スレッド内でのみ使用可能
+      if (!interaction.channel || !interaction.channel.isThread()) {
+        await interaction.reply("このコマンドはスレッド内でのみ使用できます。");
+        return;
+      }
+
+      await interaction.deferReply();
+
+      const threadId = interaction.channel.id;
+      const stopResult = await admin.stopExecution(threadId);
+
+      if (stopResult.isErr()) {
+        const error = stopResult.error;
+        if (error.type === "WORKER_NOT_FOUND") {
+          await interaction.editReply(
+            "このスレッドで実行中のClaude Codeはありません。",
+          );
+        } else {
+          await interaction.editReply(`エラー: ${error.type}`);
+        }
+        return;
+      }
+
+      await interaction.editReply("✅ Claude Codeの実行を中断しました。");
+    } catch (error) {
+      console.error("/stopコマンドエラー:", error);
       try {
         await interaction.editReply("エラーが発生しました。");
       } catch {
