@@ -584,10 +584,37 @@ export class Admin implements IAdmin {
       });
     }
 
-    // TODO: 実際の中断処理はWorker側で実装予定
-    // 現在は空実装
-    this.logVerbose("Claude Code実行中断処理完了", { threadId });
-    return ok(undefined);
+    try {
+      // Workerの中断処理を呼び出す
+      const success = await worker.stopExecution();
+
+      if (success) {
+        this.logVerbose("Claude Code実行中断成功", { threadId });
+
+        // 監査ログに中断イベントを記録
+        await this.logAuditEntry(threadId, "worker_stopped", {
+          workerName: worker.getName(),
+          timestamp: new Date().toISOString(),
+        });
+
+        return ok(undefined);
+      } else {
+        this.logVerbose("Claude Code実行中断失敗 - 実行中のプロセスなし", {
+          threadId,
+        });
+        // プロセスが実行中でない場合も成功として扱う
+        return ok(undefined);
+      }
+    } catch (error) {
+      this.logVerbose("Claude Code実行中断中にエラー発生", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      // エラーが発生しても、中断操作自体は成功として扱う
+      // （既に停止している可能性があるため）
+      return ok(undefined);
+    }
   }
 
   /**

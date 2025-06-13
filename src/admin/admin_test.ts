@@ -224,3 +224,103 @@ Deno.test("Admin - fromStateメソッド", async () => {
     await Deno.remove(tempDir, { recursive: true });
   }
 });
+
+Deno.test("Admin - Claude Code実行の中断", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    const admin = new Admin(adminState, workspaceManager);
+    const threadId = "test-thread-stop-execution";
+
+    // Workerを作成
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+    const worker = workerResult.value;
+
+    // Workerのメソッドをモック
+    let stopExecutionCalled = false;
+    worker.stopExecution = async () => {
+      stopExecutionCalled = true;
+      return true;
+    };
+
+    // 実行中断を呼び出す
+    const stopResult = await admin.stopExecution(threadId);
+    assert(stopResult.isOk());
+    assertEquals(stopExecutionCalled, true);
+
+    // 監査ログの検証は、listAuditLogsメソッドが実装されていないため、
+    // 現時点ではスキップ
+    // TODO: WorkspaceManagerにlistAuditLogsメソッドを実装後、以下のコメントを解除
+    // const auditLogs = await workspaceManager.listAuditLogs();
+    // const stopLog = auditLogs.find(
+    //   (log: AuditEntry) => log.action === "worker_stopped" && log.threadId === threadId,
+    // );
+    // assertExists(stopLog);
+    // assertEquals(stopLog.details.workerName, worker.getName());
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("Admin - 存在しないスレッドの実行中断", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    const admin = new Admin(adminState, workspaceManager);
+    const threadId = "non-existent-thread";
+
+    // 存在しないスレッドの実行中断を試みる
+    const stopResult = await admin.stopExecution(threadId);
+    assert(stopResult.isErr());
+    assertEquals(stopResult.error.type, "WORKER_NOT_FOUND");
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});
+
+Deno.test("Admin - 実行中でないWorkerの中断", async () => {
+  const tempDir = await Deno.makeTempDir();
+  try {
+    const workspaceManager = new WorkspaceManager(tempDir);
+    await workspaceManager.initialize();
+
+    const adminState: AdminState = {
+      activeThreadIds: [],
+      lastUpdated: new Date().toISOString(),
+    };
+
+    const admin = new Admin(adminState, workspaceManager);
+    const threadId = "test-thread-not-executing";
+
+    // Workerを作成
+    const workerResult = await admin.createWorker(threadId);
+    assert(workerResult.isOk());
+    const worker = workerResult.value;
+
+    // Workerのメソッドをモック（実行中でない状態を返す）
+    worker.stopExecution = async () => {
+      return false; // 実行中でない
+    };
+
+    // 実行中断を呼び出す
+    const stopResult = await admin.stopExecution(threadId);
+    assert(stopResult.isOk()); // 実行中でなくても成功として扱う
+  } finally {
+    await Deno.remove(tempDir, { recursive: true });
+  }
+});

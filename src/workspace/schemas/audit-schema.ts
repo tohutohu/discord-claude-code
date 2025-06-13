@@ -15,6 +15,7 @@ export const AuditEntrySchema = z.object({
 export const AUDIT_ACTIONS = {
   WORKER_CREATED: "worker_created",
   WORKER_CLOSED: "worker_closed",
+  WORKER_STOPPED: "worker_stopped",
   MESSAGE_RECEIVED: "message_received",
   MESSAGE_QUEUED: "message_queued",
   MESSAGE_QUEUE_CLEARED: "message_queue_cleared",
