@@ -56,34 +56,38 @@ describe("Worker 中断イベントログ記録", () => {
 
         // セッション開始
         onData(encoder.encode(
-          JSON.stringify({
-            type: "system",
-            subtype: "init",
-            session_id: "test-session-123",
-            tools: ["Read", "Edit", "Bash"],
-          }) + "\n",
+          `${
+            JSON.stringify({
+              type: "system",
+              subtype: "init",
+              session_id: "test-session-123",
+              tools: ["Read", "Edit", "Bash"],
+            })
+          }\n`,
         ));
 
         // ツール使用メッセージ
         await new Promise((resolve) => setTimeout(resolve, 100));
         onData(encoder.encode(
-          JSON.stringify({
-            type: "assistant",
-            message: {
-              id: "msg_1",
-              type: "message",
-              role: "assistant",
-              model: "claude-3",
-              content: [{
-                type: "tool_use",
-                id: "tool_1",
-                name: "Read",
-                input: { file_path: "/test/file.txt" },
-              }],
-              stop_reason: "tool_use",
-            },
-            session_id: "test-session-123",
-          }) + "\n",
+          `${
+            JSON.stringify({
+              type: "assistant",
+              message: {
+                id: "msg_1",
+                type: "message",
+                role: "assistant",
+                model: "claude-3",
+                content: [{
+                  type: "tool_use",
+                  id: "tool_1",
+                  name: "Read",
+                  input: { file_path: "/test/file.txt" },
+                }],
+                stop_reason: "tool_use",
+              },
+              session_id: "test-session-123",
+            })
+          }\n`,
         ));
 
         // 中断されるまで待機
