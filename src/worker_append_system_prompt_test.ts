@@ -1,8 +1,10 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { describe, it } from "https://deno.land/std@0.208.0/testing/bdd.ts";
-import { ClaudeCommandExecutor, Worker } from "./worker.ts";
+import { Worker } from "./worker.ts";
+import { ClaudeCommandExecutor } from "./worker/claude-executor.ts";
 import { WorkerState, WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
+import { ok } from "neverthrow";
 
 class MockClaudeExecutor implements ClaudeCommandExecutor {
   capturedArgs: string[] = [];
@@ -11,7 +13,7 @@ class MockClaudeExecutor implements ClaudeCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
+  ) {
     this.capturedArgs = args;
     console.log("MockExecutor called with args:", args);
 
@@ -24,27 +26,31 @@ class MockClaudeExecutor implements ClaudeCommandExecutor {
     if (hasPrint && hasStreamJson && !hasVerbose) {
       const errorMessage =
         "Error: When using --print, --output-format=stream-json requires --verbose\n";
-      return {
+      return ok({
         code: 1,
         stderr: new TextEncoder().encode(errorMessage),
-      };
+      });
     }
 
     // Mock response - 最初にsessionメッセージを送信
-    const sessionMessage = JSON.stringify({
-      type: "session",
-      session_id: "test-session-id",
-    }) + "\n";
+    const sessionMessage = `${
+      JSON.stringify({
+        type: "session",
+        session_id: "test-session-id",
+      })
+    }\n`;
     onData(new TextEncoder().encode(sessionMessage));
 
     // その後resultメッセージを送信
-    const mockResponse = JSON.stringify({
-      type: "result",
-      result: "テスト応答",
-    }) + "\n";
+    const mockResponse = `${
+      JSON.stringify({
+        type: "result",
+        result: "テスト応答",
+      })
+    }\n`;
     onData(new TextEncoder().encode(mockResponse));
 
-    return { code: 0, stderr: new Uint8Array() };
+    return ok({ code: 0, stderr: new Uint8Array() });
   }
 }
 

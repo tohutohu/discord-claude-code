@@ -3,6 +3,19 @@ import { generateWorkerName } from "../worker-name-generator.ts";
 import type { ThreadInfo, WorkerState } from "../workspace.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import { parseRepository } from "../git-utils.ts";
+import { err, ok, Result } from "neverthrow";
+import { exec } from "../utils/exec.ts";
+
+// エラー型定義
+export type WorkerManagerError =
+  | { type: "WORKER_CREATE_FAILED"; threadId: string; reason: string }
+  | { type: "THREAD_RESTORE_FAILED"; threadId: string; error: string }
+  | {
+    type: "REPOSITORY_RESTORE_FAILED";
+    threadId: string;
+    repositoryFullName: string;
+    error: string;
+  };
 
 export class WorkerManager {
   private workers: Map<string, IWorker> = new Map();
@@ -26,7 +39,9 @@ export class WorkerManager {
   /**
    * Workerを作成する
    */
-  async createWorker(threadId: string): Promise<IWorker> {
+  async createWorker(
+    threadId: string,
+  ): Promise<Result<IWorker, WorkerManagerError>> {
     this.logVerbose("Worker作成要求", {
       threadId,
       currentWorkerCount: this.workers.size,
@@ -41,7 +56,7 @@ export class WorkerManager {
         workerName: existingWorker.getName(),
         hasRepository: !!existingWorker.getRepository(),
       });
-      return existingWorker;
+      return ok(existingWorker);
     }
 
     // 新しいWorkerを作成
@@ -84,7 +99,14 @@ export class WorkerManager {
     });
 
     // Worker状態を保存
-    await worker.save();
+    const saveResult = await worker.save();
+    if (saveResult.isErr()) {
+      return err({
+        type: "WORKER_CREATE_FAILED",
+        threadId,
+        reason: saveResult.error.type,
+      });
+    }
     this.logVerbose("Worker状態保存完了", { threadId });
 
     // ThreadInfoも作成・保存
@@ -100,7 +122,7 @@ export class WorkerManager {
     await this.workspaceManager.saveThreadInfo(threadInfo);
     this.logVerbose("ThreadInfo保存完了", { threadId });
 
-    return worker;
+    return ok(worker);
   }
 
   /**
@@ -132,7 +154,9 @@ export class WorkerManager {
   /**
    * 単一のスレッドを復旧する
    */
-  async restoreThread(threadInfo: ThreadInfo): Promise<void> {
+  async restoreThread(
+    threadInfo: ThreadInfo,
+  ): Promise<Result<void, WorkerManagerError>> {
     const { threadId } = threadInfo;
 
     this.logVerbose("スレッド復旧開始", {
@@ -153,7 +177,7 @@ export class WorkerManager {
             },
           );
           await this.archiveThread(threadId);
-          return;
+          return ok(undefined);
         }
       } catch (error) {
         if (error instanceof Deno.errors.NotFound) {
@@ -162,41 +186,39 @@ export class WorkerManager {
             worktreePath: threadInfo.worktreePath,
           });
           await this.archiveThread(threadId);
-          return;
+          return ok(undefined);
         }
-        throw error;
+        return err({
+          type: "THREAD_RESTORE_FAILED",
+          threadId,
+          error: (error as Error).message,
+        });
       }
 
       // git worktreeの有効性を確認
       if (threadInfo.repositoryLocalPath) {
-        try {
-          const command = new Deno.Command("git", {
-            args: ["worktree", "list", "--porcelain"],
-            cwd: threadInfo.repositoryLocalPath,
-            stdout: "piped",
-            stderr: "piped",
-          });
+        const worktreeListResult = await exec(
+          `cd "${threadInfo.repositoryLocalPath}" && git worktree list --porcelain`,
+        );
 
-          const { success, stdout } = await command.output();
-          if (success) {
-            const output = new TextDecoder().decode(stdout);
-            const worktreeExists = output.includes(threadInfo.worktreePath);
-            if (!worktreeExists) {
-              this.logVerbose(
-                "worktreeがgitに登録されていない、スレッド終了として処理",
-                {
-                  threadId,
-                  worktreePath: threadInfo.worktreePath,
-                },
-              );
-              await this.archiveThread(threadId);
-              return;
-            }
+        if (worktreeListResult.isOk()) {
+          const output = worktreeListResult.value.output;
+          const worktreeExists = output.includes(threadInfo.worktreePath);
+          if (!worktreeExists) {
+            this.logVerbose(
+              "worktreeがgitに登録されていない、スレッド終了として処理",
+              {
+                threadId,
+                worktreePath: threadInfo.worktreePath,
+              },
+            );
+            await this.archiveThread(threadId);
+            return ok(undefined);
           }
-        } catch (error) {
+        } else {
           this.logVerbose("git worktree list失敗、復旧を継続", {
             threadId,
-            error: (error as Error).message,
+            error: worktreeListResult.error.message,
           });
         }
       }
@@ -296,9 +318,12 @@ export class WorkerManager {
               });
               // リポジトリ設定に失敗した場合、Worker作成を中断
               this.workers.delete(threadId);
-              throw new Error(
-                `Failed to restore repository for thread ${threadId}: ${setRepoResult.error.type}`,
-              );
+              return err({
+                type: "REPOSITORY_RESTORE_FAILED",
+                threadId,
+                repositoryFullName: threadInfo.repositoryFullName,
+                error: setRepoResult.error.type,
+              });
             } else {
               this.logVerbose("リポジトリ情報復旧完了", {
                 threadId,
@@ -342,6 +367,8 @@ export class WorkerManager {
         hasRepository: !!worker.getRepository(),
       });
     }
+
+    return ok(undefined);
   }
 
   /**

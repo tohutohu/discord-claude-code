@@ -1,4 +1,5 @@
 import { err, ok, Result } from "npm:neverthrow@8.1.1";
+import { exec } from "./utils/exec.ts";
 
 // エラー型の定義
 export type SystemCheckError = {
@@ -134,50 +135,28 @@ export async function checkSystemRequirements(): Promise<
 async function checkCommand(
   command: string,
 ): Promise<Result<CommandStatus, SystemCheckError>> {
-  try {
-    const process = new Deno.Command(command, {
-      args: ["--version"],
-      stdout: "piped",
-      stderr: "piped",
+  const result = await exec(`${command} --version`);
+
+  if (result.isOk()) {
+    return ok({
+      command,
+      available: true,
+      version: result.value.output.trim(),
     });
-
-    const result = await process.output();
-
-    if (result.success) {
-      const version = new TextDecoder().decode(result.stdout).trim();
-      return ok({
-        command,
-        available: true,
-        version,
-      });
-    } else {
-      const error = new TextDecoder().decode(result.stderr).trim();
+  } else {
+    // コマンドが実行できなかった場合
+    if (result.error.type === "EXECUTION_ERROR") {
       return ok({
         command,
         available: false,
-        error,
+        error: result.error.message,
       });
     }
-  } catch (error) {
-    const errorMessage = (error as Error).message;
-
-    // コマンドが見つからない場合
-    if (
-      errorMessage.includes("No such file or directory") ||
-      errorMessage.includes("not found")
-    ) {
-      return err({
-        type: "COMMAND_NOT_FOUND",
-        command,
-        error: errorMessage,
-      });
-    }
-
-    // その他のエラー
-    return err({
-      type: "VERSION_CHECK_FAILED",
+    // コマンドが失敗した場合
+    return ok({
       command,
-      error: errorMessage,
+      available: false,
+      error: result.error.error || result.error.message,
     });
   }
 }

@@ -2,7 +2,8 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Worker } from "./worker.ts";
 import { WorkerState, WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
-import { ClaudeCommandExecutor } from "./worker.ts";
+import { ClaudeCommandExecutor } from "./worker/claude-executor.ts";
+import { ok } from "neverthrow";
 
 // モックのClaudeCommandExecutor
 class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
@@ -18,7 +19,7 @@ class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
-  ): Promise<{ code: number; stderr: Uint8Array }> {
+  ) {
     const promptIndex = args.indexOf("-p");
     if (promptIndex !== -1 && promptIndex + 1 < args.length) {
       this.lastPrompt = args[promptIndex + 1];
@@ -35,7 +36,7 @@ class MockClaudeCommandExecutor implements ClaudeCommandExecutor {
       }
     }
 
-    return { code: 0, stderr: new Uint8Array() };
+    return ok({ code: 0, stderr: new Uint8Array() });
   }
 }
 

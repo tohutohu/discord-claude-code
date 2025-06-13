@@ -2,6 +2,7 @@ import { join } from "std/path/mod.ts";
 import { WorkspaceManager } from "./workspace.ts";
 import { GIT } from "./constants.ts";
 import { err, ok, Result } from "neverthrow";
+import { exec } from "./utils/exec.ts";
 
 // エラー型定義
 export type GitUtilsError =
@@ -12,13 +13,67 @@ export type GitUtilsError =
   | { type: "WORKTREE_CREATE_FAILED"; error: string }
   | { type: "COMMAND_EXECUTION_FAILED"; command: string; error: string }
   | { type: "PERMISSION_ERROR"; path: string; error: string }
-  | { type: "GH_CLI_ERROR"; command: string; error: string };
+  | { type: "GH_CLI_ERROR"; command: string; error: string }
+  | {
+    type: "FILESYSTEM_ERROR";
+    operation: string;
+    path: string;
+    error: string;
+  };
 
 export interface GitRepository {
   org: string;
   repo: string;
   fullName: string;
   localPath: string;
+}
+
+// ファイルシステム操作のヘルパー関数
+async function statFile(
+  path: string,
+): Promise<Result<Deno.FileInfo, GitUtilsError>> {
+  try {
+    const stat = await Deno.stat(path);
+    return ok(stat);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return err({
+        type: "FILESYSTEM_ERROR",
+        operation: "stat",
+        path,
+        error: "File or directory not found",
+      });
+    }
+    return err({
+      type: "FILESYSTEM_ERROR",
+      operation: "stat",
+      path,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+async function mkdirRecursive(
+  path: string,
+): Promise<Result<void, GitUtilsError>> {
+  try {
+    await Deno.mkdir(path, { recursive: true });
+    return ok(undefined);
+  } catch (error) {
+    if (error instanceof Deno.errors.PermissionDenied) {
+      return err({
+        type: "PERMISSION_ERROR",
+        path,
+        error: error.message,
+      });
+    }
+    return err({
+      type: "FILESYSTEM_ERROR",
+      operation: "mkdir",
+      path,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 }
 
 export function parseRepository(
@@ -55,43 +110,25 @@ export async function ensureRepository(
     repository.repo,
   );
 
-  try {
-    // ディレクトリが存在するかチェック
-    const stat = await Deno.stat(fullPath);
-    if (stat.isDirectory) {
-      // 既存リポジトリを最新に更新
-      const updateResult = await updateRepositoryWithGh(
-        fullPath,
-        GIT.DEFAULT_BRANCH,
-      );
-      if (updateResult.isErr()) {
-        return err(updateResult.error);
-      }
-      return ok({ path: fullPath, wasUpdated: true });
+  // ディレクトリが存在するかチェック
+  const statResult = await statFile(fullPath);
+  if (statResult.isOk() && statResult.value.isDirectory) {
+    // 既存リポジトリを最新に更新
+    const updateResult = await updateRepositoryWithGh(
+      fullPath,
+      GIT.DEFAULT_BRANCH,
+    );
+    if (updateResult.isErr()) {
+      return err(updateResult.error);
     }
-  } catch (_error) {
-    // ディレクトリが存在しない場合は新規clone
+    return ok({ path: fullPath, wasUpdated: true });
   }
 
   // 親ディレクトリを作成
-  try {
-    await Deno.mkdir(
-      join(workspaceManager.getRepositoriesDir(), repository.org),
-      { recursive: true },
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "PERMISSION_ERROR",
-        path: join(workspaceManager.getRepositoriesDir(), repository.org),
-        error: error.message,
-      });
-    }
-    return err({
-      type: "PERMISSION_ERROR",
-      path: join(workspaceManager.getRepositoriesDir(), repository.org),
-      error: "Unknown error",
-    });
+  const parentDir = join(workspaceManager.getRepositoriesDir(), repository.org);
+  const mkdirResult = await mkdirRecursive(parentDir);
+  if (mkdirResult.isErr()) {
+    return err(mkdirResult.error);
   }
 
   // ghコマンドでリポジトリをclone
@@ -120,37 +157,27 @@ async function cloneRepository(
   fullName: string,
   fullPath: string,
 ): Promise<Result<void, GitUtilsError>> {
-  const cloneProcess = new Deno.Command("gh", {
-    args: ["repo", "clone", fullName, fullPath],
-    stdout: "piped",
-    stderr: "piped",
-  });
+  const execResult = await exec(`gh repo clone ${fullName} ${fullPath}`);
 
-  try {
-    const cloneResult = await cloneProcess.output();
-    if (!cloneResult.success) {
-      const error = new TextDecoder().decode(cloneResult.stderr);
+  if (execResult.isErr()) {
+    const error = execResult.error;
+    if (error.type === "COMMAND_FAILED") {
       return err({
         type: "GH_CLI_ERROR",
         command: "gh repo clone",
-        error: `リポジトリのcloneに失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "gh repo clone",
-        error: error.message,
+        error: `リポジトリのcloneに失敗しました: ${
+          error.error || error.message
+        }`,
       });
     }
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "gh repo clone",
-      error: "Unknown error",
+      error: error.message,
     });
   }
+
+  return ok(undefined);
 }
 
 async function updateRepositoryWithGh(
@@ -158,35 +185,13 @@ async function updateRepositoryWithGh(
   defaultBranch: string,
 ): Promise<Result<void, GitUtilsError>> {
   // リモートリポジトリから最新情報を取得
-  const fetchProcess = new Deno.Command("git", {
-    args: ["fetch", "origin"],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const fetchResult = await fetchProcess.output();
-    if (!fetchResult.success) {
-      const error = new TextDecoder().decode(fetchResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git fetch",
-        error: `git fetchに失敗しました: ${error}`,
-      });
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git fetch",
-        error: error.message,
-      });
-    }
+  const fetchResult = await exec(`cd "${repoPath}" && git fetch origin`);
+  if (fetchResult.isErr()) {
+    const error = fetchResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git fetch",
-      error: "Unknown error",
+      error: `git fetchに失敗しました: ${error.error || error.message}`,
     });
   }
 
@@ -198,85 +203,39 @@ async function updateRepositoryWithGh(
   const currentBranch = currentBranchResult.value;
   if (currentBranch !== defaultBranch) {
     // デフォルトブランチに切り替え
-    const checkoutProcess = new Deno.Command("git", {
-      args: ["checkout", defaultBranch],
-      cwd: repoPath,
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    try {
-      const checkoutResult = await checkoutProcess.output();
-      if (!checkoutResult.success) {
-        const error = new TextDecoder().decode(checkoutResult.stderr);
-        return err({
-          type: "COMMAND_EXECUTION_FAILED",
-          command: "git checkout",
-          error: `git checkoutに失敗しました: ${error}`,
-        });
-      }
-    } catch (error) {
-      if (error instanceof Error) {
-        return err({
-          type: "COMMAND_EXECUTION_FAILED",
-          command: "git checkout",
-          error: error.message,
-        });
-      }
+    const checkoutResult = await exec(
+      `cd "${repoPath}" && git checkout ${defaultBranch}`,
+    );
+    if (checkoutResult.isErr()) {
+      const error = checkoutResult.error;
       return err({
         type: "COMMAND_EXECUTION_FAILED",
         command: "git checkout",
-        error: "Unknown error",
+        error: `git checkoutに失敗しました: ${error.error || error.message}`,
       });
     }
   }
 
   // デフォルトブランチを最新にリセット
-  const resetProcess = new Deno.Command("git", {
-    args: ["reset", "--hard", `origin/${defaultBranch}`],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const resetResult = await resetProcess.output();
-    if (!resetResult.success) {
-      const error = new TextDecoder().decode(resetResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git reset",
-        error: `git resetに失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git reset",
-        error: error.message,
-      });
-    }
+  const resetResult = await exec(
+    `cd "${repoPath}" && git reset --hard origin/${defaultBranch}`,
+  );
+  if (resetResult.isErr()) {
+    const error = resetResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git reset",
-      error: "Unknown error",
+      error: `git resetに失敗しました: ${error.error || error.message}`,
     });
   }
+  return ok(undefined);
 }
 
 export async function isWorktreeCopyExists(
   worktreePath: string,
 ): Promise<boolean> {
-  try {
-    // worktreeディレクトリが存在するかチェック
-    const stat = await Deno.stat(worktreePath);
-    return stat.isDirectory;
-  } catch (_error) {
-    // ディレクトリが存在しない場合
-    return false;
-  }
+  const statResult = await statFile(worktreePath);
+  return statResult.isOk() && statResult.value.isDirectory;
 }
 
 /**
@@ -294,69 +253,44 @@ async function copyRepository(
   repositoryPath: string,
   worktreePath: string,
 ): Promise<Result<void, GitUtilsError>> {
-  try {
-    await Deno.mkdir(worktreePath, { recursive: true });
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "PERMISSION_ERROR",
-        path: worktreePath,
-        error: error.message,
-      });
-    }
-    return err({
-      type: "PERMISSION_ERROR",
-      path: worktreePath,
-      error: "Unknown error",
-    });
+  const mkdirResult = await mkdirRecursive(worktreePath);
+  if (mkdirResult.isErr()) {
+    return err(mkdirResult.error);
   }
 
-  const copyProcess = new Deno.Command("rsync", {
-    args: ["-a", `${repositoryPath}/`, `${worktreePath}/`],
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const copyResult = await copyProcess.output();
-    if (!copyResult.success) {
-      const error = new TextDecoder().decode(copyResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "rsync",
-        error: `リポジトリのコピーに失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "rsync",
-        error: error.message,
-      });
-    }
+  const copyResult = await exec(
+    `rsync -a "${repositoryPath}/" "${worktreePath}/"`,
+  );
+  if (copyResult.isErr()) {
+    const error = copyResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "rsync",
-      error: "Unknown error",
+      error: `リポジトリのコピーに失敗しました: ${
+        error.error || error.message
+      }`,
     });
   }
+  return ok(undefined);
 }
 
 /**
  * .gitディレクトリの存在を確認する
  */
-async function checkGitDirectory(worktreePath: string): Promise<boolean> {
-  try {
-    await Deno.stat(`${worktreePath}/.git`);
-    return true;
-  } catch (e) {
-    if (e instanceof Deno.errors.NotFound) {
-      return false;
+async function checkGitDirectory(
+  worktreePath: string,
+): Promise<Result<boolean, GitUtilsError>> {
+  const statResult = await statFile(`${worktreePath}/.git`);
+  if (statResult.isErr()) {
+    if (
+      statResult.error.type === "FILESYSTEM_ERROR" &&
+      statResult.error.error === "File or directory not found"
+    ) {
+      return ok(false);
     }
-    throw e;
+    return err(statResult.error);
   }
+  return ok(true);
 }
 
 /**
@@ -366,38 +300,18 @@ async function createNewBranch(
   worktreePath: string,
   branchName: string,
 ): Promise<Result<void, GitUtilsError>> {
-  const checkoutProcess = new Deno.Command("git", {
-    args: ["checkout", "-b", branchName],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const checkoutResult = await checkoutProcess.output();
-    if (!checkoutResult.success) {
-      const error = new TextDecoder().decode(checkoutResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git checkout -b",
-        error: `ブランチの作成に失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git checkout -b",
-        error: error.message,
-      });
-    }
+  const checkoutResult = await exec(
+    `cd "${worktreePath}" && git checkout -b ${branchName}`,
+  );
+  if (checkoutResult.isErr()) {
+    const error = checkoutResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git checkout -b",
-      error: "Unknown error",
+      error: `ブランチの作成に失敗しました: ${error.error || error.message}`,
     });
   }
+  return ok(undefined);
 }
 
 /**
@@ -406,38 +320,16 @@ async function createNewBranch(
 async function initializeNewRepository(
   worktreePath: string,
 ): Promise<Result<void, GitUtilsError>> {
-  const initProcess = new Deno.Command("git", {
-    args: ["init"],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const initResult = await initProcess.output();
-    if (!initResult.success) {
-      const error = new TextDecoder().decode(initResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git init",
-        error: `git initに失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git init",
-        error: error.message,
-      });
-    }
+  const initResult = await exec(`cd "${worktreePath}" && git init`);
+  if (initResult.isErr()) {
+    const error = initResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git init",
-      error: "Unknown error",
+      error: `git initに失敗しました: ${error.error || error.message}`,
     });
   }
+  return ok(undefined);
 }
 
 /**
@@ -446,70 +338,34 @@ async function initializeNewRepository(
 async function configureGitUser(
   worktreePath: string,
 ): Promise<Result<void, GitUtilsError>> {
-  const configNameProcess = new Deno.Command("git", {
-    args: ["config", "user.name", GIT.BOT_USER_NAME],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const nameResult = await configNameProcess.output();
-    if (!nameResult.success) {
-      const error = new TextDecoder().decode(nameResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git config user.name",
-        error: `git config user.nameに失敗しました: ${error}`,
-      });
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git config user.name",
-        error: error.message,
-      });
-    }
+  const nameResult = await exec(
+    `cd "${worktreePath}" && git config user.name "${GIT.BOT_USER_NAME}"`,
+  );
+  if (nameResult.isErr()) {
+    const error = nameResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git config user.name",
-      error: "Unknown error",
+      error: `git config user.nameに失敗しました: ${
+        error.error || error.message
+      }`,
     });
   }
 
-  const configEmailProcess = new Deno.Command("git", {
-    args: ["config", "user.email", GIT.BOT_USER_EMAIL],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const emailResult = await configEmailProcess.output();
-    if (!emailResult.success) {
-      const error = new TextDecoder().decode(emailResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git config user.email",
-        error: `git config user.emailに失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git config user.email",
-        error: error.message,
-      });
-    }
+  const emailResult = await exec(
+    `cd "${worktreePath}" && git config user.email "${GIT.BOT_USER_EMAIL}"`,
+  );
+  if (emailResult.isErr()) {
+    const error = emailResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git config user.email",
-      error: "Unknown error",
+      error: `git config user.emailに失敗しました: ${
+        error.error || error.message
+      }`,
     });
   }
+  return ok(undefined);
 }
 
 /**
@@ -520,76 +376,30 @@ async function stageAndCommitFiles(
   workerName: string,
 ): Promise<Result<void, GitUtilsError>> {
   // 全てのファイルをステージング
-  const addProcess = new Deno.Command("git", {
-    args: ["add", "."],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const addResult = await addProcess.output();
-    if (!addResult.success) {
-      const error = new TextDecoder().decode(addResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git add",
-        error: `git addに失敗しました: ${error}`,
-      });
-    }
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git add",
-        error: error.message,
-      });
-    }
+  const addResult = await exec(`cd "${worktreePath}" && git add .`);
+  if (addResult.isErr()) {
+    const error = addResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git add",
-      error: "Unknown error",
+      error: `git addに失敗しました: ${error.error || error.message}`,
     });
   }
 
   // 初期コミット
   const timestamp = Date.now();
-  const commitProcess = new Deno.Command("git", {
-    args: [
-      "commit",
-      "-m",
-      `Initial worktree copy for ${workerName} at ${timestamp}`,
-    ],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const commitResult = await commitProcess.output();
-    if (!commitResult.success) {
-      const error = new TextDecoder().decode(commitResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git commit",
-        error: `git commitに失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git commit",
-        error: error.message,
-      });
-    }
+  const commitResult = await exec(
+    `cd "${worktreePath}" && git commit -m "Initial worktree copy for ${workerName} at ${timestamp}"`,
+  );
+  if (commitResult.isErr()) {
+    const error = commitResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git commit",
-      error: "Unknown error",
+      error: `git commitに失敗しました: ${error.error || error.message}`,
     });
   }
+  return ok(undefined);
 }
 
 /**
@@ -599,38 +409,18 @@ async function renameBranch(
   worktreePath: string,
   branchName: string,
 ): Promise<Result<void, GitUtilsError>> {
-  const branchProcess = new Deno.Command("git", {
-    args: ["branch", "-m", branchName],
-    cwd: worktreePath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const branchResult = await branchProcess.output();
-    if (!branchResult.success) {
-      const error = new TextDecoder().decode(branchResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git branch -m",
-        error: `ブランチ名の設定に失敗しました: ${error}`,
-      });
-    }
-    return ok(undefined);
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git branch -m",
-        error: error.message,
-      });
-    }
+  const branchResult = await exec(
+    `cd "${worktreePath}" && git branch -m ${branchName}`,
+  );
+  if (branchResult.isErr()) {
+    const error = branchResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git branch -m",
-      error: "Unknown error",
+      error: `ブランチ名の設定に失敗しました: ${error.error || error.message}`,
     });
   }
+  return ok(undefined);
 }
 
 export async function createWorktreeCopy(
@@ -643,16 +433,26 @@ export async function createWorktreeCopy(
   if (copyResult.isErr()) {
     return err({
       type: "WORKTREE_CREATE_FAILED",
-      error: `worktreeコピーの作成に失敗しました: ${
-        copyResult.error.type === "COMMAND_EXECUTION_FAILED"
-          ? copyResult.error.error
-          : "Unknown error"
-      }`,
+      error: copyResult.error.type === "COMMAND_EXECUTION_FAILED"
+        ? copyResult.error.error
+        : copyResult.error.type === "PERMISSION_ERROR"
+        ? copyResult.error.error
+        : "リポジトリのコピーに失敗しました",
     });
   }
 
   // .gitディレクトリの存在を確認
-  const hasGitDirectory = await checkGitDirectory(worktreePath);
+  const gitDirResult = await checkGitDirectory(worktreePath);
+  if (gitDirResult.isErr()) {
+    return err({
+      type: "WORKTREE_CREATE_FAILED",
+      error: gitDirResult.error.type === "FILESYSTEM_ERROR"
+        ? gitDirResult.error.error
+        : "Gitディレクトリの確認に失敗しました",
+    });
+  }
+
+  const hasGitDirectory = gitDirResult.value;
 
   if (hasGitDirectory) {
     // 既存のGitリポジトリの場合は新しいブランチを作成
@@ -661,11 +461,9 @@ export async function createWorktreeCopy(
     if (branchResult.isErr()) {
       return err({
         type: "WORKTREE_CREATE_FAILED",
-        error: `worktreeコピーの作成に失敗しました: ${
-          branchResult.error.type === "COMMAND_EXECUTION_FAILED"
-            ? branchResult.error.error
-            : "Unknown error"
-        }`,
+        error: branchResult.error.type === "COMMAND_EXECUTION_FAILED"
+          ? branchResult.error.error
+          : "ブランチの作成に失敗しました",
       });
     }
   } else {
@@ -675,11 +473,9 @@ export async function createWorktreeCopy(
     if (initResult.isErr()) {
       return err({
         type: "WORKTREE_CREATE_FAILED",
-        error: `worktreeコピーの作成に失敗しました: ${
-          initResult.error.type === "COMMAND_EXECUTION_FAILED"
-            ? initResult.error.error
-            : "Unknown error"
-        }`,
+        error: initResult.error.type === "COMMAND_EXECUTION_FAILED"
+          ? initResult.error.error
+          : "リポジトリの初期化に失敗しました",
       });
     }
 
@@ -688,11 +484,9 @@ export async function createWorktreeCopy(
     if (configResult.isErr()) {
       return err({
         type: "WORKTREE_CREATE_FAILED",
-        error: `worktreeコピーの作成に失敗しました: ${
-          configResult.error.type === "COMMAND_EXECUTION_FAILED"
-            ? configResult.error.error
-            : "Unknown error"
-        }`,
+        error: configResult.error.type === "COMMAND_EXECUTION_FAILED"
+          ? configResult.error.error
+          : "Git設定の適用に失敗しました",
       });
     }
 
@@ -701,11 +495,9 @@ export async function createWorktreeCopy(
     if (commitResult.isErr()) {
       return err({
         type: "WORKTREE_CREATE_FAILED",
-        error: `worktreeコピーの作成に失敗しました: ${
-          commitResult.error.type === "COMMAND_EXECUTION_FAILED"
-            ? commitResult.error.error
-            : "Unknown error"
-        }`,
+        error: commitResult.error.type === "COMMAND_EXECUTION_FAILED"
+          ? commitResult.error.error
+          : "初期コミットの作成に失敗しました",
       });
     }
 
@@ -715,11 +507,9 @@ export async function createWorktreeCopy(
     if (renameResult.isErr()) {
       return err({
         type: "WORKTREE_CREATE_FAILED",
-        error: `worktreeコピーの作成に失敗しました: ${
-          renameResult.error.type === "COMMAND_EXECUTION_FAILED"
-            ? renameResult.error.error
-            : "Unknown error"
-        }`,
+        error: renameResult.error.type === "COMMAND_EXECUTION_FAILED"
+          ? renameResult.error.error
+          : "ブランチ名の設定に失敗しました",
       });
     }
   }
@@ -730,36 +520,18 @@ export async function createWorktreeCopy(
 async function getCurrentBranch(
   repoPath: string,
 ): Promise<Result<string, GitUtilsError>> {
-  const branchProcess = new Deno.Command("git", {
-    args: ["branch", "--show-current"],
-    cwd: repoPath,
-    stdout: "piped",
-    stderr: "piped",
-  });
-
-  try {
-    const branchResult = await branchProcess.output();
-    if (!branchResult.success) {
-      const error = new TextDecoder().decode(branchResult.stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git branch --show-current",
-        error: `現在のブランチの取得に失敗しました: ${error}`,
-      });
-    }
-    return ok(new TextDecoder().decode(branchResult.stdout).trim());
-  } catch (error) {
-    if (error instanceof Error) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "git branch --show-current",
-        error: error.message,
-      });
-    }
+  const branchResult = await exec(
+    `cd "${repoPath}" && git branch --show-current`,
+  );
+  if (branchResult.isErr()) {
+    const error = branchResult.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: "git branch --show-current",
-      error: "Unknown error",
+      error: `現在のブランチの取得に失敗しました: ${
+        error.error || error.message
+      }`,
     });
   }
+  return ok(branchResult.value.output.trim());
 }

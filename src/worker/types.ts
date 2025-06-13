@@ -10,6 +10,17 @@ export type WorkerError =
   | { type: "WORKSPACE_ERROR"; operation: string; error: string }
   | { type: "STREAM_PROCESSING_ERROR"; error: string };
 
+// ClaudeExecutorError型定義
+export type ClaudeExecutorError =
+  | { type: "COMMAND_EXECUTION_FAILED"; code: number; stderr: string }
+  | { type: "STREAM_PROCESSING_ERROR"; error: string };
+
+// MessageFormatterError型定義
+export type MessageFormatterError = { type: "FORMAT_ERROR"; error: string };
+
+// SessionLoggerError型定義
+export type SessionLoggerError = { type: "SAVE_FAILED"; error: string };
+
 // Claude関連の型定義
 export interface ClaudeResponse {
   content: string;

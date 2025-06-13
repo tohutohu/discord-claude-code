@@ -1,9 +1,16 @@
-import { ClaudeCodeRateLimitError, type IWorker } from "../worker.ts";
+import { type IWorker } from "../worker.ts";
 import { WorkspaceManager } from "../workspace.ts";
 import type { AuditEntry } from "../workspace.ts";
 import type { DiscordMessage } from "./types.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
 import { WorkerManager } from "./worker-manager.ts";
+import { err, ok, Result } from "neverthrow";
+
+// エラー型定義
+export type MessageRouterError =
+  | { type: "WORKER_NOT_FOUND"; threadId: string }
+  | { type: "RATE_LIMIT_ERROR"; threadId: string; timestamp: number }
+  | { type: "MESSAGE_PROCESSING_ERROR"; threadId: string; error: string };
 
 export class MessageRouter {
   private workerManager: WorkerManager;
@@ -33,7 +40,7 @@ export class MessageRouter {
     onReaction?: (emoji: string) => Promise<void>,
     messageId?: string,
     authorId?: string,
-  ): Promise<string | DiscordMessage> {
+  ): Promise<Result<string | DiscordMessage, MessageRouterError>> {
     this.logVerbose("メッセージルーティング開始", {
       threadId,
       messageLength: message.length,
@@ -55,11 +62,15 @@ export class MessageRouter {
       message,
     );
     if (rateLimitResult) {
-      return rateLimitResult;
+      return ok(rateLimitResult);
     }
 
     // スレッド用のWorker取得
-    const worker = this.findWorkerForThread(threadId);
+    const workerResult = this.findWorkerForThread(threadId);
+    if (workerResult.isErr()) {
+      return err(workerResult.error);
+    }
+    const worker = workerResult.value;
 
     // 監査ログに記録
     await this.logAuditEntry(threadId, "message_received", {
@@ -69,19 +80,28 @@ export class MessageRouter {
 
     this.logVerbose("Workerにメッセージ処理を委譲", { threadId });
 
-    try {
-      // Workerへの処理委譲
-      return await this.delegateToWorker(
-        worker,
-        threadId,
-        message,
-        onProgress,
-        onReaction,
-      );
-    } catch (error) {
-      // レートリミットエラーのハンドリング
-      return await this.handleRateLimitError(threadId, error);
+    // Workerへの処理委譲
+    const delegateResult = await this.delegateToWorker(
+      worker,
+      threadId,
+      message,
+      onProgress,
+      onReaction,
+    );
+
+    if (delegateResult.isErr()) {
+      if (delegateResult.error.type === "RATE_LIMIT_ERROR") {
+        // レートリミットエラーのハンドリング
+        const rateLimitMessage = await this.handleRateLimitError(
+          threadId,
+          delegateResult.error.timestamp,
+        );
+        return ok(rateLimitMessage);
+      }
+      return err(delegateResult.error);
     }
+
+    return ok(delegateResult.value);
   }
 
   /**
@@ -155,12 +175,14 @@ export class MessageRouter {
   /**
    * スレッド用のWorkerを取得する
    */
-  private findWorkerForThread(threadId: string): IWorker {
+  private findWorkerForThread(
+    threadId: string,
+  ): Result<IWorker, MessageRouterError> {
     const worker = this.workerManager.getWorker(threadId);
 
     if (!worker) {
       this.logVerbose("Worker見つからず", { threadId });
-      throw new Error(`Worker not found for thread: ${threadId}`);
+      return err({ type: "WORKER_NOT_FOUND", threadId });
     }
 
     this.logVerbose("Worker発見、処理開始", {
@@ -175,7 +197,7 @@ export class MessageRouter {
       threadId,
     });
 
-    return worker;
+    return ok(worker);
   }
 
   /**
@@ -187,7 +209,7 @@ export class MessageRouter {
     message: string,
     onProgress?: (content: string) => Promise<void>,
     onReaction?: (emoji: string) => Promise<void>,
-  ): Promise<string> {
+  ): Promise<Result<string, MessageRouterError>> {
     const result = await worker.processMessage(
       message,
       onProgress,
@@ -197,9 +219,15 @@ export class MessageRouter {
     if (result.isErr()) {
       const error = result.error;
       if (error.type === "RATE_LIMIT") {
-        throw new ClaudeCodeRateLimitError(error.timestamp);
+        return err({
+          type: "RATE_LIMIT_ERROR",
+          threadId,
+          timestamp: error.timestamp,
+        });
       } else if (error.type === "REPOSITORY_NOT_SET") {
-        return "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。";
+        return ok(
+          "リポジトリが設定されていません。/start コマンドでリポジトリを指定してください。",
+        );
       } else if (error.type === "CONFIGURATION_INCOMPLETE") {
         let message = "⚠️ **Claude Code実行環境の設定が必要です**\n\n";
         message += "**実行環境を選択してください:**\n";
@@ -207,7 +235,7 @@ export class MessageRouter {
           "• `/config devcontainer on` - devcontainer環境で実行（推奨）\n";
         message += "• `/config devcontainer off` - ホスト環境で実行\n\n";
         message += "設定が完了すると、Claude Codeを実行できるようになります。";
-        return message;
+        return ok(message);
       } else {
         // その他のエラーの場合
         switch (error.type) {
@@ -217,7 +245,7 @@ export class MessageRouter {
           case "TRANSLATION_FAILED":
           case "SESSION_LOG_FAILED":
           case "DEVCONTAINER_START_FAILED":
-            return `エラーが発生しました: ${error.error}`;
+            return ok(`エラーが発生しました: ${error.error}`);
           default:
             // Never型になるはずなので、全てのケースがカバーされている
             return error satisfies never;
@@ -231,7 +259,7 @@ export class MessageRouter {
       responseLength: responseText.length,
     });
 
-    return responseText;
+    return ok(responseText);
   }
 
   /**
@@ -239,28 +267,23 @@ export class MessageRouter {
    */
   private async handleRateLimitError(
     threadId: string,
-    error: unknown,
+    timestamp: number,
   ): Promise<string | DiscordMessage> {
-    if (!(error instanceof ClaudeCodeRateLimitError)) {
-      // その他のエラーは再投げ
-      throw error;
-    }
-
     this.logVerbose("Claude Codeレートリミット検出", {
       threadId,
-      timestamp: error.timestamp,
+      timestamp,
     });
 
     // レートリミット情報をスレッド情報に保存
     await this.rateLimitManager.saveRateLimitInfo(
       threadId,
-      error.timestamp,
+      timestamp,
     );
 
     // 自動継続確認メッセージを返す
     return this.rateLimitManager.createRateLimitMessage(
       threadId,
-      error.timestamp,
+      timestamp,
     );
   }
 

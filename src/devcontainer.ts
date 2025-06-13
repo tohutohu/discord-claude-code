@@ -7,6 +7,7 @@ import {
   validateDevcontainerLog,
 } from "./schemas/external-api-schema.ts";
 import { err, ok, Result } from "neverthrow";
+import { exec } from "./utils/exec.ts";
 
 // エラー型定義
 export type DevcontainerError =
@@ -15,7 +16,9 @@ export type DevcontainerError =
   | { type: "CONTAINER_START_FAILED"; error: string }
   | { type: "COMMAND_EXECUTION_FAILED"; command: string; error: string }
   | { type: "JSON_PARSE_ERROR"; path: string; error: string }
-  | { type: "FILE_READ_ERROR"; path: string; error: string };
+  | { type: "FILE_READ_ERROR"; path: string; error: string }
+  | { type: "STREAM_READ_ERROR"; stream: string; error: string }
+  | { type: "PROGRESS_UPDATE_ERROR"; error: string };
 
 // DevcontainerConfigはexternal-api-schemaからインポートして使用
 
@@ -38,45 +41,34 @@ export async function checkDevcontainerConfig(
   ];
 
   for (const configPath of possiblePaths) {
-    try {
-      const configContent = await Deno.readTextFile(configPath);
-      let parsedConfig;
-      try {
-        parsedConfig = JSON.parse(configContent);
-      } catch (parseError) {
-        return err({
-          type: "JSON_PARSE_ERROR",
-          path: configPath,
-          error: (parseError as Error).message,
-        });
-      }
-
-      const config = validateDevcontainerConfig(parsedConfig);
-
-      if (!config) {
-        console.warn(`devcontainer.json形式が無効です (${configPath})`);
+    const readResult = await readTextFileSafe(configPath);
+    if (readResult.isErr()) {
+      if (readResult.error.type === "NOT_FOUND") {
         continue;
       }
-
-      const hasAnthropicsFeature = checkAnthropicsFeature(config);
-
-      return ok({
-        configExists: true,
-        configPath,
-        config,
-        hasAnthropicsFeature,
-      });
-    } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) {
-        if (error instanceof Error) {
-          return err({
-            type: "FILE_READ_ERROR",
-            path: configPath,
-            error: error.message,
-          });
-        }
-      }
+      return err(readResult.error);
     }
+
+    const parseResult = parseJsonSafe(readResult.value, configPath);
+    if (parseResult.isErr()) {
+      return err(parseResult.error);
+    }
+
+    const config = validateDevcontainerConfig(parseResult.value);
+
+    if (!config) {
+      console.warn(`devcontainer.json形式が無効です (${configPath})`);
+      continue;
+    }
+
+    const hasAnthropicsFeature = checkAnthropicsFeature(config);
+
+    return ok({
+      configExists: true,
+      configPath,
+      config,
+      hasAnthropicsFeature,
+    });
   }
 
   return ok({
@@ -111,25 +103,16 @@ function checkAnthropicsFeature(config: DevcontainerConfig): boolean {
 export async function checkDevcontainerCli(): Promise<
   Result<boolean, DevcontainerError>
 > {
-  try {
-    const command = new Deno.Command("devcontainer", {
-      args: ["--version"],
-      stdout: "piped",
-      stderr: "piped",
-      env: {
-        ...Deno.env.toObject(),
-        DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-      },
-    });
-
-    const result = await command.output();
-    return ok(result.success);
-  } catch (error) {
+  const result = await exec(
+    "DOCKER_DEFAULT_PLATFORM=linux/amd64 devcontainer --version",
+  );
+  if (result.isErr()) {
     return err({
       type: "CLI_NOT_AVAILABLE",
-      message: `devcontainer CLIが利用できません: ${(error as Error).message}`,
+      message: `devcontainer CLIが利用できません: ${result.error.message}`,
     });
   }
+  return ok(true);
 }
 
 /**
@@ -186,11 +169,55 @@ function setupProgressTimer(
   return setInterval(async () => {
     if (onProgress && logBuffer.length > 0) {
       const recentLogs = logBuffer.slice(-maxLogLines);
-      const logMessage = "🐳 起動中...\n```\n" + recentLogs.join("\n") +
-        "\n```";
-      await onProgress(logMessage).catch(console.error);
+      const logMessage = `🐳 起動中...\n\`\`\`\n${
+        recentLogs.join("\n")
+      }\n\`\`\``;
+      const result = await sendProgressSafe(onProgress, logMessage);
+      if (result.isErr()) {
+        console.error(result.error);
+      }
     }
   }, progressUpdateInterval);
+}
+
+/**
+ * ファイルを安全に読み込む
+ */
+async function readTextFileSafe(
+  path: string,
+): Promise<Result<string, DevcontainerError | { type: "NOT_FOUND" }>> {
+  try {
+    const content = await Deno.readTextFile(path);
+    return ok(content);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return err({ type: "NOT_FOUND" });
+    }
+    return err({
+      type: "FILE_READ_ERROR",
+      path,
+      error: (error as Error).message,
+    });
+  }
+}
+
+/**
+ * JSONを安全にパースする
+ */
+function parseJsonSafe(
+  content: string,
+  path: string,
+): Result<unknown, DevcontainerError> {
+  try {
+    const parsed = JSON.parse(content);
+    return ok(parsed);
+  } catch (error) {
+    return err({
+      type: "JSON_PARSE_ERROR",
+      path,
+      error: (error as Error).message,
+    });
+  }
 }
 
 /**
@@ -278,12 +305,14 @@ async function processStdoutLine(
   maxLogLines: number,
   lastProgressUpdate: { time: number },
   onProgress?: (message: string) => Promise<void>,
-): Promise<void> {
-  try {
-    const parsedLog = JSON.parse(line);
-    const validatedLog = validateDevcontainerLog(parsedLog);
+): Promise<Result<void, DevcontainerError>> {
+  const parseResult = parseJsonSafe(line, "stdout");
+
+  if (parseResult.isOk()) {
+    const validatedLog = validateDevcontainerLog(parseResult.value);
     // バリデーションに失敗しても処理を継続（後方互換性のため）
-    const logEntry = validatedLog || parsedLog;
+    const logEntry = validatedLog ||
+      parseResult.value as Record<string, unknown>;
     const { message, timestamp } = extractLogMessage(logEntry);
 
     // 読みやすい形式でバッファに追加
@@ -304,16 +333,42 @@ async function processStdoutLine(
         lastProgressUpdate.time = now;
         if (onProgress) {
           const icon = getProgressIcon(message);
-          await onProgress(`${icon} ${message}`).catch(console.error);
+          const progressResult = await sendProgressSafe(
+            onProgress,
+            `${icon} ${message}`,
+          );
+          if (progressResult.isErr()) {
+            console.error(progressResult.error);
+          }
         }
       }
     }
-  } catch {
+  } else {
     // JSON以外の行はそのまま追加
     logBuffer.push(line);
     if (logBuffer.length > maxLogLines * 2) {
       logBuffer.splice(0, logBuffer.length - maxLogLines);
     }
+  }
+
+  return ok(undefined);
+}
+
+/**
+ * 進捗メッセージを安全に送信する
+ */
+async function sendProgressSafe(
+  onProgress: (message: string) => Promise<void>,
+  message: string,
+): Promise<Result<void, DevcontainerError>> {
+  try {
+    await onProgress(message);
+    return ok(undefined);
+  } catch (error) {
+    return err({
+      type: "PROGRESS_UPDATE_ERROR",
+      error: (error as Error).message,
+    });
   }
 }
 
@@ -327,35 +382,67 @@ async function processStreamOutput(
   maxLogLines: number,
   lastProgressUpdate: { time: number },
   onProgress?: (message: string) => Promise<void>,
-): Promise<string> {
+): Promise<Result<string, DevcontainerError>> {
   let output = "";
+
+  const readResult = await readStreamSafe(
+    reader,
+    decoder,
+    async (chunk) => {
+      output += chunk;
+
+      // JSON形式のログをパースして処理
+      const lines = chunk.split("\n").filter((line) => line.trim());
+      for (const line of lines) {
+        await processStdoutLine(
+          line,
+          logBuffer,
+          maxLogLines,
+          lastProgressUpdate,
+          onProgress,
+        );
+      }
+    },
+    "stdout",
+  );
+
+  if (readResult.isErr()) {
+    return err(readResult.error);
+  }
+
+  return ok(output);
+}
+
+/**
+ * ストリームを安全に読み取る
+ */
+async function readStreamSafe(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  onChunk?: (chunk: string) => Promise<void>,
+  streamName: string = "stream",
+): Promise<Result<void, DevcontainerError>> {
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
         const chunk = decoder.decode(value, { stream: true });
-        output += chunk;
-
-        // JSON形式のログをパースして処理
-        const lines = chunk.split("\n").filter((line) => line.trim());
-        for (const line of lines) {
-          await processStdoutLine(
-            line,
-            logBuffer,
-            maxLogLines,
-            lastProgressUpdate,
-            onProgress,
-          );
+        if (onChunk) {
+          await onChunk(chunk);
         }
       }
     }
+    return ok(undefined);
   } catch (error) {
-    console.error("stdout読み取りエラー:", error);
+    return err({
+      type: "STREAM_READ_ERROR",
+      stream: streamName,
+      error: (error as Error).message,
+    });
   } finally {
     reader.releaseLock();
   }
-  return output;
 }
 
 /**
@@ -364,23 +451,24 @@ async function processStreamOutput(
 async function readStderrStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   decoder: TextDecoder,
-): Promise<string> {
+): Promise<Result<string, DevcontainerError>> {
   let errorOutput = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: true });
-        errorOutput += chunk;
-      }
-    }
-  } catch (error) {
-    console.error("stderr読み取りエラー:", error);
-  } finally {
-    reader.releaseLock();
+
+  const readResult = await readStreamSafe(
+    reader,
+    decoder,
+    async (chunk) => {
+      errorOutput += chunk;
+    },
+    "stderr",
+  );
+
+  if (readResult.isErr()) {
+    console.error("stderr読み取りエラー:", readResult.error);
+    return ok(errorOutput); // エラーでも部分的な出力を返す
   }
-  return errorOutput;
+
+  return ok(errorOutput);
 }
 
 /**
@@ -412,83 +500,114 @@ export async function startDevcontainer(
   onProgress?: (message: string) => Promise<void>,
   ghToken?: string,
 ): Promise<Result<{ containerId?: string }, DevcontainerError>> {
-  try {
-    if (onProgress) {
-      await onProgress("🐳 Dockerコンテナを準備しています...");
-      await onProgress(`📁 作業ディレクトリ: ${repositoryPath}`);
+  // 進捗メッセージを送信
+  if (onProgress) {
+    const progressResults = await Promise.all([
+      sendProgressSafe(onProgress, "🐳 Dockerコンテナを準備しています..."),
+      sendProgressSafe(onProgress, `📁 作業ディレクトリ: ${repositoryPath}`),
+    ]);
+    for (const result of progressResults) {
+      if (result.isErr()) {
+        console.error(result.error);
+      }
     }
+  }
 
-    // devcontainer up コマンドを実行（デバッグログとJSON形式で出力）
-    if (onProgress) {
-      await onProgress("🔧 devcontainer upコマンドを実行中...");
+  // devcontainer up コマンドを実行（デバッグログとJSON形式で出力）
+  if (onProgress) {
+    const result = await sendProgressSafe(
+      onProgress,
+      "🔧 devcontainer upコマンドを実行中...",
+    );
+    if (result.isErr()) {
+      console.error(result.error);
     }
+  }
 
-    const env = prepareEnvironment(ghToken);
-    const command = createDevcontainerCommand(repositoryPath, env);
-    const process = command.spawn();
+  const env = prepareEnvironment(ghToken);
+  const command = createDevcontainerCommand(repositoryPath, env);
+  const process = command.spawn();
 
-    const decoder = new TextDecoder();
-    const logBuffer: string[] = [];
-    const maxLogLines = DEVCONTAINER.MAX_LOG_LINES;
-    const lastProgressUpdate = { time: Date.now() };
+  const decoder = new TextDecoder();
+  const logBuffer: string[] = [];
+  const maxLogLines = DEVCONTAINER.MAX_LOG_LINES;
+  const lastProgressUpdate = { time: Date.now() };
 
-    // stdoutとstderrをストリーミングで読み取る
-    const stdoutReader = process.stdout.getReader();
-    const stderrReader = process.stderr.getReader();
+  // stdoutとstderrをストリーミングで読み取る
+  const stdoutReader = process.stdout.getReader();
+  const stderrReader = process.stderr.getReader();
 
-    // 定期的なログ更新タイマー
-    const progressTimer = setupProgressTimer(
+  // 定期的なログ更新タイマー
+  const progressTimer = setupProgressTimer(
+    logBuffer,
+    maxLogLines,
+    onProgress,
+  );
+
+  // ストリーム読み取りを並列実行
+  const [statusResult, outputResult, errorOutputResult] = await Promise.all([
+    process.status,
+    processStreamOutput(
+      stdoutReader,
+      decoder,
       logBuffer,
       maxLogLines,
+      lastProgressUpdate,
       onProgress,
-    );
+    ),
+    readStderrStream(stderrReader, decoder),
+  ]);
 
-    // ストリーム読み取りを並列実行
-    const [{ code }, output, errorOutput] = await Promise.all([
-      process.status,
-      processStreamOutput(
-        stdoutReader,
-        decoder,
-        logBuffer,
-        maxLogLines,
-        lastProgressUpdate,
-        onProgress,
-      ),
-      readStderrStream(stderrReader, decoder),
-    ]);
+  // タイマーをクリア
+  clearInterval(progressTimer);
 
-    // タイマーをクリア
-    clearInterval(progressTimer);
+  const { code } = statusResult;
 
-    if (code !== 0) {
-      if (onProgress) {
-        await onProgress(
-          `❌ devcontainer起動失敗\n\`\`\`\n${errorOutput}\n\`\`\``,
-        );
-      }
-      return err({
-        type: "CONTAINER_START_FAILED",
-        error: `devcontainer起動に失敗しました: ${errorOutput}`,
-      });
-    }
+  // エラーハンドリング
+  if (outputResult.isErr()) {
+    return err(outputResult.error);
+  }
 
-    // コンテナIDを取得
-    const containerId = extractContainerId(output);
+  if (errorOutputResult.isErr()) {
+    return err(errorOutputResult.error);
+  }
 
-    // 最終的なログサマリーを送信
+  const output = outputResult.value;
+  const errorOutput = errorOutputResult.value;
+
+  if (code !== 0) {
     if (onProgress) {
-      await onProgress(formatFinalMessage(logBuffer, containerId));
+      const result = await sendProgressSafe(
+        onProgress,
+        `❌ devcontainer起動失敗\n\`\`\`\n${errorOutput}\n\`\`\``,
+      );
+      if (result.isErr()) {
+        console.error(result.error);
+      }
     }
-
-    return ok({
-      containerId: containerId || undefined,
-    });
-  } catch (error) {
     return err({
       type: "CONTAINER_START_FAILED",
-      error: `devcontainer起動エラー: ${(error as Error).message}`,
+      error: `devcontainer起動に失敗しました: ${errorOutput}`,
     });
   }
+
+  // コンテナIDを取得
+  const containerId = extractContainerId(output);
+
+  // 最終的なログサマリーを送信
+  if (onProgress) {
+    const result = await sendProgressSafe(
+      onProgress,
+      formatFinalMessage(logBuffer, containerId),
+    );
+    if (result.isErr()) {
+      console.error(result.error);
+    }
+  }
+
+  return ok({
+    containerId: containerId || undefined,
+  });
 }
 
 /**
@@ -499,45 +618,56 @@ export async function execInDevcontainer(
   command: string[],
   ghToken?: string,
 ): Promise<Result<{ stdout: string; stderr: string }, DevcontainerError>> {
-  try {
-    const env: Record<string, string> = {
-      ...Deno.env.toObject(),
-      DOCKER_DEFAULT_PLATFORM: "linux/amd64",
-    };
+  // 環境変数を準備
+  const envVars = ["DOCKER_DEFAULT_PLATFORM=linux/amd64"];
+  if (ghToken) {
+    envVars.push(`GH_TOKEN=${ghToken}`);
+    envVars.push(`GITHUB_TOKEN=${ghToken}`);
+  }
 
-    // GitHub PATが提供されている場合は環境変数に設定
-    if (ghToken) {
-      env.GH_TOKEN = ghToken;
-      env.GITHUB_TOKEN = ghToken; // 互換性のため両方設定
-    }
+  // devcontainer execコマンドを構築
+  const devcontainerArgs = [
+    "exec",
+    "--workspace-folder",
+    repositoryPath,
+    ...command,
+  ];
+  const fullCommand = `cd "${repositoryPath}" && ${
+    envVars.join(" ")
+  } devcontainer ${devcontainerArgs.map((arg) => `"${arg}"`).join(" ")}`;
 
-    const devcontainerCommand = new Deno.Command("devcontainer", {
-      args: ["exec", "--workspace-folder", repositoryPath, ...command],
-      stdout: "piped",
-      stderr: "piped",
-      cwd: repositoryPath,
-      env,
-    });
-
-    const { code, stdout, stderr } = await devcontainerCommand.output();
-    const decoder = new TextDecoder();
-
-    if (code !== 0) {
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: command.join(" "),
-        error: decoder.decode(stderr),
-      });
-    }
-
-    return ok({
-      stdout: decoder.decode(stdout),
-      stderr: decoder.decode(stderr),
-    });
-  } catch (error) {
+  const result = await exec(fullCommand);
+  if (result.isErr()) {
+    const error = result.error;
     return err({
       type: "COMMAND_EXECUTION_FAILED",
       command: command.join(" "),
+      error: error.error || error.message,
+    });
+  }
+
+  return ok({
+    stdout: result.value.output,
+    stderr: result.value.error,
+  });
+}
+
+/**
+ * ファイルの存在を確認する
+ */
+async function checkFileExists(
+  path: string,
+): Promise<Result<boolean, DevcontainerError>> {
+  try {
+    await Deno.stat(path);
+    return ok(true);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      return ok(false);
+    }
+    return err({
+      type: "FILE_READ_ERROR",
+      path,
       error: (error as Error).message,
     });
   }
@@ -549,58 +679,43 @@ export async function execInDevcontainer(
 export async function prepareFallbackDevcontainer(
   repositoryPath: string,
 ): Promise<Result<void, DevcontainerError>> {
-  try {
-    // fallback_devcontainerディレクトリのパスを取得
-    const currentDir = new URL(".", import.meta.url).pathname;
-    const fallbackDir = join(currentDir, "..", "fallback_devcontainer");
+  // fallback_devcontainerディレクトリのパスを取得
+  const currentDir = new URL(".", import.meta.url).pathname;
+  const fallbackDir = join(currentDir, "..", "fallback_devcontainer");
 
-    // .devcontainerディレクトリをリポジトリにコピー
-    const targetDevcontainerDir = join(repositoryPath, ".devcontainer");
+  // .devcontainerディレクトリをリポジトリにコピー
+  const targetDevcontainerDir = join(repositoryPath, ".devcontainer");
 
-    // ターゲットディレクトリが既に存在する場合はエラー
-    try {
-      await Deno.stat(targetDevcontainerDir);
-      return err({
-        type: "FILE_READ_ERROR",
-        path: targetDevcontainerDir,
-        error: ".devcontainerディレクトリが既に存在します",
-      });
-    } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) {
-        return err({
-          type: "FILE_READ_ERROR",
-          path: targetDevcontainerDir,
-          error: (error as Error).message,
-        });
-      }
-    }
+  // ターゲットディレクトリが既に存在する場合はエラー
+  const existsResult = await checkFileExists(targetDevcontainerDir);
+  if (existsResult.isErr()) {
+    return err(existsResult.error);
+  }
 
-    // fallback devcontainerをコピー
-    const command = new Deno.Command("cp", {
-      args: ["-r", join(fallbackDir, ".devcontainer"), repositoryPath],
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const { code, stderr } = await command.output();
-
-    if (code !== 0) {
-      const errorMsg = new TextDecoder().decode(stderr);
-      return err({
-        type: "COMMAND_EXECUTION_FAILED",
-        command: "cp",
-        error: `fallback devcontainerのコピーに失敗しました: ${errorMsg}`,
-      });
-    }
-
-    return ok(undefined);
-  } catch (error) {
+  if (existsResult.value) {
     return err({
-      type: "COMMAND_EXECUTION_FAILED",
-      command: "prepareFallbackDevcontainer",
-      error: `fallback devcontainer準備エラー: ${(error as Error).message}`,
+      type: "FILE_READ_ERROR",
+      path: targetDevcontainerDir,
+      error: ".devcontainerディレクトリが既に存在します",
     });
   }
+
+  // fallback devcontainerをコピー
+  const copyResult = await exec(
+    `cp -r "${join(fallbackDir, ".devcontainer")}" "${repositoryPath}"`,
+  );
+  if (copyResult.isErr()) {
+    const error = copyResult.error;
+    return err({
+      type: "COMMAND_EXECUTION_FAILED",
+      command: "cp",
+      error: `fallback devcontainerのコピーに失敗しました: ${
+        error.error || error.message
+      }`,
+    });
+  }
+
+  return ok(undefined);
 }
 
 /**
@@ -612,7 +727,13 @@ export async function startFallbackDevcontainer(
   ghToken?: string,
 ): Promise<Result<{ containerId?: string }, DevcontainerError>> {
   if (onProgress) {
-    await onProgress("📦 fallback devcontainerを準備しています...");
+    const result = await sendProgressSafe(
+      onProgress,
+      "📦 fallback devcontainerを準備しています...",
+    );
+    if (result.isErr()) {
+      console.error(result.error);
+    }
   }
 
   // fallback devcontainerをコピー
@@ -622,8 +743,18 @@ export async function startFallbackDevcontainer(
   }
 
   if (onProgress) {
-    await onProgress("✅ fallback devcontainerの準備が完了しました");
-    await onProgress("🐳 devcontainerを起動しています...");
+    const results = await Promise.all([
+      sendProgressSafe(
+        onProgress,
+        "✅ fallback devcontainerの準備が完了しました",
+      ),
+      sendProgressSafe(onProgress, "🐳 devcontainerを起動しています..."),
+    ]);
+    for (const result of results) {
+      if (result.isErr()) {
+        console.error(result.error);
+      }
+    }
   }
 
   // 通常のdevcontainer起動処理を実行

@@ -92,7 +92,14 @@ console.log(checkResults);
 
 console.log("\n✅ システム要件チェック完了\n");
 
-const env = getEnv();
+const envResult = getEnv();
+if (envResult.isErr()) {
+  console.error(`❌ ${envResult.error.message}`);
+  console.error(`環境変数 ${envResult.error.variable} を設定してください。`);
+  Deno.exit(1);
+}
+
+const env = envResult.value;
 const workspaceManager = new WorkspaceManager(env.WORK_BASE_DIR);
 await workspaceManager.initialize();
 // Admin状態を読み込む

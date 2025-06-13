@@ -53,11 +53,25 @@ export class PatManager {
     try {
       const filePath = this.getPatFilePath(repositoryFullName);
       const content = await Deno.readTextFile(filePath);
-      const result = validateRepositoryPatInfoSafe(JSON.parse(content));
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(content);
+      } catch (parseError) {
+        return err({
+          type: "FILE_READ_FAILED",
+          path: filePath,
+          error: `PAT情報のJSONパースに失敗しました: ${parseError}`,
+        });
+      }
+
+      const result = validateRepositoryPatInfoSafe(parsed);
       if (!result.success) {
-        throw new Error(
-          `Invalid PAT data for ${repositoryFullName}: ${result.error}`,
-        );
+        return err({
+          type: "FILE_READ_FAILED",
+          path: filePath,
+          error: `無効なPATデータ: ${result.error}`,
+        });
       }
       return ok(result.data);
     } catch (error) {

@@ -39,6 +39,10 @@ export type WorkspaceError =
   | { type: "PAT_DELETE_FAILED"; repositoryFullName: string; error: string }
   | { type: "QUEUE_NOT_FOUND"; threadId: string }
   | { type: "QUEUE_SAVE_FAILED"; threadId: string; error: string }
+  | { type: "QUEUE_LOAD_FAILED"; threadId: string; error: string }
+  | { type: "QUEUE_DELETE_FAILED"; threadId: string; error: string }
+  | { type: "QUEUE_LIST_FAILED"; error: string }
+  | { type: "QUEUE_INITIALIZATION_FAILED"; error: string }
   | { type: "ADMIN_STATE_LOAD_FAILED"; error: string }
   | { type: "ADMIN_STATE_SAVE_FAILED"; error: string }
   | { type: "WORKER_STATE_NOT_FOUND"; threadId: string }

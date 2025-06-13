@@ -1,7 +1,8 @@
 import { WorkerState, WorkspaceManager } from "../src/workspace.ts";
 import { Admin } from "../src/admin.ts";
 import { IWorker, Worker } from "../src/worker.ts";
-import { ClaudeCommandExecutor } from "../src/worker.ts";
+import { ClaudeCommandExecutor } from "../src/worker/claude-executor.ts";
+import { ok } from "neverthrow";
 import { GitRepository } from "../src/git-utils.ts";
 import {
   assertEquals,
@@ -131,7 +132,7 @@ export function createMockClaudeCommandExecutor(
       args: string[],
       cwd: string,
       onData: (data: Uint8Array) => void,
-    ): Promise<{ code: number; stderr: Uint8Array }> {
+    ) {
       lastArgs = args;
       lastCwd = cwd;
       executionCount++;
@@ -145,21 +146,23 @@ export function createMockClaudeCommandExecutor(
       const response = responses.get(message) || defaultResponse;
 
       // JSONレスポンスを作成（改行で終わる必要がある）
-      const jsonResponse = JSON.stringify({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: response,
-        session_id: "mock-session-id",
-      }) + "\n";
+      const jsonResponse = `${
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: response,
+          session_id: "mock-session-id",
+        })
+      }\n`;
 
       // データをストリーミング
       onData(new TextEncoder().encode(jsonResponse));
 
-      return {
+      return ok({
         code: 0,
         stderr: new Uint8Array(),
-      };
+      });
     },
   };
 
@@ -205,7 +208,7 @@ export function createMockStreamingClaudeCommandExecutor(
       args: string[],
       cwd: string,
       onData: (data: Uint8Array) => void,
-    ): Promise<{ code: number; stderr: Uint8Array }> {
+    ) {
       lastArgs = args;
       lastCwd = cwd;
       executionCount++;
@@ -276,10 +279,10 @@ export function createMockStreamingClaudeCommandExecutor(
         onData(new TextEncoder().encode(jsonResponse));
       }
 
-      return {
+      return ok({
         code: 0,
         stderr: new Uint8Array(),
-      };
+      });
     },
   };
 
@@ -313,11 +316,11 @@ export function createErrorMockClaudeCommandExecutor(
       _args: string[],
       _cwd: string,
       _onData: (data: Uint8Array) => void,
-    ): Promise<{ code: number; stderr: Uint8Array }> {
-      return {
+    ) {
+      return ok({
         code: exitCode,
         stderr: new TextEncoder().encode(errorMessage),
-      };
+      });
     },
   };
 }
