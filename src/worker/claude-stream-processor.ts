@@ -485,4 +485,39 @@ export class ClaudeStreamProcessor {
     }
     return null;
   }
+
+  /**
+   * 中断メッセージを作成する
+   */
+  createInterruptionMessage(
+    sessionId: string,
+    reason: "user_requested" | "timeout" | "system_error",
+    executionTime?: number,
+    lastActivity?: string,
+  ): ClaudeStreamMessage {
+    let content = "Claude Code実行が中断されました。";
+    if (reason === "user_requested") {
+      content = "ユーザーのリクエストによりClaude Code実行が中断されました。";
+    } else if (reason === "timeout") {
+      content = "タイムアウトによりClaude Code実行が中断されました。";
+    } else if (reason === "system_error") {
+      content = "システムエラーによりClaude Code実行が中断されました。";
+    }
+
+    if (executionTime !== undefined) {
+      const seconds = Math.round(executionTime / 1000);
+      content += ` (実行時間: ${seconds}秒)`;
+    }
+
+    if (lastActivity) {
+      content += ` 最後のアクティビティ: ${lastActivity}`;
+    }
+
+    return {
+      type: "error",
+      result: content,
+      is_error: true,
+      session_id: sessionId,
+    };
+  }
 }

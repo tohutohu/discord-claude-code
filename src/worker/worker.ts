@@ -30,6 +30,8 @@ export class Worker implements IWorker {
   private claudeProcess: Deno.ChildProcess | null = null;
   private abortController: AbortController | null = null;
   private isExecuting = false;
+  private executionStartTime: number | null = null;
+  private lastActivityDescription: string | null = null;
 
   constructor(
     state: WorkerState,
@@ -103,6 +105,8 @@ export class Worker implements IWorker {
     // 実行状態を設定
     this.isExecuting = true;
     this.abortController = new AbortController();
+    this.executionStartTime = Date.now();
+    this.lastActivityDescription = null;
 
     try {
       // 翻訳処理（設定されている場合のみ）
@@ -198,6 +202,8 @@ export class Worker implements IWorker {
       this.isExecuting = false;
       this.claudeProcess = null;
       this.abortController = null;
+      this.executionStartTime = null;
+      this.lastActivityDescription = null;
     }
   }
 
@@ -375,6 +381,11 @@ export class Worker implements IWorker {
       if (onProgress) {
         const outputMessage = streamProcessor.extractOutputMessage(parsed);
         if (outputMessage) {
+          // 最後のアクティビティを記録
+          this.lastActivityDescription = this.extractActivityDescription(
+            parsed,
+            outputMessage,
+          );
           onProgress(this.formatter.formatResponse(outputMessage)).catch(
             console.error,
           );
@@ -812,6 +823,40 @@ export class Worker implements IWorker {
   }
 
   /**
+   * ストリームメッセージから最後のアクティビティの説明を抽出
+   */
+  private extractActivityDescription(
+    parsed: ClaudeStreamMessage,
+    outputMessage: string,
+  ): string {
+    // ツール使用の場合
+    if (parsed.type === "assistant" && parsed.message?.content) {
+      for (const item of parsed.message.content) {
+        if (item.type === "tool_use" && item.name) {
+          return `ツール使用: ${item.name}`;
+        }
+      }
+    }
+
+    // ツール結果の場合
+    if (parsed.type === "user" && parsed.message?.content) {
+      for (const item of parsed.message.content) {
+        if (item.type === "tool_result") {
+          return "ツール実行結果を処理";
+        }
+      }
+    }
+
+    // その他のメッセージの場合、最初の50文字を使用
+    if (outputMessage) {
+      const preview = outputMessage.substring(0, 50);
+      return preview.length < outputMessage.length ? `${preview}...` : preview;
+    }
+
+    return "アクティビティ実行中";
+  }
+
+  /**
    * devcontainerを起動する
    */
   async startDevcontainer(
@@ -988,6 +1033,26 @@ export class Worker implements IWorker {
       workerName: this.state.workerName,
       sessionId: this.state.sessionId,
     });
+
+    // 中断イベントをセッションログに記録
+    const executionTime = this.executionStartTime
+      ? Date.now() - this.executionStartTime
+      : undefined;
+
+    if (
+      this.state.repository?.fullName &&
+      this.state.sessionId
+    ) {
+      await this.sessionLogger.saveInterruptionEvent(
+        this.state.repository.fullName,
+        this.state.sessionId,
+        {
+          reason: "user_requested",
+          executionTime,
+          lastActivity: this.lastActivityDescription || undefined,
+        },
+      );
+    }
 
     try {
       // まずAbortControllerで中断シグナルを送信
