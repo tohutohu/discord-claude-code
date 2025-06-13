@@ -27,6 +27,9 @@ export class Worker implements IWorker {
   private readonly sessionLogger: SessionLogger;
   private formatter: MessageFormatter;
   private translator: PLaMoTranslator | null = null;
+  private claudeProcess: Deno.ChildProcess | null = null;
+  private abortController: AbortController | null = null;
+  private isExecuting = false;
 
   constructor(
     state: WorkerState,
@@ -96,6 +99,10 @@ export class Worker implements IWorker {
 
       return err({ type: "CONFIGURATION_INCOMPLETE" });
     }
+
+    // 実行状態を設定
+    this.isExecuting = true;
+    this.abortController = new AbortController();
 
     try {
       // 翻訳処理（設定されている場合のみ）
@@ -186,6 +193,11 @@ export class Worker implements IWorker {
         type: "CLAUDE_EXECUTION_FAILED",
         error: (error as Error).message,
       });
+    } finally {
+      // 実行状態をリセット
+      this.isExecuting = false;
+      this.claudeProcess = null;
+      this.abortController = null;
     }
   }
 
@@ -261,6 +273,13 @@ export class Worker implements IWorker {
       args,
       this.state.worktreePath,
       onData,
+      this.abortController?.signal,
+      (childProcess) => {
+        this.claudeProcess = childProcess;
+        this.logVerbose("Claudeプロセス開始", {
+          processId: childProcess.pid,
+        });
+      },
     );
 
     if (executionResult.isErr()) {
@@ -948,6 +967,85 @@ export class Worker implements IWorker {
         operation: "saveWorkerState",
         error: (error as Error).message,
       });
+    }
+  }
+
+  /**
+   * Claude Code実行を中断する
+   */
+  async stopExecution(
+    onProgress?: (content: string) => Promise<void>,
+  ): Promise<boolean> {
+    if (!this.isExecuting || !this.claudeProcess) {
+      this.logVerbose("実行中のプロセスがないため中断スキップ", {
+        isExecuting: this.isExecuting,
+        hasClaudeProcess: !!this.claudeProcess,
+      });
+      return false;
+    }
+
+    this.logVerbose("Claude Code実行の中断開始", {
+      workerName: this.state.workerName,
+      sessionId: this.state.sessionId,
+    });
+
+    try {
+      // まずAbortControllerで中断シグナルを送信
+      if (this.abortController) {
+        this.abortController.abort();
+        this.logVerbose("AbortController.abort()実行");
+      }
+
+      // プロセスにSIGTERMを送信
+      try {
+        this.claudeProcess.kill("SIGTERM");
+        this.logVerbose("SIGTERMシグナル送信");
+      } catch (error) {
+        this.logVerbose(
+          "SIGTERM送信エラー（プロセスが既に終了している可能性）",
+          {
+            error: (error as Error).message,
+          },
+        );
+      }
+
+      // 5秒待機してプロセスが終了するか確認
+      const timeout = setTimeout(() => {
+        if (this.claudeProcess) {
+          try {
+            this.claudeProcess.kill("SIGKILL");
+            this.logVerbose("SIGKILLシグナル送信（強制終了）");
+          } catch (error) {
+            this.logVerbose("SIGKILL送信エラー", {
+              error: (error as Error).message,
+            });
+          }
+        }
+      }, 5000);
+
+      try {
+        await this.claudeProcess.status;
+        clearTimeout(timeout);
+        this.logVerbose("プロセス終了確認");
+      } catch (error) {
+        clearTimeout(timeout);
+        this.logVerbose("プロセス終了待機エラー", {
+          error: (error as Error).message,
+        });
+      }
+
+      // 中断メッセージを送信
+      if (onProgress) {
+        await onProgress("⛔ Claude Codeの実行を中断しました");
+      }
+
+      return true;
+    } finally {
+      // クリーンアップ
+      this.claudeProcess = null;
+      this.abortController = null;
+      this.isExecuting = false;
+      this.logVerbose("プロセス参照クリーンアップ完了");
     }
   }
 

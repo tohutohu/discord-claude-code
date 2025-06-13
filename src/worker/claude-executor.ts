@@ -8,6 +8,8 @@ export interface ClaudeCommandExecutor {
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
+    abortSignal?: AbortSignal,
+    onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>>;
 }
 
@@ -22,6 +24,8 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
     args: string[],
     cwd: string,
     onData: (data: Uint8Array) => void,
+    abortSignal?: AbortSignal,
+    onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
   > {
@@ -42,9 +46,15 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
         cwd,
         stdout: "piped",
         stderr: "piped",
+        signal: abortSignal,
       });
 
       const process = command.spawn();
+
+      // プロセス開始コールバック
+      if (onProcessStart) {
+        onProcessStart(process);
+      }
 
       // ClaudeStreamProcessorのprocessStreamsメソッドを使用
       const processor = new ClaudeStreamProcessor(
@@ -97,6 +107,8 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
     args: string[],
     _cwd: string,
     onData: (data: Uint8Array) => void,
+    abortSignal?: AbortSignal,
+    onProcessStart?: (childProcess: Deno.ChildProcess) => void,
   ): Promise<
     Result<{ code: number; stderr: Uint8Array }, ClaudeExecutorError>
   > {
@@ -138,9 +150,15 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
         stderr: "piped",
         cwd: this.repositoryPath,
         env,
+        signal: abortSignal,
       });
 
       const process = devcontainerCommand.spawn();
+
+      // プロセス開始コールバック
+      if (onProcessStart) {
+        onProcessStart(process);
+      }
 
       // ClaudeStreamProcessorのprocessStreamsメソッドを使用
       const processor = new ClaudeStreamProcessor(
