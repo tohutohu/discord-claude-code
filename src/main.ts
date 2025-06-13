@@ -761,15 +761,19 @@ async function handleSlashCommand(interaction: ChatInputCommandInteraction) {
         const error = stopResult.error;
         if (error.type === "WORKER_NOT_FOUND") {
           await interaction.editReply(
-            "このスレッドで実行中のClaude Codeはありません。",
+            "❌ 中断に失敗しました。既に実行が完了している可能性があります。",
           );
         } else {
-          await interaction.editReply(`エラー: ${error.type}`);
+          await interaction.editReply(
+            `❌ 中断処理中にエラーが発生しました: ${error.type}\n\n🔄 もう一度お試しください。`,
+          );
         }
         return;
       }
 
-      await interaction.editReply("✅ Claude Codeの実行を中断しました。");
+      await interaction.editReply(
+        "✅ Claude Codeの実行を中断しました。\n\n💡 新しい指示を送信して作業を続けることができます。",
+      );
     } catch (error) {
       console.error("/stopコマンドエラー:", error);
       try {

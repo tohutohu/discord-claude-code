@@ -164,6 +164,16 @@ export class Worker implements IWorker {
         onProgress,
       );
       if (claudeResult.isErr()) {
+        // 中断エラーの場合は特別なメッセージを返す
+        if (
+          claudeResult.error.type === "CLAUDE_EXECUTION_FAILED" &&
+          claudeResult.error.error === "中断されました"
+        ) {
+          // 中断が正常に完了した場合はエラーではなく正常終了として扱う
+          return ok(
+            "⛔ Claude Codeの実行を中断しました\n\n💡 新しい指示を送信して作業を続けることができます",
+          );
+        }
         return claudeResult;
       }
 
@@ -289,6 +299,19 @@ export class Worker implements IWorker {
     );
 
     if (executionResult.isErr()) {
+      // 中断による終了の場合
+      if (
+        executionResult.error.type === "STREAM_PROCESSING_ERROR" &&
+        executionResult.error.error === "実行が中断されました"
+      ) {
+        // セッションデータを保存してから中断メッセージを返す
+        await this.saveSessionData(newSessionId, allOutput);
+        return err({
+          type: "CLAUDE_EXECUTION_FAILED",
+          error: "中断されました",
+        });
+      }
+
       const errorMessage =
         executionResult.error.type === "COMMAND_EXECUTION_FAILED"
           ? `コマンド実行失敗 (コード: ${executionResult.error.code}): ${executionResult.error.stderr}`
@@ -1075,11 +1098,13 @@ export class Worker implements IWorker {
       }
 
       // 5秒待機してプロセスが終了するか確認
+      let forcefullyKilled = false;
       const timeout = setTimeout(() => {
         if (this.claudeProcess) {
           try {
             this.claudeProcess.kill("SIGKILL");
             this.logVerbose("SIGKILLシグナル送信（強制終了）");
+            forcefullyKilled = true;
           } catch (error) {
             this.logVerbose("SIGKILL送信エラー", {
               error: (error as Error).message,
@@ -1101,10 +1126,32 @@ export class Worker implements IWorker {
 
       // 中断メッセージを送信
       if (onProgress) {
-        await onProgress("⛔ Claude Codeの実行を中断しました");
+        if (forcefullyKilled) {
+          await onProgress("⚠️ Claude Codeの実行を強制終了しました");
+        } else {
+          await onProgress("⛔ Claude Codeの実行を中断しました");
+        }
+        await onProgress("💡 新しい指示を送信して作業を続けることができます");
       }
 
       return true;
+    } catch (error) {
+      this.logVerbose("中断処理エラー", {
+        error: (error as Error).message,
+      });
+
+      // エラーメッセージを送信
+      if (onProgress) {
+        const errorMessage = error instanceof Error
+          ? error.message
+          : "不明なエラー";
+        await onProgress(
+          `❌ 中断処理中にエラーが発生しました: ${errorMessage}`,
+        );
+        await onProgress("💡 新しい指示を送信して作業を続けることができます");
+      }
+
+      return false;
     } finally {
       // クリーンアップ
       this.claudeProcess = null;

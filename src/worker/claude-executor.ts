@@ -80,6 +80,13 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
 
       return ok({ code, stderr: stderrOutput });
     } catch (error) {
+      // AbortErrorの場合は特別な処理
+      if (error instanceof Error && error.name === "AbortError") {
+        return err({
+          type: "STREAM_PROCESSING_ERROR",
+          error: "実行が中断されました",
+        });
+      }
       return err({
         type: "STREAM_PROCESSING_ERROR",
         error: (error as Error).message,
@@ -184,6 +191,13 @@ export class DevcontainerClaudeExecutor implements ClaudeCommandExecutor {
 
       return ok({ code, stderr: stderrOutput });
     } catch (error) {
+      // AbortErrorの場合は特別な処理
+      if (error instanceof Error && error.name === "AbortError") {
+        return err({
+          type: "STREAM_PROCESSING_ERROR",
+          error: "実行が中断されました",
+        });
+      }
       return err({
         type: "STREAM_PROCESSING_ERROR",
         error: (error as Error).message,
