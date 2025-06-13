@@ -98,7 +98,14 @@ export class WorkerManager {
     });
 
     // Worker状態を保存
-    await worker.save();
+    const saveResult = await worker.save();
+    if (saveResult.isErr()) {
+      return err({
+        type: "WORKER_CREATE_FAILED",
+        threadId,
+        reason: saveResult.error.type,
+      });
+    }
     this.logVerbose("Worker状態保存完了", { threadId });
 
     // ThreadInfoも作成・保存
