@@ -33,17 +33,21 @@ class MockClaudeExecutor implements ClaudeCommandExecutor {
     }
 
     // Mock response - 最初にsessionメッセージを送信
-    const sessionMessage = JSON.stringify({
-      type: "session",
-      session_id: "test-session-id",
-    }) + "\n";
+    const sessionMessage = `${
+      JSON.stringify({
+        type: "session",
+        session_id: "test-session-id",
+      })
+    }\n`;
     onData(new TextEncoder().encode(sessionMessage));
 
     // その後resultメッセージを送信
-    const mockResponse = JSON.stringify({
-      type: "result",
-      result: "テスト応答",
-    }) + "\n";
+    const mockResponse = `${
+      JSON.stringify({
+        type: "result",
+        result: "テスト応答",
+      })
+    }\n`;
     onData(new TextEncoder().encode(mockResponse));
 
     return ok({ code: 0, stderr: new Uint8Array() });

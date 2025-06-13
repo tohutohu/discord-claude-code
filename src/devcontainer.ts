@@ -169,8 +169,9 @@ function setupProgressTimer(
   return setInterval(async () => {
     if (onProgress && logBuffer.length > 0) {
       const recentLogs = logBuffer.slice(-maxLogLines);
-      const logMessage = "🐳 起動中...\n```\n" + recentLogs.join("\n") +
-        "\n```";
+      const logMessage = `🐳 起動中...\n\`\`\`\n${
+        recentLogs.join("\n")
+      }\n\`\`\``;
       const result = await sendProgressSafe(onProgress, logMessage);
       if (result.isErr()) {
         console.error(result.error);

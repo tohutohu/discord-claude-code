@@ -146,13 +146,15 @@ export function createMockClaudeCommandExecutor(
       const response = responses.get(message) || defaultResponse;
 
       // JSONレスポンスを作成（改行で終わる必要がある）
-      const jsonResponse = JSON.stringify({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        result: response,
-        session_id: "mock-session-id",
-      }) + "\n";
+      const jsonResponse = `${
+        JSON.stringify({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: response,
+          session_id: "mock-session-id",
+        })
+      }\n`;
 
       // データをストリーミング
       onData(new TextEncoder().encode(jsonResponse));
