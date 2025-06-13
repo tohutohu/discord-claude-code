@@ -129,7 +129,9 @@ describe("Worker 中断イベントログ記録", () => {
     );
 
     // worktreeディレクトリを作成
-    await Deno.mkdir(workerState.worktreePath!, { recursive: true });
+    if (workerState.worktreePath) {
+      await Deno.mkdir(workerState.worktreePath, { recursive: true });
+    }
 
     // プロセスメッセージを開始（非同期）
     const messagePromise = worker.processMessage("テストメッセージ");

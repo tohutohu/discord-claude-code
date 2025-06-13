@@ -44,8 +44,10 @@ class MockLongRunningExecutor implements ClaudeCommandExecutor {
       // stdoutとstderrを読み捨てる（リソースリークを防ぐ）
       const readStdout = async () => {
         try {
-          for await (const _ of this.process!.stdout) {
-            // 読み捨てる
+          if (this.process?.stdout) {
+            for await (const _ of this.process.stdout) {
+              // 読み捨てる
+            }
           }
         } catch {
           // エラーは無視
@@ -54,8 +56,10 @@ class MockLongRunningExecutor implements ClaudeCommandExecutor {
 
       const readStderr = async () => {
         try {
-          for await (const _ of this.process!.stderr) {
-            // 読み捨てる
+          if (this.process?.stderr) {
+            for await (const _ of this.process.stderr) {
+              // 読み捨てる
+            }
           }
         } catch {
           // エラーは無視
