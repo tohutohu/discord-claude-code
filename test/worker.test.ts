@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { Worker } from "../src/worker.ts";
+import { Worker } from "../src/worker/worker.ts";
 import { parseRepository } from "../src/git-utils.ts";
 import {
   captureConsoleOutput,

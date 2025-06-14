@@ -1,6 +1,10 @@
-import type { IWorker } from "../worker.ts";
-import { WorkspaceManager } from "../workspace.ts";
-import type { AdminState, AuditEntry, ThreadInfo } from "../workspace.ts";
+import type { IWorker } from "../worker/types.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
+import type {
+  AdminState,
+  AuditEntry,
+  ThreadInfo,
+} from "../workspace/workspace.ts";
 import type { AdminError, DiscordMessage, IAdmin } from "./types.ts";
 import { WorkerManager } from "./worker-manager.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";

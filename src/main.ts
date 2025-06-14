@@ -16,11 +16,11 @@ import {
   ThreadAutoArchiveDuration,
   ThreadChannel,
 } from "discord.js";
-import { Admin } from "./admin.ts";
+import { Admin } from "./admin/admin.ts";
 import { getEnv } from "./env.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
 import { createDevcontainerProgressHandler } from "./utils/devcontainer-progress.ts";
-import { RepositoryPatInfo, WorkspaceManager } from "./workspace.ts";
+import { RepositoryPatInfo, WorkspaceManager } from "./workspace/workspace.ts";
 import {
   checkSystemRequirements,
   type CommandStatus,

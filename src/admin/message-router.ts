@@ -1,6 +1,6 @@
-import { type IWorker } from "../worker.ts";
-import { WorkspaceManager } from "../workspace.ts";
-import type { AuditEntry } from "../workspace.ts";
+import { type IWorker } from "../worker/types.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
+import type { AuditEntry } from "../workspace/workspace.ts";
 import type { DiscordMessage } from "./types.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
 import { WorkerManager } from "./worker-manager.ts";

@@ -1,6 +1,9 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
-import { RepositoryPatInfo, WorkspaceManager } from "../src/workspace.ts";
+import {
+  RepositoryPatInfo,
+  WorkspaceManager,
+} from "../src/workspace/workspace.ts";
 import { join } from "std/path/mod.ts";
 
 describe("WorkspaceManager PAT管理機能", () => {

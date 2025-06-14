@@ -3,9 +3,9 @@ import {
   checkDevcontainerConfig,
   startDevcontainer,
 } from "../devcontainer.ts";
-import type { IWorker } from "../worker.ts";
-import type { AuditEntry } from "../workspace.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import type { IWorker } from "../worker/types.ts";
+import type { AuditEntry } from "../workspace/workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 import type { DiscordActionRow } from "./types.ts";
 
 /**

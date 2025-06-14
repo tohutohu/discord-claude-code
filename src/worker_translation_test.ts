@@ -1,9 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { Worker } from "./worker.ts";
-import { WorkerState, WorkspaceManager } from "./workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 import { ClaudeCommandExecutor } from "./worker/claude-executor.ts";
 import { ok } from "neverthrow";
+import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
+import { Worker } from "./worker/worker.ts";
 
 // モックのClaudeCommandExecutor
 class MockClaudeCommandExecutor implements ClaudeCommandExecutor {

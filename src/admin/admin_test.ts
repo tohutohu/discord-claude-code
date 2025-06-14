@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { Admin } from "./admin.ts";
-import { AdminState, WorkspaceManager } from "../workspace.ts";
+import { AdminState, WorkspaceManager } from "../workspace/workspace.ts";
 
 Deno.test("Admin - 基本的な初期化とWorker作成", async () => {
   const tempDir = await Deno.makeTempDir();

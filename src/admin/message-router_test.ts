@@ -2,7 +2,7 @@ import { assertEquals } from "std/assert/mod.ts";
 import { MessageRouter } from "./message-router.ts";
 import { WorkerManager } from "./worker-manager.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 
 Deno.test("MessageRouter - 正常なメッセージルーティング", async () => {
   const tempDir = await Deno.makeTempDir();

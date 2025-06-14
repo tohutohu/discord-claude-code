@@ -1,14 +1,14 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
-import { ThreadManager } from "./workspace/thread-manager.ts";
-import { SessionManager } from "./workspace/session-manager.ts";
-import { AuditLogger } from "./workspace/audit-logger.ts";
-import { PatManager } from "./workspace/pat-manager.ts";
-import { QueueManager } from "./workspace/queue-manager.ts";
+import { ThreadManager } from "./thread-manager.ts";
+import { SessionManager } from "./session-manager.ts";
+import { AuditLogger } from "./audit-logger.ts";
+import { PatManager } from "./pat-manager.ts";
+import { QueueManager } from "./queue-manager.ts";
 import {
   validateAdminStateSafe,
   validateWorkerStateSafe,
-} from "./workspace/schemas/admin-schema.ts";
+} from "./schemas/admin-schema.ts";
 
 export interface WorkspaceConfig {
   baseDir: string;

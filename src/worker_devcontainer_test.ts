@@ -1,6 +1,6 @@
 import { assertEquals } from "std/assert/mod.ts";
-import { Worker } from "./worker.ts";
-import { WorkerState, WorkspaceManager } from "./workspace.ts";
+import { Worker } from "./worker/worker.ts";
+import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 import { createMockClaudeCommandExecutor } from "../test/test-utils.ts";
 
@@ -107,7 +107,9 @@ Deno.test("DevcontainerClaudeExecutorのテスト", async (t) => {
   await t.step("execInDevcontainerの呼び出し", async () => {
     // DevcontainerClaudeExecutorは実際のdevcontainer環境が必要なため、
     // ここでは構造のテストのみ実行
-    const { DevcontainerClaudeExecutor } = await import("./worker.ts");
+    const { DevcontainerClaudeExecutor } = await import(
+      "./worker/claude-executor.ts"
+    );
 
     // プライベートクラスなので、テストは構造確認のみ
     // 実際の動作テストは統合テストで行う

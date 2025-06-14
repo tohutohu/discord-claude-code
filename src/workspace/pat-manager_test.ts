@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { PatManager } from "./pat-manager.ts";
-import type { RepositoryPatInfo } from "../workspace.ts";
+import type { RepositoryPatInfo } from "./workspace.ts";
 
 Deno.test("PatManager - PATの保存と読み込み", async () => {
   const testBaseDir = await Deno.makeTempDir();

@@ -1,5 +1,5 @@
 import { assertEquals } from "std/assert/mod.ts";
-import { Worker } from "../src/worker.ts";
+import { Worker } from "../src/worker/worker.ts";
 import {
   createMockStreamingClaudeCommandExecutor,
   createTestRepository,

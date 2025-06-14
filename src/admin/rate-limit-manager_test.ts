@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertExists } from "std/assert/mod.ts";
 import { RateLimitManager } from "./rate-limit-manager.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 
 Deno.test("RateLimitManager - レートリミット情報の保存", async () => {
   const tempDir = await Deno.makeTempDir();

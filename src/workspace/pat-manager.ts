@@ -1,7 +1,7 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import { err, ok, Result } from "neverthrow";
-import type { RepositoryPatInfo } from "../workspace.ts";
+import type { RepositoryPatInfo } from "./workspace.ts";
 import type { WorkspaceError } from "./types.ts";
 import { validateRepositoryPatInfoSafe } from "./schemas/pat-schema.ts";
 

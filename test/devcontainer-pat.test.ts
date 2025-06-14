@@ -1,11 +1,12 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
-import { DevcontainerClaudeExecutor, Worker } from "../src/worker.ts";
+import { Worker } from "../src/worker/worker.ts";
+import { DevcontainerClaudeExecutor } from "../src/worker/claude-executor.ts";
 import {
   RepositoryPatInfo,
   WorkerState,
   WorkspaceManager,
-} from "../src/workspace.ts";
+} from "../src/workspace/workspace.ts";
 import { GitRepository } from "../src/git-utils.ts";
 
 describe("Devcontainer PAT環境変数設定", () => {

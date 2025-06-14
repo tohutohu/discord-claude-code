@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { WorkerManager } from "./worker-manager.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 
 Deno.test("WorkerManager - Workerの作成と取得", async () => {
   const tempDir = await Deno.makeTempDir();

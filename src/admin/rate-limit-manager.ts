@@ -1,5 +1,9 @@
-import type { AuditEntry, QueuedMessage, WorkerState } from "../workspace.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import type {
+  AuditEntry,
+  QueuedMessage,
+  WorkerState,
+} from "../workspace/workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 import { RATE_LIMIT } from "../constants.ts";
 
 export class RateLimitManager {

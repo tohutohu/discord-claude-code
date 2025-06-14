@@ -1,8 +1,8 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { describe, it } from "https://deno.land/std@0.208.0/testing/bdd.ts";
-import { Worker } from "./worker.ts";
+import { Worker } from "./worker/worker.ts";
 import { ClaudeCommandExecutor } from "./worker/claude-executor.ts";
-import { WorkerState, WorkspaceManager } from "./workspace.ts";
+import { WorkerState, WorkspaceManager } from "./workspace/workspace.ts";
 import { parseRepository } from "./git-utils.ts";
 import { ok } from "neverthrow";
 

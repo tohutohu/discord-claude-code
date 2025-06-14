@@ -3,8 +3,8 @@ import {
   assertEquals,
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { Admin } from "../src/admin.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
+import { Admin } from "../src/admin/admin.ts";
+import { WorkspaceManager } from "../src/workspace/workspace.ts";
 
 async function createTestWorkspaceManager(): Promise<{
   workspace: WorkspaceManager;

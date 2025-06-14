@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
-import { MessageFormatter } from "../src/worker.ts";
+import { MessageFormatter } from "../src/worker/message-formatter.ts";
 
 class TestMessageFormatter extends MessageFormatter {
   // テスト用にgetRelativePathをpublicにする

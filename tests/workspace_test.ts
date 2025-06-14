@@ -1,6 +1,10 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
-import { AuditEntry, ThreadInfo, WorkspaceManager } from "../src/workspace.ts";
+import {
+  AuditEntry,
+  ThreadInfo,
+  WorkspaceManager,
+} from "../src/workspace/workspace.ts";
 
 const testDir = await Deno.makeTempDir({ prefix: "workspace_test_" });
 
