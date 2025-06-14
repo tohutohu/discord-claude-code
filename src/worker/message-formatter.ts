@@ -52,8 +52,6 @@ export class MessageFormatter {
    * ツール使用を進捗メッセージとしてフォーマット
    */
   formatToolUse(item: Anthropic.Messages.ToolUseBlock): string | null {
-    if (!item.name) return null;
-
     // TodoWriteツールの場合は特別処理
     if (item.name === "TodoWrite") {
       const todoWriteInput = item.input as {
