@@ -1,9 +1,9 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { Worker } from "./worker.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
 import { join } from "std/path/mod.ts";
-import type { WorkerState } from "../workspace.ts";
+import type { WorkerState } from "../workspace/workspace.ts";
 import type { ClaudeCommandExecutor } from "./claude-executor.ts";
 import { ok, Result } from "neverthrow";
 import type { ClaudeExecutorError } from "./types.ts";

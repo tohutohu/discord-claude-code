@@ -1,5 +1,5 @@
 import { GitRepository } from "../git-utils.ts";
-import { WorkerState, WorkspaceManager } from "../workspace.ts";
+import { WorkerState, WorkspaceManager } from "../workspace/workspace.ts";
 import { PLaMoTranslator } from "../plamo-translator.ts";
 import { MessageFormatter } from "./message-formatter.ts";
 import {

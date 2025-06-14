@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
 import { ThreadManager } from "./thread-manager.ts";
-import type { ThreadInfo } from "../workspace.ts";
+import type { ThreadInfo } from "./workspace.ts";
 
 Deno.test("ThreadManager - スレッド情報の保存と読み込み", async () => {
   const testBaseDir = await Deno.makeTempDir();

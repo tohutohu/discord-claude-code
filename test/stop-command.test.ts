@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.223.0/assert/mod.ts";
 import { Admin } from "../src/admin/admin.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
+import { WorkspaceManager } from "../src/workspace/workspace.ts";
 
 // /stopコマンドの定義をテスト
 Deno.test("/stopコマンドが正しく定義されている", async () => {

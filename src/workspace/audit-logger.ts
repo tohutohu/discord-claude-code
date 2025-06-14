@@ -1,6 +1,6 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
-import type { AuditEntry } from "../workspace.ts";
+import type { AuditEntry } from "./workspace.ts";
 import { err, ok, Result } from "neverthrow";
 import type { WorkspaceError } from "./types.ts";
 import { validateAuditEntrySafe } from "./schemas/audit-schema.ts";

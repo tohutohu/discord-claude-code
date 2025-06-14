@@ -1,6 +1,7 @@
-import { WorkerState, WorkspaceManager } from "../src/workspace.ts";
-import { Admin } from "../src/admin.ts";
-import { IWorker, Worker } from "../src/worker.ts";
+import { WorkerState, WorkspaceManager } from "../src/workspace/workspace.ts";
+import { Admin } from "../src/admin/admin.ts";
+import { Worker } from "../src/worker/worker.ts";
+import { IWorker } from "../src/worker/types.ts";
 import { ClaudeCommandExecutor } from "../src/worker/claude-executor.ts";
 import { ok } from "neverthrow";
 import { GitRepository } from "../src/git-utils.ts";

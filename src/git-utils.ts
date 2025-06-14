@@ -1,5 +1,5 @@
 import { join } from "std/path/mod.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { WorkspaceManager } from "./workspace/workspace.ts";
 import { GIT } from "./constants.ts";
 import { err, ok, Result } from "neverthrow";
 import { exec } from "./utils/exec.ts";

@@ -4,13 +4,13 @@ import {
   assertExists,
   assertNotEquals,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { Admin } from "../src/admin.ts";
+import { Admin } from "../src/admin/admin.ts";
 import {
   assertWorkerValid,
   createTestContext,
   ERROR_MESSAGES,
 } from "./test-utils.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
+import { WorkspaceManager } from "../src/workspace/workspace.ts";
 
 async function createTestWorkspaceManager(): Promise<WorkspaceManager> {
   const testDir = await Deno.makeTempDir({ prefix: "admin_test_" });

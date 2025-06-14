@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.208.0/testing/asserts.ts";
 import { ensureRepository, parseRepository } from "./git-utils.ts";
-import { WorkspaceManager } from "./workspace.ts";
+import { WorkspaceManager } from "./workspace/workspace.ts";
 import { join } from "std/path/mod.ts";
 
 Deno.test("parseRepository - 正しい形式のリポジトリ名をパースできる", () => {

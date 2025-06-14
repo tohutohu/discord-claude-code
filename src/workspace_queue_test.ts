@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { join } from "std/path/mod.ts";
-import { QueuedMessage, WorkspaceManager } from "./workspace.ts";
+import { QueuedMessage, WorkspaceManager } from "./workspace/workspace.ts";
 
 async function createTestDir(): Promise<string> {
   const testDir = await Deno.makeTempDir({

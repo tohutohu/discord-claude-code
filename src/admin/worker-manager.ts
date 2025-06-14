@@ -1,7 +1,8 @@
-import { type IWorker, Worker } from "../worker.ts";
+import { Worker } from "../worker/worker.ts";
+import type { IWorker } from "../worker/types.ts";
 import { generateWorkerName } from "../worker-name-generator.ts";
-import type { ThreadInfo, WorkerState } from "../workspace.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import type { ThreadInfo, WorkerState } from "../workspace/workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 import { parseRepository } from "../git-utils.ts";
 import { err, ok, Result } from "neverthrow";
 import { exec } from "../utils/exec.ts";

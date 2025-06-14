@@ -32,11 +32,17 @@ export interface IAdmin {
   createWorker(
     threadId: string,
   ): Promise<
-    import("neverthrow").Result<import("../worker.ts").IWorker, AdminError>
+    import("neverthrow").Result<
+      import("../worker/types.ts").IWorker,
+      AdminError
+    >
   >;
   getWorker(
     threadId: string,
-  ): import("neverthrow").Result<import("../worker.ts").IWorker, AdminError>;
+  ): import("neverthrow").Result<
+    import("../worker/types.ts").IWorker,
+    AdminError
+  >;
   routeMessage(
     threadId: string,
     message: string,

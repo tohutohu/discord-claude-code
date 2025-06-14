@@ -5,7 +5,7 @@ import {
   CommandOutput,
   DevcontainerManager,
 } from "./devcontainer-manager.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 
 Deno.test("DevcontainerManager - devcontainer.jsonが存在しない場合", async () => {
   const tempDir = await Deno.makeTempDir();

@@ -1,11 +1,11 @@
 import { assert, assertEquals, assertStringIncludes } from "std/assert/mod.ts";
-import { Admin } from "../src/admin.ts";
+import { WorkspaceManager } from "../src/workspace/workspace.ts";
+import { Admin } from "../src/admin/admin.ts";
 import {
   ClaudeCodeRateLimitError,
   ClaudeStreamProcessor,
-  MessageFormatter,
-} from "../src/worker.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
+} from "../src/worker/claude-stream-processor.ts";
+import { MessageFormatter } from "../src/worker/message-formatter.ts";
 
 Deno.test("レートリミット検出とメッセージ作成", async () => {
   const baseDir = await Deno.makeTempDir({ prefix: "test_rate_limit_" });

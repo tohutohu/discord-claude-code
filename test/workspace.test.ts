@@ -2,7 +2,7 @@ import {
   assertEquals,
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { WorkspaceManager } from "../src/workspace.ts";
+import { WorkspaceManager } from "../src/workspace/workspace.ts";
 import { join } from "std/path/mod.ts";
 
 async function createTestWorkspaceManager(): Promise<{

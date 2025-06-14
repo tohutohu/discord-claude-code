@@ -1,6 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import { SessionLogger } from "./session-logger.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 
 Deno.test("SessionLogger - saveRawJsonlOutput - 正常系", async () => {
   // WorkspaceManagerのモック

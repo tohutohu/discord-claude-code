@@ -1,7 +1,7 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { afterEach, beforeEach, describe, it } from "std/testing/bdd.ts";
 import { Worker } from "./worker.ts";
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 import type { ClaudeCommandExecutor } from "../worker/claude-executor.ts";
 import type { ClaudeExecutorError } from "./types.ts";
 import { err, ok, Result } from "neverthrow";

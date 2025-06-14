@@ -1,4 +1,4 @@
-import { WorkspaceManager } from "../workspace.ts";
+import { WorkspaceManager } from "../workspace/workspace.ts";
 import { err, ok, Result } from "neverthrow";
 import type { SessionLoggerError } from "./types.ts";
 import type {

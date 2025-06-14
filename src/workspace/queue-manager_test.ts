@@ -1,6 +1,6 @@
 import { assertEquals } from "std/assert/mod.ts";
 import { QueueManager } from "./queue-manager.ts";
-import type { QueuedMessage, ThreadQueue } from "../workspace.ts";
+import type { QueuedMessage, ThreadQueue } from "./workspace.ts";
 
 Deno.test("QueueManager - メッセージキューの保存と読み込み", async () => {
   const testBaseDir = await Deno.makeTempDir();

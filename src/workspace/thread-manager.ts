@@ -1,6 +1,6 @@
 import { join } from "std/path/mod.ts";
 import { ensureDir } from "std/fs/mod.ts";
-import type { ThreadInfo } from "../workspace.ts";
+import type { ThreadInfo } from "./workspace.ts";
 import { createWorktreeCopy, isWorktreeCopyExists } from "../git-utils.ts";
 import { err, ok, Result } from "neverthrow";
 import { validateThreadInfoSafe } from "./schemas/thread-schema.ts";

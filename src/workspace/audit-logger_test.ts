@@ -1,6 +1,6 @@
 import { assertEquals, assertExists } from "std/assert/mod.ts";
 import { AuditLogger } from "./audit-logger.ts";
-import type { AuditEntry } from "../workspace.ts";
+import type { AuditEntry } from "./workspace.ts";
 
 Deno.test("AuditLogger - ログの追記と読み込み", async () => {
   const testBaseDir = await Deno.makeTempDir();
