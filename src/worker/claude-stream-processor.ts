@@ -211,12 +211,28 @@ export class ClaudeStreamProcessor {
 
     const message = data.message;
     if (typeof message.id !== "string") return false;
-    if (typeof message.type !== "string") return false;
-    if (typeof message.role !== "string") return false;
+    if (message.type !== "message") return false;
+    if (message.role !== "assistant") return false;
     if (typeof message.model !== "string") return false;
     if (!Array.isArray(message.content)) return false;
-    if (typeof message.stop_reason !== "string") return false;
+    if (
+      message.stop_reason !== null && typeof message.stop_reason !== "string"
+    ) return false;
     if (typeof data.session_id !== "string") return false;
+
+    // contentの検証
+    for (const item of message.content) {
+      if (!this.validateContentBlock(item, ["text", "tool_use"])) {
+        return false;
+      }
+    }
+
+    // オプショナルなusageフィールドの検証
+    if ("usage" in message) {
+      if (!this.isObject(message.usage)) return false;
+      if (typeof message.usage.input_tokens !== "number") return false;
+      if (typeof message.usage.output_tokens !== "number") return false;
+    }
 
     return true;
   }
@@ -228,12 +244,28 @@ export class ClaudeStreamProcessor {
 
     const message = data.message;
     if (typeof message.id !== "string") return false;
-    if (typeof message.type !== "string") return false;
-    if (typeof message.role !== "string") return false;
+    if (message.type !== "message") return false;
+    if (message.role !== "user") return false;
     if (typeof message.model !== "string") return false;
     if (!Array.isArray(message.content)) return false;
-    if (typeof message.stop_reason !== "string") return false;
+    if (
+      message.stop_reason !== null && typeof message.stop_reason !== "string"
+    ) return false;
     if (typeof data.session_id !== "string") return false;
+
+    // contentの検証
+    for (const item of message.content) {
+      if (!this.validateContentBlock(item, ["text", "tool_result"])) {
+        return false;
+      }
+    }
+
+    // オプショナルなusageフィールドの検証
+    if ("usage" in message) {
+      if (!this.isObject(message.usage)) return false;
+      if (typeof message.usage.input_tokens !== "number") return false;
+      if (typeof message.usage.output_tokens !== "number") return false;
+    }
 
     return true;
   }
@@ -241,7 +273,9 @@ export class ClaudeStreamProcessor {
   private validateResultMessage(data: unknown): boolean {
     if (!this.isObject(data)) return false;
     if (data.type !== "result") return false;
-    if (typeof data.subtype !== "string") return false;
+    if (data.subtype !== "success" && data.subtype !== "error_max_turns") {
+      return false;
+    }
     if (typeof data.is_error !== "boolean") return false;
     if (typeof data.session_id !== "string") return false;
 
@@ -249,6 +283,9 @@ export class ClaudeStreamProcessor {
     if ("result" in data && typeof data.result !== "string") return false;
     if ("cost_usd" in data && typeof data.cost_usd !== "number") return false;
     if ("duration_ms" in data && typeof data.duration_ms !== "number") {
+      return false;
+    }
+    if ("duration_api_ms" in data && typeof data.duration_api_ms !== "number") {
       return false;
     }
     if ("num_turns" in data && typeof data.num_turns !== "number") return false;
@@ -259,12 +296,25 @@ export class ClaudeStreamProcessor {
   private validateSystemMessage(data: unknown): boolean {
     if (!this.isObject(data)) return false;
     if (data.type !== "system") return false;
-    if (typeof data.subtype !== "string") return false;
+    if (data.subtype !== "init") return false;
     if (typeof data.session_id !== "string") return false;
 
     // オプショナルフィールドの検証
-    if ("tools" in data && !Array.isArray(data.tools)) return false;
-    if ("mcp_servers" in data && !Array.isArray(data.mcp_servers)) return false;
+    if ("tools" in data) {
+      if (!Array.isArray(data.tools)) return false;
+      for (const tool of data.tools) {
+        if (typeof tool !== "string") return false;
+      }
+    }
+
+    if ("mcp_servers" in data) {
+      if (!Array.isArray(data.mcp_servers)) return false;
+      for (const server of data.mcp_servers) {
+        if (!this.isObject(server)) return false;
+        if (typeof server.name !== "string") return false;
+        if (typeof server.status !== "string") return false;
+      }
+    }
 
     return true;
   }
@@ -281,6 +331,52 @@ export class ClaudeStreamProcessor {
     }
 
     return true;
+  }
+
+  private validateContentBlock(
+    item: unknown,
+    allowedTypes: Array<"text" | "tool_use" | "tool_result">,
+  ): boolean {
+    if (!this.isObject(item)) return false;
+    if (typeof item.type !== "string") return false;
+    if (
+      !allowedTypes.includes(item.type as "text" | "tool_use" | "tool_result")
+    ) return false;
+
+    switch (item.type) {
+      case "text":
+        return typeof item.text === "string";
+
+      case "tool_use":
+        return (
+          typeof item.id === "string" &&
+          typeof item.name === "string" &&
+          this.isObject(item.input)
+        );
+
+      case "tool_result":
+        if (typeof item.tool_use_id !== "string") return false;
+        if ("is_error" in item && typeof item.is_error !== "boolean") {
+          return false;
+        }
+
+        // contentは文字列または配列
+        if (typeof item.content === "string") {
+          return true;
+        }
+        if (Array.isArray(item.content)) {
+          for (const contentItem of item.content) {
+            if (!this.isObject(contentItem)) return false;
+            if (contentItem.type !== "text") return false;
+            if (typeof contentItem.text !== "string") return false;
+          }
+          return true;
+        }
+        return false;
+
+      default:
+        return false;
+    }
   }
 
   /**
