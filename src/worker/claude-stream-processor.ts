@@ -278,7 +278,11 @@ export class ClaudeStreamProcessor {
   private validateResultMessage(data: unknown): boolean {
     if (!this.isObject(data)) return false;
     if (data.type !== "result") return false;
-    if (data.subtype !== "success" && data.subtype !== "error_max_turns") {
+    if (
+      data.subtype !== "success" &&
+      data.subtype !== "error_max_turns" &&
+      data.subtype !== "error_during_execution"
+    ) {
       return false;
     }
     if (typeof data.is_error !== "boolean") return false;
@@ -287,6 +291,9 @@ export class ClaudeStreamProcessor {
     // オプショナルフィールドの検証
     if ("result" in data && typeof data.result !== "string") return false;
     if ("cost_usd" in data && typeof data.cost_usd !== "number") return false;
+    if ("total_cost_usd" in data && typeof data.total_cost_usd !== "number") {
+      return false;
+    }
     if ("duration_ms" in data && typeof data.duration_ms !== "number") {
       return false;
     }
@@ -319,6 +326,22 @@ export class ClaudeStreamProcessor {
         if (typeof server.name !== "string") return false;
         if (typeof server.status !== "string") return false;
       }
+    }
+
+    if ("apiKeySource" in data && typeof data.apiKeySource !== "string") {
+      return false;
+    }
+
+    if ("cwd" in data && typeof data.cwd !== "string") {
+      return false;
+    }
+
+    if ("model" in data && typeof data.model !== "string") {
+      return false;
+    }
+
+    if ("permissionMode" in data && typeof data.permissionMode !== "string") {
+      return false;
     }
 
     return true;
@@ -475,7 +498,22 @@ export class ClaudeStreamProcessor {
       const mcpServers = parsed.mcp_servers?.map((s) =>
         `${s.name}(${s.status})`
       ).join(", ") || "なし";
-      return `🔧 **システム初期化:** ツール: ${tools}, MCPサーバー: ${mcpServers}`;
+      const parts = [`ツール: ${tools}`, `MCPサーバー: ${mcpServers}`];
+
+      if (parsed.model) {
+        parts.push(`モデル: ${parsed.model}`);
+      }
+      if (parsed.apiKeySource) {
+        parts.push(`APIキーソース: ${parsed.apiKeySource}`);
+      }
+      if (parsed.cwd) {
+        parts.push(`作業ディレクトリ: ${parsed.cwd}`);
+      }
+      if (parsed.permissionMode) {
+        parts.push(`権限モード: ${parsed.permissionMode}`);
+      }
+
+      return `🔧 **システム初期化:** ${parts.join(", ")}`;
     }
 
     // resultメッセージは最終結果として別途処理されるため、ここでは返さない
