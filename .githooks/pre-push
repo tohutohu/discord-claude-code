@@ -1,36 +1,13 @@
 #!/bin/sh
+set -eu
 
 # pre-push hook to ensure no bypassed commits are pushed
-# This hook runs the same checks as pre-commit before allowing push
+# Uses common quality check script to run the same checks as pre-commit
 
-echo "🔍 Running pre-push checks..."
+# Source the common quality check script
+SCRIPT_DIR=$(dirname "$0")
+. "$SCRIPT_DIR/../scripts/run-quality-checks.sh"
 
-# Run format check
-echo "📝 Checking format..."
-if ! deno task fmt:quiet --check; then
-    echo "❌ Format check failed! Run 'deno fmt' to fix formatting issues."
-    exit 1
-fi
-
-# Run linter
-echo "🧹 Running linter..."
-if ! deno task lint:quiet; then
-    echo "❌ Lint check failed! Fix the linting errors before pushing."
-    exit 1
-fi
-
-# Run type check
-echo "🔎 Running type check..."
-if ! deno task check:quiet; then
-    echo "❌ Type check failed! Fix the type errors before pushing."
-    exit 1
-fi
-
-# Run tests
-echo "🧪 Running tests..."
-if ! deno task test:quiet; then
-    echo "❌ Tests failed! Fix the failing tests before pushing."
-    exit 1
-fi
-
-echo "✅ All pre-push checks passed!"
+# Run all checks in check mode (no auto-fix)
+run_all_checks "check"
+exit $?

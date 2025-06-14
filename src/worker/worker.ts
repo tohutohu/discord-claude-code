@@ -340,7 +340,7 @@ export class Worker implements IWorker {
     }
 
     if (code !== 0) {
-      return this.handleErrorMessage(code, stderr);
+      return this.handleErrorMessage(code, stderr, allOutput);
     }
 
     // VERBOSEモードで成功時のstderrも出力（警告等の情報がある場合）
@@ -500,32 +500,61 @@ export class Worker implements IWorker {
   private handleErrorMessage(
     code: number,
     stderr: Uint8Array,
+    stdout: string,
   ): Result<never, WorkerError> {
-    const errorMessage = new TextDecoder().decode(stderr);
+    const stderrMessage = new TextDecoder().decode(stderr);
 
-    // VERBOSEモードでstderrを詳細ログ出力
-    if (this.configuration.isVerbose() && stderr.length > 0) {
-      console.log(
-        `[${
-          new Date().toISOString()
-        }] [Worker:${this.state.workerName}] Claude stderr:`,
-      );
-      console.log(`  終了コード: ${code}`);
-      console.log(`  エラー内容:`);
-      console.log(
-        `    ${
-          errorMessage.split("\n").map((line) => `    ${line}`).join("\n")
-        }`,
-      );
+    // VERBOSEモードで詳細ログ出力
+    if (this.configuration.isVerbose()) {
+      // stdout出力（エラー時）
+      if (stdout.trim()) {
+        console.log(
+          `[${
+            new Date().toISOString()
+          }] [Worker:${this.state.workerName}] Claude stdout (エラー時):`,
+        );
+        console.log(
+          `  ${stdout.split("\n").map((line) => `  ${line}`).join("\n")}`,
+        );
+      }
+
+      // stderr出力
+      if (stderr.length > 0) {
+        console.log(
+          `[${
+            new Date().toISOString()
+          }] [Worker:${this.state.workerName}] Claude stderr:`,
+        );
+        console.log(`  終了コード: ${code}`);
+        console.log(`  エラー内容:`);
+        console.log(
+          `    ${
+            stderrMessage.split("\n").map((line) => `    ${line}`).join("\n")
+          }`,
+        );
+      }
+    }
+
+    // エラーメッセージの構築（stdoutも含める）
+    let errorDetail = `Claude実行失敗 (終了コード: ${code})`;
+    if (stderrMessage.trim()) {
+      errorDetail += `\nstderr: ${stderrMessage}`;
+    }
+    if (stdout.trim()) {
+      // stdoutの最後の10行を含める（長すぎる場合は切り詰め）
+      const stdoutLines = stdout.trim().split("\n");
+      const lastLines = stdoutLines.slice(-10).join("\n");
+      errorDetail += `\nstdout (最後の10行): ${lastLines}`;
     }
 
     this.logVerbose("ストリーミング実行エラー", {
       exitCode: code,
-      errorMessage,
+      stderrMessage,
+      stdoutLength: stdout.length,
     });
     return err({
       type: "CLAUDE_EXECUTION_FAILED",
-      error: `Claude実行失敗 (終了コード: ${code}): ${errorMessage}`,
+      error: errorDetail,
     });
   }
 

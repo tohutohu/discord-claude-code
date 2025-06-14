@@ -1,6 +1,6 @@
 import { DISCORD, FORMATTING } from "../constants.ts";
 import { validateTodoWriteInput } from "../schemas/external-api-schema.ts";
-import Anthropic from "npm:@anthropic-ai/sdk";
+import type { Anthropic } from "npm:@anthropic-ai/sdk";
 
 /**
  * メッセージフォーマット関連の責務を担当するクラス
@@ -52,8 +52,6 @@ export class MessageFormatter {
    * ツール使用を進捗メッセージとしてフォーマット
    */
   formatToolUse(item: Anthropic.Messages.ToolUseBlock): string | null {
-    if (!item.name) return null;
-
     // TodoWriteツールの場合は特別処理
     if (item.name === "TodoWrite") {
       const todoWriteInput = item.input as {
