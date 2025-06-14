@@ -13,13 +13,13 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - assistantメッセー�
     type: "assistant" as const,
     message: {
       id: "msg-123",
-      type: "message",
-      role: "assistant",
+      type: "message" as const,
+      role: "assistant" as const,
       model: "claude",
       content: [
-        { type: "text", text: "これはテストです" },
+        { type: "text" as const, text: "これはテストです" },
       ],
-      stop_reason: "end_turn",
+      stop_reason: "end_turn" as string | null,
     },
     session_id: "session-123",
   };
@@ -36,18 +36,18 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - tool_useメッセー�
     type: "assistant" as const,
     message: {
       id: "msg-123",
-      type: "message",
-      role: "assistant",
+      type: "message" as const,
+      role: "assistant" as const,
       model: "claude",
       content: [
         {
-          type: "tool_use",
+          type: "tool_use" as const,
           id: "tool-123",
           name: "Bash",
           input: { command: "ls", description: "ファイル一覧" },
         },
       ],
-      stop_reason: "tool_use",
+      stop_reason: "tool_use" as string | null,
     },
     session_id: "session-123",
   };

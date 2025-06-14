@@ -25,23 +25,39 @@ export class SchemaValidationError extends Error {
   }
 }
 
+// Content block types for Claude messages
+export type TextContent = {
+  type: "text";
+  text: string;
+};
+
+export type ToolUseContent = {
+  type: "tool_use";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+};
+
+export type ToolResultContent = {
+  type: "tool_result";
+  tool_use_id: string;
+  content: string | Array<{ type: "text"; text: string }>;
+  is_error?: boolean;
+};
+
+export type ContentBlock = TextContent | ToolUseContent | ToolResultContent;
+
 // Claude Code SDK message schema based on https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
 export type ClaudeStreamMessage =
   | {
     type: "assistant";
     message: {
       id: string;
-      type: string;
-      role: string;
+      type: "message";
+      role: "assistant";
       model: string;
-      content: Array<{
-        type: string;
-        text?: string;
-        id?: string;
-        name?: string;
-        input?: Record<string, unknown>;
-      }>;
-      stop_reason: string;
+      content: Array<TextContent | ToolUseContent>;
+      stop_reason: string | null;
       usage?: {
         input_tokens: number;
         output_tokens: number;
@@ -53,17 +69,11 @@ export type ClaudeStreamMessage =
     type: "user";
     message: {
       id: string;
-      type: string;
-      role: string;
+      type: "message";
+      role: "user";
       model: string;
-      content: Array<{
-        type: string;
-        text?: string;
-        tool_use_id?: string;
-        content?: string | Array<{ type: string; text?: string }>;
-        is_error?: boolean;
-      }>;
-      stop_reason: string;
+      content: Array<TextContent | ToolResultContent>;
+      stop_reason: string | null;
       usage?: {
         input_tokens: number;
         output_tokens: number;
