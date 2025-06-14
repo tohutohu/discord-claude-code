@@ -61,9 +61,7 @@ export class DefaultClaudeCommandExecutor implements ClaudeCommandExecutor {
       const process = command.spawn();
 
       // プロセス開始コールバック
-      if (onProcessStart) {
-        onProcessStart(process);
-      }
+      onProcessStart?.(process);
 
       // ClaudeStreamProcessorのprocessStreamsメソッドを使用
       const processor = new ClaudeStreamProcessor(

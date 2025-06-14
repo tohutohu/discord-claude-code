@@ -34,74 +34,6 @@ export type PlamoTranslationResponse = z.infer<
   typeof PlamoTranslationResponseSchema
 >;
 
-// Claude CLI Stream Output Schemas
-export const ClaudeSessionMessageSchema = z.object({
-  type: z.literal("session"),
-  session_id: z.string(),
-});
-
-export const ClaudeAssistantMessageSchema = z.object({
-  type: z.literal("assistant"),
-  session_id: z.string(),
-  role: z.literal("assistant"),
-  model: z.string(),
-  content: z.array(z.union([
-    z.object({
-      type: z.literal("text"),
-      text: z.string(),
-    }),
-    z.object({
-      type: z.literal("tool_use"),
-      id: z.string(),
-      name: z.string(),
-      input: z.record(z.unknown()),
-    }),
-    z.object({
-      type: z.literal("tool_result"),
-      tool_use_id: z.string(),
-      content: z.string(),
-      is_error: z.boolean().optional(),
-    }),
-  ])),
-  usage: z.object({
-    input_tokens: z.number(),
-    output_tokens: z.number(),
-  }).optional(),
-});
-
-export const ClaudeResultMessageSchema = z.object({
-  type: z.literal("result"),
-  session_id: z.string(),
-  result: z.object({
-    type: z.enum(["assistant", "session"]),
-    role: z.string().optional(),
-    model: z.string().optional(),
-    content: z.any().optional(),
-    usage: z.any().optional(),
-  }),
-});
-
-export const ClaudeErrorMessageSchema = z.object({
-  type: z.literal("error"),
-  session_id: z.string().optional(),
-  error: z.union([
-    z.string(),
-    z.object({
-      type: z.string(),
-      message: z.string(),
-    }),
-  ]),
-});
-
-export const ClaudeStreamMessageSchema = z.union([
-  ClaudeSessionMessageSchema,
-  ClaudeAssistantMessageSchema,
-  ClaudeResultMessageSchema,
-  ClaudeErrorMessageSchema,
-]);
-
-export type ClaudeStreamMessage = z.infer<typeof ClaudeStreamMessageSchema>;
-
 // Devcontainer Config Schema
 export const DevcontainerConfigSchema = z.object({
   name: z.string().optional(),
@@ -148,16 +80,6 @@ export const TodoWriteInputSchema = z.object({
 export type TodoWriteInput = z.infer<typeof TodoWriteInputSchema>;
 
 // Validation helper functions
-export function validateClaudeStreamMessage(
-  data: unknown,
-): ClaudeStreamMessage | null {
-  const result = ClaudeStreamMessageSchema.safeParse(data);
-  if (result.success) {
-    return result.data;
-  }
-  return null;
-}
-
 export function validateGeminiResponse(data: unknown): GeminiResponse | null {
   const result = GeminiResponseSchema.safeParse(data);
   if (result.success) {

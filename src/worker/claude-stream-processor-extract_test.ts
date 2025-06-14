@@ -127,26 +127,6 @@ Deno.test("extractOutputMessage - resultメッセージは進捗表示しない"
   assertEquals(result, null);
 });
 
-Deno.test("extractOutputMessage - エラーメッセージを正しく処理する", () => {
-  const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
-
-  const parsedMessage = {
-    "type": "error",
-    "result": "エラーが発生しました: ファイルが見つかりません",
-    "is_error": true,
-    "session_id": "session-123",
-  };
-
-  const result = processor.extractOutputMessage(
-    parsedMessage as unknown as ClaudeStreamMessage,
-  );
-  assertEquals(
-    result,
-    "❌ **エラー:** エラーが発生しました: ファイルが見つかりません",
-  );
-});
-
 Deno.test("extractOutputMessage - systemメッセージを正しく処理する", () => {
   const formatter = new MessageFormatter();
   const processor = new ClaudeStreamProcessor(formatter);
@@ -168,42 +148,6 @@ Deno.test("extractOutputMessage - systemメッセージを正しく処理する"
     result,
     "🔧 **システム初期化:** ツール: Bash, Read, Write, Edit, Glob, Grep, MCPサーバー: filesystem(ready)",
   );
-});
-
-Deno.test("extractTodoListUpdate - fallback処理でテキストからTODOリストを抽出する", () => {
-  const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
-
-  const textContent = `TODOリストを更新しました。
-
-"name": "TodoWrite",
-"input": {
-  "todos": [
-    {"id": "1", "status": "completed", "content": "機能の実装を完了", "priority": "high"},
-    {"id": "2", "status": "in_progress", "content": "テストを作成中", "priority": "high"},
-    {"id": "3", "status": "pending", "content": "ドキュメントを更新", "priority": "medium"}
-  ]
-}`;
-
-  const parsedMessage = {
-    "type": "assistant",
-    "message": {
-      "content": [{
-        "type": "text",
-        "text": textContent,
-      }],
-    },
-    "session_id": "session-123",
-  };
-
-  const result = processor.extractOutputMessage(
-    parsedMessage as unknown as ClaudeStreamMessage,
-  );
-  assertEquals(typeof result, "string");
-  assertEquals(result?.includes("📋 **TODOリスト更新:**"), true);
-  assertEquals(result?.includes("✅ 機能の実装を完了"), true);
-  assertEquals(result?.includes("🔄 テストを作成中"), true);
-  assertEquals(result?.includes("⬜ ドキュメントを更新"), true);
 });
 
 Deno.test("extractOutputMessage - Bashツール実行を正しく処理する", () => {

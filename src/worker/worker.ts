@@ -383,13 +383,10 @@ export class Worker implements IWorker {
       return;
     }
 
+    this.logVerbose(`ストリーミング行処理: ${line}`);
     try {
       // 安全なJSON解析と型検証を使用
       const parsed = streamProcessor.parseJsonLine(line);
-      this.logVerbose(`ストリーミング行処理: ${parsed.type}`, {
-        lineNumber: undefined,
-        hasSessionId: !!parsed.session_id,
-      });
 
       // メッセージタイプごとの処理
       switch (parsed.type) {
@@ -865,6 +862,9 @@ export class Worker implements IWorker {
     // ツール結果の場合
     if (parsed.type === "user" && parsed.message?.content) {
       for (const item of parsed.message.content) {
+        if (typeof item === "string") {
+          return item;
+        }
         if (item.type === "tool_result") {
           return "ツール実行結果を処理";
         }

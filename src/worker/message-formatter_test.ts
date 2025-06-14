@@ -1,5 +1,6 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import { MessageFormatter } from "./message-formatter.ts";
+import Anthropic from "npm:@anthropic-ai/sdk";
 
 Deno.test("MessageFormatter - formatResponse - 短いメッセージはそのまま返す", () => {
   const formatter = new MessageFormatter();
@@ -31,13 +32,14 @@ Deno.test("MessageFormatter - formatResponse - ANSIコードを除去", () => {
 Deno.test("MessageFormatter - formatToolUse - Bashツール", () => {
   const formatter = new MessageFormatter();
   const item = {
+    id: "",
     type: "tool_use",
     name: "Bash",
     input: {
       command: "ls -la",
       description: "ファイル一覧表示",
     },
-  };
+  } satisfies Anthropic.ToolUseBlock;
   const result = formatter.formatToolUse(item);
   assertEquals(result, "⚡ **Bash**: ファイル一覧表示");
 });
@@ -45,6 +47,7 @@ Deno.test("MessageFormatter - formatToolUse - Bashツール", () => {
 Deno.test("MessageFormatter - formatToolUse - TodoWriteツール", () => {
   const formatter = new MessageFormatter();
   const item = {
+    id: "",
     type: "tool_use",
     name: "TodoWrite",
     input: {
@@ -54,7 +57,7 @@ Deno.test("MessageFormatter - formatToolUse - TodoWriteツール", () => {
         { status: "pending", content: "タスク3" },
       ],
     },
-  };
+  } satisfies Anthropic.ToolUseBlock;
   const result = formatter.formatToolUse(item);
   assertEquals(
     result,
@@ -65,6 +68,7 @@ Deno.test("MessageFormatter - formatToolUse - TodoWriteツール", () => {
 Deno.test("MessageFormatter - formatToolUse - MultiEdit", () => {
   const formatter = new MessageFormatter();
   const item = {
+    id: "",
     type: "tool_use",
     name: "MultiEdit",
     input: {
@@ -74,7 +78,7 @@ Deno.test("MessageFormatter - formatToolUse - MultiEdit", () => {
         { old_string: "old2", new_string: "new2" },
       ],
     },
-  };
+  } satisfies Anthropic.ToolUseBlock;
   const result = formatter.formatToolUse(item);
   assertEquals(result, "🔧 **MultiEdit**: ファイル一括編集: file.ts");
 });
@@ -82,6 +86,7 @@ Deno.test("MessageFormatter - formatToolUse - MultiEdit", () => {
 Deno.test("MessageFormatter - formatToolUse - MultiEdit with repository path", () => {
   const formatter = new MessageFormatter();
   const item = {
+    id: "",
     type: "tool_use",
     name: "MultiEdit",
     input: {
@@ -90,7 +95,7 @@ Deno.test("MessageFormatter - formatToolUse - MultiEdit with repository path", (
         { old_string: "old1", new_string: "new1" },
       ],
     },
-  };
+  } satisfies Anthropic.ToolUseBlock;
   const result = formatter.formatToolUse(item);
   assertEquals(result, "🔧 **MultiEdit**: ファイル一括編集: src/file.ts");
 });

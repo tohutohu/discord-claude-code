@@ -1,5 +1,6 @@
 import { DISCORD, FORMATTING } from "../constants.ts";
 import { validateTodoWriteInput } from "../schemas/external-api-schema.ts";
+import Anthropic from "npm:@anthropic-ai/sdk";
 
 /**
  * メッセージフォーマット関連の責務を担当するクラス
@@ -50,12 +51,7 @@ export class MessageFormatter {
   /**
    * ツール使用を進捗メッセージとしてフォーマット
    */
-  formatToolUse(item: {
-    type: string;
-    id?: string;
-    name?: string;
-    input?: Record<string, unknown>;
-  }): string | null {
+  formatToolUse(item: Anthropic.Messages.ToolUseBlock): string | null {
     if (!item.name) return null;
 
     // TodoWriteツールの場合は特別処理
@@ -74,7 +70,10 @@ export class MessageFormatter {
 
     // その他のツール（Bash、Read、Write等）の場合
     const toolIcon = this.getToolIcon(item.name);
-    const description = this.getToolDescription(item.name, item.input);
+    const description = this.getToolDescription(
+      item.name,
+      item.input as Record<string, unknown>,
+    );
 
     return `${toolIcon} **${item.name}**: ${description}`;
   }
