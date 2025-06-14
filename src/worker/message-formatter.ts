@@ -1,6 +1,6 @@
 import { DISCORD, FORMATTING } from "../constants.ts";
 import { validateTodoWriteInput } from "../schemas/external-api-schema.ts";
-import Anthropic from "npm:@anthropic-ai/sdk";
+import type { Anthropic } from "npm:@anthropic-ai/sdk";
 
 /**
  * メッセージフォーマット関連の責務を担当するクラス
