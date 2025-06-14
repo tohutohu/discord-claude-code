@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 
 # pre-push hook to ensure no bypassed commits are pushed
 # Uses common quality check script to run the same checks as pre-commit

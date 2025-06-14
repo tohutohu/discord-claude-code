@@ -38,23 +38,23 @@ run_all_checks() {
         fi
     else
         # Check mode - don't modify files
-        if ! run_check "📝 Checking format..." "deno task fmt:quiet --check" "❌ Format check failed! Run 'deno fmt' to fix formatting issues."; then
+        if ! run_check "📝 Checking format..." "deno task fmt:quiet --check" "❌ Format check failed! Run 'deno fmt' で詳細を確認してください。"; then
             return 1
         fi
     fi
     
     # Run linter
-    if ! run_check "🧹 Running linter..." "deno task lint:quiet" "❌ Lint check failed! Fix the linting errors before continuing."; then
+    if ! run_check "🧹 Running linter..." "deno task lint:quiet" "❌ Lint check failed! Run 'deno lint' で詳細を確認してください。"; then
         return 1
     fi
     
     # Run type check
-    if ! run_check "🔎 Running type check..." "deno task check:quiet" "❌ Type check failed! Fix the type errors before continuing."; then
+    if ! run_check "🔎 Running type check..." "deno task check:quiet" "❌ Type check failed! Run 'deno check' で詳細を確認してください。"; then
         return 1
     fi
     
     # Run tests
-    if ! run_check "🧪 Running tests..." "deno task test:quiet" "❌ Tests failed! Fix the failing tests before continuing."; then
+    if ! run_check "🧪 Running tests..." "deno task test:quiet" "❌ Tests failed! Run 'deno test --allow-read --allow-write --allow-env --allow-run' で詳細を確認してください。"; then
         return 1
     fi
     

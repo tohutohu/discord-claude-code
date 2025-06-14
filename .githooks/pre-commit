@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 
 # pre-commit hook for Deno project
 # Uses common quality check script to run format, lint, type check, and tests
