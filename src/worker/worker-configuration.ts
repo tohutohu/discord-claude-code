@@ -62,8 +62,10 @@ export class WorkerConfiguration {
 
     // セッション継続の場合
     if (sessionId) {
-      // args.push("--resume", sessionId);
-      args.push("--continue");
+      // --resume を使用して特定のセッションIDを指定
+      // --continue は最新のセッションを再開するため、
+      // 複数セッションがある場合に意図しないセッションを再開する可能性がある
+      args.push("--resume", sessionId);
     }
 
     // 常に権限チェックをスキップ
