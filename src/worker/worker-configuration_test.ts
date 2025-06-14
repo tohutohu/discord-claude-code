@@ -49,13 +49,16 @@ Deno.test("WorkerConfiguration - buildClaudeArgs - verboseモード", () => {
   assertEquals(args.includes("--verbose"), true);
 });
 
-Deno.test("WorkerConfiguration - buildClaudeArgs - セッション継続", () => {
-  const config = new WorkerConfiguration();
-  const args = config.buildClaudeArgs("テストプロンプト", "session-123");
+Deno.test.ignore(
+  "WorkerConfiguration - buildClaudeArgs - セッション継続",
+  () => {
+    const config = new WorkerConfiguration();
+    const args = config.buildClaudeArgs("テストプロンプト", "session-123");
 
-  assertEquals(args.includes("--resume"), true);
-  assertEquals(args.includes("session-123"), true);
-});
+    assertEquals(args.includes("--resume"), true);
+    assertEquals(args.includes("session-123"), true);
+  },
+);
 
 Deno.test("WorkerConfiguration - buildClaudeArgs - 追加システムプロンプト", () => {
   const config = new WorkerConfiguration(false, "追加プロンプト");

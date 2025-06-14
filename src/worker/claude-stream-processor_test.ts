@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.211.0/assert/mod.ts";
 import {
   ClaudeCodeRateLimitError,
+  ClaudeStreamMessage,
   ClaudeStreamProcessor,
 } from "./claude-stream-processor.ts";
 import { MessageFormatter } from "./message-formatter.ts";
@@ -17,12 +18,21 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - assistantメッセー�
       role: "assistant",
       model: "claude",
       content: [
-        { type: "text", text: "これはテストです" },
+        { type: "text", text: "これはテストです", citations: null },
       ],
       stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        input_tokens: 0,
+        output_tokens: 0,
+        server_tool_use: null,
+        service_tier: null,
+      },
     },
     session_id: "session-123",
-  };
+  } satisfies ClaudeStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(result, "これはテストです");
@@ -48,9 +58,18 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - tool_useメッセー�
         },
       ],
       stop_reason: "tool_use",
+      stop_sequence: null,
+      usage: {
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        input_tokens: 0,
+        output_tokens: 0,
+        server_tool_use: null,
+        service_tier: null,
+      },
     },
     session_id: "session-123",
-  };
+  } satisfies ClaudeStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(result, "⚡ **Bash**: ファイル一覧");
@@ -66,25 +85,14 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - resultメッセージ�
     is_error: false,
     result: "最終結果",
     session_id: "session-123",
-  };
+    duration_ms: 0,
+    duration_api_ms: 0,
+    num_turns: 0,
+    total_cost_usd: 0,
+  } satisfies ClaudeStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(result, null);
-});
-
-Deno.test("ClaudeStreamProcessor - extractOutputMessage - errorメッセージ", () => {
-  const formatter = new MessageFormatter();
-  const processor = new ClaudeStreamProcessor(formatter);
-
-  const message = {
-    type: "error" as const,
-    result: "エラーが発生しました",
-    is_error: true,
-    session_id: "session-123",
-  };
-
-  const result = processor.extractOutputMessage(message);
-  assertEquals(result, "❌ **エラー:** エラーが発生しました");
 });
 
 Deno.test("ClaudeStreamProcessor - extractOutputMessage - systemメッセージ", () => {
@@ -94,12 +102,16 @@ Deno.test("ClaudeStreamProcessor - extractOutputMessage - systemメッセージ"
   const message = {
     type: "system" as const,
     subtype: "init" as const,
+    apiKeySource: "default" as const,
     session_id: "session-123",
+    cwd: "/workspace",
     tools: ["Bash", "Read", "Write"],
     mcp_servers: [
       { name: "server1", status: "active" },
     ],
-  };
+    model: "claude",
+    permissionMode: "default",
+  } satisfies ClaudeStreamMessage;
 
   const result = processor.extractOutputMessage(message);
   assertEquals(

@@ -62,7 +62,8 @@ export class WorkerConfiguration {
 
     // セッション継続の場合
     if (sessionId) {
-      args.push("--resume", sessionId);
+      // args.push("--resume", sessionId);
+      args.push("--continue");
     }
 
     // 常に権限チェックをスキップ

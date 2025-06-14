@@ -1,4 +1,5 @@
 import { MessageFormatter } from "./message-formatter.ts";
+import Anthropic from "npm:@anthropic-ai/sdk";
 
 /**
  * JSON解析エラー
@@ -27,76 +28,55 @@ export class SchemaValidationError extends Error {
 
 // Claude Code SDK message schema based on https://docs.anthropic.com/en/docs/claude-code/sdk#message-schema
 export type ClaudeStreamMessage =
+  // アシスタントメッセージ
   | {
     type: "assistant";
-    message: {
-      id: string;
-      type: string;
-      role: string;
-      model: string;
-      content: Array<{
-        type: string;
-        text?: string;
-        id?: string;
-        name?: string;
-        input?: Record<string, unknown>;
-      }>;
-      stop_reason: string;
-      usage?: {
-        input_tokens: number;
-        output_tokens: number;
-      };
-    };
+    message: Anthropic.Message; // Anthropic SDKから
     session_id: string;
   }
+  // ユーザーメッセージ
   | {
     type: "user";
-    message: {
-      id: string;
-      type: string;
-      role: string;
-      model: string;
-      content: Array<{
-        type: string;
-        text?: string;
-        tool_use_id?: string;
-        content?: string | Array<{ type: string; text?: string }>;
-        is_error?: boolean;
-      }>;
-      stop_reason: string;
-      usage?: {
-        input_tokens: number;
-        output_tokens: number;
-      };
-    };
+    message: Anthropic.MessageParam; // Anthropic SDKから
     session_id: string;
   }
+  // 最後のメッセージとして出力される
   | {
     type: "result";
-    subtype: "success" | "error_max_turns";
-    cost_usd?: number;
-    duration_ms?: number;
-    duration_api_ms?: number;
+    subtype: "success";
+    duration_ms: number;
+    duration_api_ms: number;
     is_error: boolean;
-    num_turns?: number;
-    result?: string;
+    num_turns: number;
+    result: string;
     session_id: string;
+    total_cost_usd: number;
   }
+  // 最大ターン数に達した場合、最後のメッセージとして出力される
+  | {
+    type: "result";
+    subtype: "error_max_turns" | "error_during_execution";
+    duration_ms: number;
+    duration_api_ms: number;
+    is_error: boolean;
+    num_turns: number;
+    session_id: string;
+    total_cost_usd: number;
+  }
+  // 会話の開始時に最初のメッセージとして出力される
   | {
     type: "system";
     subtype: "init";
+    apiKeySource: string;
+    cwd: string;
     session_id: string;
-    tools?: string[];
-    mcp_servers?: {
+    tools: string[];
+    mcp_servers: {
       name: string;
       status: string;
     }[];
-  }
-  | {
-    type: "error";
-    result?: string;
-    is_error: boolean;
-    session_id?: string;
+    model: string;
+    permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "plan";
   };
 
 export class ClaudeCodeRateLimitError extends Error {
@@ -130,147 +110,11 @@ export class ClaudeStreamProcessor {
    */
   parseJsonLine(line: string): ClaudeStreamMessage {
     // JSON解析
-    let parsed: unknown;
     try {
-      parsed = JSON.parse(line);
+      return JSON.parse(line) as ClaudeStreamMessage;
     } catch (error) {
       throw new JsonParseError(line, error);
     }
-
-    // 基本的な型チェック
-    if (typeof parsed !== "object" || parsed === null) {
-      throw new SchemaValidationError(parsed, "Parsed value is not an object");
-    }
-
-    // 型ガード付き検証
-    const validated = this.validateClaudeStreamMessage(parsed);
-    if (!validated) {
-      throw new SchemaValidationError(
-        parsed,
-        "Unknown message type or invalid structure",
-      );
-    }
-
-    return validated;
-  }
-
-  /**
-   * オブジェクトがClaudeStreamMessageの有効な型かを検証する
-   */
-  private validateClaudeStreamMessage(
-    data: unknown,
-  ): ClaudeStreamMessage | null {
-    if (!this.isObject(data) || !("type" in data)) {
-      return null;
-    }
-
-    switch (data.type) {
-      case "assistant":
-        return this.validateAssistantMessage(data)
-          ? data as ClaudeStreamMessage
-          : null;
-      case "user":
-        return this.validateUserMessage(data)
-          ? data as ClaudeStreamMessage
-          : null;
-      case "result":
-        return this.validateResultMessage(data)
-          ? data as ClaudeStreamMessage
-          : null;
-      case "system":
-        return this.validateSystemMessage(data)
-          ? data as ClaudeStreamMessage
-          : null;
-      case "error":
-        return this.validateErrorMessage(data)
-          ? data as ClaudeStreamMessage
-          : null;
-      default:
-        return null;
-    }
-  }
-
-  private isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
-  }
-
-  private validateAssistantMessage(data: unknown): boolean {
-    if (!this.isObject(data)) return false;
-    if (data.type !== "assistant") return false;
-    if (!this.isObject(data.message)) return false;
-
-    const message = data.message;
-    if (typeof message.id !== "string") return false;
-    if (typeof message.type !== "string") return false;
-    if (typeof message.role !== "string") return false;
-    if (typeof message.model !== "string") return false;
-    if (!Array.isArray(message.content)) return false;
-    if (typeof message.stop_reason !== "string") return false;
-    if (typeof data.session_id !== "string") return false;
-
-    return true;
-  }
-
-  private validateUserMessage(data: unknown): boolean {
-    if (!this.isObject(data)) return false;
-    if (data.type !== "user") return false;
-    if (!this.isObject(data.message)) return false;
-
-    const message = data.message;
-    if (typeof message.id !== "string") return false;
-    if (typeof message.type !== "string") return false;
-    if (typeof message.role !== "string") return false;
-    if (typeof message.model !== "string") return false;
-    if (!Array.isArray(message.content)) return false;
-    if (typeof message.stop_reason !== "string") return false;
-    if (typeof data.session_id !== "string") return false;
-
-    return true;
-  }
-
-  private validateResultMessage(data: unknown): boolean {
-    if (!this.isObject(data)) return false;
-    if (data.type !== "result") return false;
-    if (typeof data.subtype !== "string") return false;
-    if (typeof data.is_error !== "boolean") return false;
-    if (typeof data.session_id !== "string") return false;
-
-    // オプショナルフィールドの検証
-    if ("result" in data && typeof data.result !== "string") return false;
-    if ("cost_usd" in data && typeof data.cost_usd !== "number") return false;
-    if ("duration_ms" in data && typeof data.duration_ms !== "number") {
-      return false;
-    }
-    if ("num_turns" in data && typeof data.num_turns !== "number") return false;
-
-    return true;
-  }
-
-  private validateSystemMessage(data: unknown): boolean {
-    if (!this.isObject(data)) return false;
-    if (data.type !== "system") return false;
-    if (typeof data.subtype !== "string") return false;
-    if (typeof data.session_id !== "string") return false;
-
-    // オプショナルフィールドの検証
-    if ("tools" in data && !Array.isArray(data.tools)) return false;
-    if ("mcp_servers" in data && !Array.isArray(data.mcp_servers)) return false;
-
-    return true;
-  }
-
-  private validateErrorMessage(data: unknown): boolean {
-    if (!this.isObject(data)) return false;
-    if (data.type !== "error") return false;
-    if (typeof data.is_error !== "boolean") return false;
-
-    // オプショナルフィールドの検証
-    if ("result" in data && typeof data.result !== "string") return false;
-    if ("session_id" in data && typeof data.session_id !== "string") {
-      return false;
-    }
-
-    return true;
   }
 
   /**
@@ -343,75 +187,63 @@ export class ClaudeStreamProcessor {
    * JSONL行からClaude Codeの実際の出力メッセージを抽出する
    */
   extractOutputMessage(parsed: ClaudeStreamMessage): string | null {
-    // assistantメッセージの場合
-    if (
-      parsed.type === "assistant" && "message" in parsed &&
-      parsed.message?.content
-    ) {
-      return this.extractAssistantMessage(parsed.message.content);
-    }
+    switch (parsed.type) {
+      case "assistant":
+        // assistantメッセージの処理
+        return this.extractAssistantMessage(parsed.message.content);
+      case "user":
+        // userメッセージの処理（tool_result等）
+        return this.extractUserMessage(parsed.message.content);
+      case "system":
+        // systemメッセージの処理（初期化情報）
+        return this.extractSystemMessage(parsed);
 
-    // userメッセージの場合（tool_result等）
-    if (
-      parsed.type === "user" && "message" in parsed && parsed.message?.content
-    ) {
-      return this.extractUserMessage(parsed.message.content);
-    }
+      case "result":
+        // resultメッセージは最終結果として別途処理されるため、ここでは返さない
+        return null;
 
-    // systemメッセージの場合（初期化情報）
-    if (parsed.type === "system" && parsed.subtype === "init") {
-      const tools = parsed.tools?.join(", ") || "なし";
-      const mcpServers = parsed.mcp_servers?.map((s) =>
-        `${s.name}(${s.status})`
-      ).join(", ") || "なし";
-      return `🔧 **システム初期化:** ツール: ${tools}, MCPサーバー: ${mcpServers}`;
+      default:
+        throw new Error(parsed satisfies never);
     }
-
-    // resultメッセージは最終結果として別途処理されるため、ここでは返さない
-    if (parsed.type === "result") {
-      return null;
-    }
-
-    // エラーメッセージの場合
-    if (parsed.type === "error" && parsed.result) {
-      return `❌ **エラー:** ${parsed.result}`;
-    }
-
-    return null;
   }
 
   /**
    * assistantメッセージのcontentを処理する
    */
   private extractAssistantMessage(
-    content: Array<{
-      type: string;
-      text?: string;
-      id?: string;
-      name?: string;
-      input?: Record<string, unknown>;
-    }>,
+    content: Anthropic.Message["content"],
   ): string | null {
     let textContent = "";
 
     for (const item of content) {
-      if (item.type === "text" && item.text) {
-        textContent += item.text;
-      } else if (item.type === "tool_use") {
-        // ツール使用を進捗として投稿
-        const toolMessage = this.formatter.formatToolUse(item);
-        if (toolMessage) {
-          return toolMessage;
-        }
+      switch (item.type) {
+        case "text":
+          textContent += item.text || "";
+          break;
+        case "tool_use":
+          textContent += this.formatter.formatToolUse(item);
+          break;
+        case "web_search_tool_result":
+          if (Array.isArray(item.content)) {
+            textContent += `🔍 **検索結果:** ${item.content.length}件\n`;
+          } else {
+            textContent +=
+              `🔍 **Web検索に失敗しました:** ${item.content.error_code}\n`;
+          }
+          break;
+        case "thinking":
+          textContent += `🤔 **思考中...**: ${item.thinking}\n`;
+          break;
+        case "redacted_thinking":
+          textContent += `🤔 **思考中...**: ${item.data}\n`;
+          break;
+        case "server_tool_use":
+          textContent += `**server tool use**: ${JSON.stringify(item.input)}`;
+          break;
+        default:
+          throw new Error(item satisfies never);
       }
     }
-
-    // テキスト内容からTODOリスト更新の検出も試行（fallback）
-    const todoListUpdate = this.formatter.extractTodoListUpdate(textContent);
-    if (todoListUpdate) {
-      return todoListUpdate;
-    }
-
     return textContent || null;
   }
 
@@ -419,14 +251,13 @@ export class ClaudeStreamProcessor {
    * userメッセージのcontentを処理する（tool_result等）
    */
   private extractUserMessage(
-    content: Array<{
-      type: string;
-      text?: string;
-      tool_use_id?: string;
-      content?: string | Array<{ type: string; text?: string }>;
-      is_error?: boolean;
-    }>,
+    content: Anthropic.MessageParam["content"],
   ): string | null {
+    if (typeof content === "string") {
+      // contentが文字列の場合はそのまま返す
+      return content;
+    }
+
     for (const item of content) {
       if (item.type === "tool_result") {
         let resultContent = "";
@@ -469,6 +300,22 @@ export class ClaudeStreamProcessor {
   }
 
   /**
+   * systemメッセージの処理
+   */
+  private extractSystemMessage(
+    parsed: ClaudeStreamMessage,
+  ): string | null {
+    if (parsed.type === "system" && parsed.subtype === "init") {
+      const tools = parsed.tools?.join(", ") || "なし";
+      const mcpServers = parsed.mcp_servers?.map((s) =>
+        `${s.name}(${s.status})`
+      ).join(", ") || "なし";
+      return `🔧 **システム初期化:** ツール: ${tools}, MCPサーバー: ${mcpServers}`;
+    }
+    return null;
+  }
+
+  /**
    * Claude Codeのレートリミットメッセージかを判定する
    */
   isClaudeCodeRateLimit(result: string): boolean {
@@ -484,40 +331,5 @@ export class ClaudeStreamProcessor {
       return parseInt(match[1], 10);
     }
     return null;
-  }
-
-  /**
-   * 中断メッセージを作成する
-   */
-  createInterruptionMessage(
-    sessionId: string,
-    reason: "user_requested" | "timeout" | "system_error",
-    executionTime?: number,
-    lastActivity?: string,
-  ): ClaudeStreamMessage {
-    let content = "Claude Code実行が中断されました。";
-    if (reason === "user_requested") {
-      content = "ユーザーのリクエストによりClaude Code実行が中断されました。";
-    } else if (reason === "timeout") {
-      content = "タイムアウトによりClaude Code実行が中断されました。";
-    } else if (reason === "system_error") {
-      content = "システムエラーによりClaude Code実行が中断されました。";
-    }
-
-    if (executionTime !== undefined) {
-      const seconds = Math.round(executionTime / 1000);
-      content += ` (実行時間: ${seconds}秒)`;
-    }
-
-    if (lastActivity) {
-      content += ` 最後のアクティビティ: ${lastActivity}`;
-    }
-
-    return {
-      type: "error",
-      result: content,
-      is_error: true,
-      session_id: sessionId,
-    };
   }
 }

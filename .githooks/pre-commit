@@ -1,46 +1,19 @@
 #!/bin/sh
+set -eu
 
 # pre-commit hook for Deno project
-# Runs format, lint, type check, and tests before allowing commit
-# Uses quiet versions to minimize token usage
+# Uses common quality check script to run format, lint, type check, and tests
 
-echo "🔍 Running pre-commit checks..."
+# Source the common quality check script
+SCRIPT_DIR=$(dirname "$0")
+. "$SCRIPT_DIR/../scripts/run-quality-checks.sh"
 
-# Run format (auto-fix mode)
-echo "📝 Running formatter..."
-# Get list of changed files before formatting
-CHANGED_FILES=$(git diff --name-only)
-deno run --allow-run --allow-env scripts/deno-fmt-quiet.ts
-# Check if any files were modified by formatter
-if [ -n "$(git diff --name-only)" ]; then
-    echo "🔧 Files were auto-formatted. Adding formatted files to commit..."
-    # Only add files that were actually changed by the formatter
-    git diff --name-only | xargs -r git add
-fi
-
-# Run linter with quiet output
-echo "🧹 Running linter..."
-if ! deno run --allow-run --allow-env scripts/deno-lint-quiet.ts; then
-    echo "❌ Lint check failed! Fix the linting errors before committing."
+# Run all checks with auto-fix mode for formatting
+if run_all_checks "fix"; then
+    # Record successful check timestamp for commit-msg hook
+    mkdir -p .git
+    date +%s > .git/.last-precommit-check
+    exit 0
+else
     exit 1
 fi
-
-# Run type check with quiet output
-echo "🔎 Running type check..."
-if ! deno run --allow-run --allow-env scripts/deno-check-quiet.ts src/main.ts; then
-    echo "❌ Type check failed! Fix the type errors before committing."
-    exit 1
-fi
-
-# Run tests with quiet output
-echo "🧪 Running tests..."
-if ! deno run --allow-run --allow-env scripts/deno-test-quiet.ts --allow-read --allow-write --allow-env --allow-net --allow-run; then
-    echo "❌ Tests failed! Fix the failing tests before committing."
-    exit 1
-fi
-
-echo "✅ All pre-commit checks passed!"
-
-# Record successful check timestamp for commit-msg hook
-mkdir -p .git
-date +%s > .git/.last-precommit-check
