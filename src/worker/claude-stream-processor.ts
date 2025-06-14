@@ -83,8 +83,9 @@ export type ClaudeStreamMessage =
   }
   | {
     type: "result";
-    subtype: "success" | "error_max_turns";
+    subtype: "success" | "error_max_turns" | "error_during_execution";
     cost_usd?: number;
+    total_cost_usd?: number;
     duration_ms?: number;
     duration_api_ms?: number;
     is_error: boolean;
@@ -101,6 +102,10 @@ export type ClaudeStreamMessage =
       name: string;
       status: string;
     }[];
+    apiKeySource?: string;
+    cwd?: string;
+    model?: string;
+    permissionMode?: string;
   }
   | {
     type: "error";
