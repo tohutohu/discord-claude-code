@@ -61,6 +61,9 @@ export const DevcontainerLogSchema = z.object({
   description: z.string().optional(),
   timestamp: z.string().optional(),
   level: z.string().optional(),
+  containerId: z.string().optional(),
+  remoteUser: z.string().optional(),
+  remoteWorkspaceFolder: z.string().optional(),
 });
 
 export type DevcontainerLog = z.infer<typeof DevcontainerLogSchema>;

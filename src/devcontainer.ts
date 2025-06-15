@@ -367,7 +367,7 @@ async function processStdoutLine(
   maxLogLines: number,
   lastProgressUpdate: { time: number },
   onProgress?: (message: string) => Promise<void>,
-): Promise<Result<void, DevcontainerError>> {
+): Promise<Result<DevcontainerLog | undefined, DevcontainerError>> {
   const parseResult = parseJsonSafe(line, "stdout");
 
   if (parseResult.isOk()) {
@@ -405,6 +405,7 @@ async function processStdoutLine(
         }
       }
     }
+    return ok(validatedLog ?? undefined);
   } else {
     // JSON以外の行はそのまま追加
     logBuffer.push(line);
@@ -444,8 +445,14 @@ async function processStreamOutput(
   maxLogLines: number,
   lastProgressUpdate: { time: number },
   onProgress?: (message: string) => Promise<void>,
-): Promise<Result<string, DevcontainerError>> {
+): Promise<
+  Result<
+    DevcontainerLog | undefined,
+    DevcontainerError
+  >
+> {
   let output = "";
+  let lastValidatedLog: DevcontainerLog | undefined;
 
   const readResult = await readStreamSafe(
     reader,
@@ -456,13 +463,16 @@ async function processStreamOutput(
       // JSON形式のログをパースして処理
       const lines = chunk.split("\n").filter((line) => line.trim());
       for (const line of lines) {
-        await processStdoutLine(
+        const result = await processStdoutLine(
           line,
           logBuffer,
           maxLogLines,
           lastProgressUpdate,
           onProgress,
         );
+        if (!result.isErr() && result.value) {
+          lastValidatedLog = result.value;
+        }
       }
     },
     "stdout",
@@ -472,7 +482,7 @@ async function processStreamOutput(
     return err(readResult.error);
   }
 
-  return ok(output);
+  return ok(lastValidatedLog);
 }
 
 /**
@@ -531,14 +541,6 @@ async function readStderrStream(
   }
 
   return ok(errorOutput);
-}
-
-/**
- * コンテナIDを抽出する
- */
-function extractContainerId(output: string): string | undefined {
-  const containerIdMatch = output.match(/container\s+id:\s*([a-f0-9]+)/i);
-  return containerIdMatch?.[1];
 }
 
 /**
@@ -642,7 +644,7 @@ export async function startDevcontainer(
     return err(errorOutputResult.error);
   }
 
-  const output = outputResult.value;
+  const lastValidatedLog = outputResult.value;
   const errorOutput = errorOutputResult.value;
 
   if (code !== 0) {
@@ -662,7 +664,7 @@ export async function startDevcontainer(
   }
 
   // コンテナIDを取得
-  const containerId = extractContainerId(output);
+  const containerId = lastValidatedLog?.containerId;
 
   // 最終的なログサマリーを送信
   if (onProgress) {
